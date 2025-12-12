@@ -1,0 +1,96 @@
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: agent-backend
+    expose:
+      - "8000"
+    volumes:
+      # Bind mount for development - enables hot reload
+      - ./backend:/app
+      # Mount logs directory to local filesystem
+      - ./backend/logs:/app/logs
+    env_file:
+      - .env
+    environment:
+      - PYTHONPATH=/app
+      - PYTHONUNBUFFERED=1
+    restart: unless-stopped
+    networks:
+      - agent-network
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: agent-frontend
+    expose:
+      - "3000"
+    volumes:
+      # Bind mount for development - enables hot reload
+      - ./frontend:/app
+      # Anonymous volume for node_modules to avoid conflicts with host
+      - /app/node_modules
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=development
+      # Enable hot reload and file watching
+      - CHOKIDAR_USEPOLLING=true
+      - WATCHPACK_POLLING=true
+    depends_on:
+      - backend
+    restart: unless-stopped
+    networks:
+      - agent-network
+
+  nginx:
+    image: nginx:alpine
+    container_name: agent-nginx
+    ports:
+      - "8080:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - backend
+      - frontend
+    restart: unless-stopped
+    networks:
+      - agent-network
+
+  postgres:
+    image: postgres:15-alpine
+    container_name: agent-postgres
+    environment:
+      POSTGRES_DB: agent_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - agent-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: agent-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    networks:
+      - agent-network
+
+
+volumes:
+  postgres_data:
+  redis_data:
+
+
+networks:
+  agent-network:
+    driver: bridge

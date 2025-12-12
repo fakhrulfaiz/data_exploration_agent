@@ -1,0 +1,1351 @@
+2025-12-08 16:40:44,127 - uvicorn.error - INFO - Started server process [1]
+2025-12-08 16:40:44,129 - uvicorn.error - INFO - Waiting for application startup.
+2025-12-08 16:40:44,130 - server - INFO - Logging configuration complete
+2025-12-08 16:40:44,130 - server - INFO - Starting up Agent Backend API...
+2025-12-08 16:40:44,190 - app.core.database - INFO - ✅ Connected to PostgreSQL (psycopg): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 16:40:44,217 - app.core.database - INFO - ✅ Connected to PostgreSQL (SQLAlchemy async): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 16:40:44,230 - app.core.checkpointer - INFO - ✅ LangGraph checkpointer tables created/verified
+2025-12-08 16:40:44,641 - server - INFO - ✅ Agent initialized with DB: app/resource/chinook.db
+2025-12-08 16:40:44,641 - server - INFO - ✅ Using LLM provider: openai
+2025-12-08 16:40:44,642 - uvicorn.error - INFO - Application startup complete.
+2025-12-08 16:40:44,642 - uvicorn.error - INFO - Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+2025-12-08 16:40:54,170 - app.services.agent_service - ERROR - Failed to list threads: '_AsyncGeneratorContextManager' object has no attribute 'list'
+2025-12-08 16:41:41,153 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-12-08 16:41:41,173 - app.agents.simple_agent - INFO - Tool node executed, returned 1 messages
+2025-12-08 16:41:42,343 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-12-08 16:41:42,362 - app.services.agent_service - INFO - Agent executed successfully for thread test-thread-123
+2025-12-08 16:41:54,085 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-12-08 16:41:54,096 - app.services.agent_service - INFO - Agent executed successfully for thread test-thread-123
+2025-12-08 16:42:03,563 - app.services.agent_service - ERROR - Failed to list threads: '_AsyncGeneratorContextManager' object has no attribute 'list'
+2025-12-08 16:42:13,154 - app.services.agent_service - ERROR - Failed to get current state for test-thread-123: '_AsyncGeneratorContextManager' object has no attribute 'aget_state'
+2025-12-08 16:42:46,410 - uvicorn.error - INFO - Shutting down
+2025-12-08 16:42:46,513 - uvicorn.error - INFO - Waiting for application shutdown.
+2025-12-08 16:42:46,514 - server - INFO - Shutting down Agent Backend API...
+2025-12-08 16:42:46,515 - app.core.database - INFO - psycopg connection pool closed
+2025-12-08 16:42:46,523 - app.core.database - INFO - SQLAlchemy async engine disposed
+2025-12-08 16:42:46,523 - app.core.database - INFO - SQLAlchemy sync engine disposed
+2025-12-08 16:42:46,524 - uvicorn.error - INFO - Application shutdown complete.
+2025-12-08 16:42:46,525 - uvicorn.error - INFO - Finished server process [1]
+2025-12-08 16:44:54,769 - uvicorn.error - INFO - Started server process [1]
+2025-12-08 16:44:54,771 - uvicorn.error - INFO - Waiting for application startup.
+2025-12-08 16:44:54,771 - server - INFO - Logging configuration complete
+2025-12-08 16:44:54,771 - server - INFO - Starting up Agent Backend API...
+2025-12-08 16:44:54,811 - app.core.database - INFO - ✅ Connected to PostgreSQL (psycopg): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 16:44:54,834 - app.core.database - INFO - ✅ Connected to PostgreSQL (SQLAlchemy async): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 16:44:54,843 - app.core.checkpointer - INFO - ✅ LangGraph checkpointer tables created/verified
+2025-12-08 16:44:55,139 - server - INFO - ✅ Agent initialized with DB: app/resource/chinook.db
+2025-12-08 16:44:55,139 - server - INFO - ✅ Using LLM provider: openai
+2025-12-08 16:44:55,140 - uvicorn.error - INFO - Application startup complete.
+2025-12-08 16:44:55,141 - uvicorn.error - INFO - Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+2025-12-08 16:46:36,960 - app.services.agent_service - ERROR - Failed to list threads: '_AsyncGeneratorContextManager' object has no attribute 'list'
+2025-12-08 16:46:46,076 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-12-08 16:46:46,090 - app.services.agent_service - INFO - Agent executed successfully for thread None
+2025-12-08 16:46:57,386 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-12-08 16:46:57,399 - app.services.agent_service - INFO - Agent executed successfully for thread None
+2025-12-08 16:47:00,119 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-12-08 16:47:00,133 - app.services.agent_service - INFO - Agent executed successfully for thread None
+2025-12-08 16:47:13,828 - app.services.agent_service - ERROR - Failed to list threads: '_AsyncGeneratorContextManager' object has no attribute 'list'
+2025-12-08 16:47:28,201 - app.services.agent_service - ERROR - Failed to get current state for test-thread-001: '_AsyncGeneratorContextManager' object has no attribute 'aget_state'
+2025-12-08 16:50:11,063 - uvicorn.error - INFO - Shutting down
+2025-12-08 16:50:11,164 - uvicorn.error - INFO - Waiting for application shutdown.
+2025-12-08 16:50:11,165 - server - INFO - Shutting down Agent Backend API...
+2025-12-08 16:50:11,166 - app.core.database - INFO - psycopg connection pool closed
+2025-12-08 16:50:11,169 - app.core.database - INFO - SQLAlchemy async engine disposed
+2025-12-08 16:50:11,169 - app.core.database - INFO - SQLAlchemy sync engine disposed
+2025-12-08 16:50:11,169 - uvicorn.error - INFO - Application shutdown complete.
+2025-12-08 16:50:11,170 - uvicorn.error - INFO - Finished server process [1]
+2025-12-08 16:50:13,989 - uvicorn.error - INFO - Started server process [1]
+2025-12-08 16:50:13,991 - uvicorn.error - INFO - Waiting for application startup.
+2025-12-08 16:50:13,993 - server - INFO - Logging configuration complete
+2025-12-08 16:50:13,993 - server - INFO - Starting up Agent Backend API...
+2025-12-08 16:50:14,039 - app.core.database - INFO - ✅ Connected to PostgreSQL (psycopg): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 16:50:14,067 - app.core.database - INFO - ✅ Connected to PostgreSQL (SQLAlchemy async): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 16:50:14,081 - app.core.checkpointer - INFO - ✅ LangGraph checkpointer tables created/verified
+2025-12-08 16:50:14,440 - server - INFO - ✅ Agent initialized with DB: app/resource/chinook.db
+2025-12-08 16:50:14,441 - server - INFO - ✅ Using LLM provider: openai
+2025-12-08 16:50:14,441 - uvicorn.error - INFO - Application startup complete.
+2025-12-08 16:50:14,442 - uvicorn.error - INFO - Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+2025-12-08 16:50:30,670 - app.services.agent_service - ERROR - Failed to list threads: 'async for' requires an object with __aiter__ method, got generator
+2025-12-08 17:10:46,359 - app.services.agent_service - ERROR - Failed to get current state for test-thread-123: 'AsyncPostgresSaver' object has no attribute 'aget_state'
+2025-12-08 17:21:01,771 - app.services.agent_service - ERROR - Failed to get current state for test-thread-123: 'AsyncPostgresSaver' object has no attribute 'aget_state'
+2025-12-08 17:23:47,166 - app.services.agent_service - ERROR - Failed to get current state for test-thread-123: 'AsyncPostgresSaver' object has no attribute 'aget_state'
+2025-12-08 17:24:31,799 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-12-08 17:24:31,823 - app.services.agent_service - INFO - Agent executed successfully for thread test-thread-123
+2025-12-08 17:24:43,760 - app.services.agent_service - ERROR - Failed to get current state for test-thread-123: 'AsyncPostgresSaver' object has no attribute 'aget_state'
+2025-12-08 17:27:10,958 - app.services.agent_service - ERROR - Failed to get current state for test-thread-123: 'AsyncPostgresSaver' object has no attribute 'aget_state'
+2025-12-08 17:27:17,458 - app.services.agent_service - ERROR - Failed to list threads: 'async for' requires an object with __aiter__ method, got generator
+2025-12-08 17:27:39,898 - app.services.agent_service - ERROR - Failed to get current state for default: 'AsyncPostgresSaver' object has no attribute 'aget_state'
+2025-12-08 17:28:14,537 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-12-08 17:28:14,548 - app.services.agent_service - INFO - Agent executed successfully for thread test-thread-456
+2025-12-08 17:28:21,614 - app.services.agent_service - ERROR - Failed to get current state for test-thread-456: 'AsyncPostgresSaver' object has no attribute 'aget_state'
+2025-12-08 17:30:09,610 - uvicorn.error - INFO - Shutting down
+2025-12-08 17:30:09,711 - uvicorn.error - INFO - Waiting for application shutdown.
+2025-12-08 17:30:09,712 - server - INFO - Shutting down Agent Backend API...
+2025-12-08 17:30:09,713 - app.core.database - INFO - psycopg connection pool closed
+2025-12-08 17:30:09,721 - app.core.database - INFO - SQLAlchemy async engine disposed
+2025-12-08 17:30:09,721 - app.core.database - INFO - SQLAlchemy sync engine disposed
+2025-12-08 17:30:09,721 - uvicorn.error - INFO - Application shutdown complete.
+2025-12-08 17:30:09,722 - uvicorn.error - INFO - Finished server process [1]
+2025-12-08 17:30:13,363 - uvicorn.error - INFO - Started server process [1]
+2025-12-08 17:30:13,366 - uvicorn.error - INFO - Waiting for application startup.
+2025-12-08 17:30:13,367 - server - INFO - Logging configuration complete
+2025-12-08 17:30:13,368 - server - INFO - Starting up Agent Backend API...
+2025-12-08 17:30:13,421 - app.core.database - INFO - ✅ Connected to PostgreSQL (psycopg): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 17:30:13,449 - app.core.database - INFO - ✅ Connected to PostgreSQL (SQLAlchemy async): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 17:30:13,461 - app.core.checkpointer - INFO - ✅ LangGraph checkpointer tables created/verified
+2025-12-08 17:30:13,888 - server - INFO - ✅ Agent initialized with DB: app/resource/chinook.db
+2025-12-08 17:30:13,888 - server - INFO - ✅ Using LLM provider: openai
+2025-12-08 17:30:13,888 - uvicorn.error - INFO - Application startup complete.
+2025-12-08 17:30:13,890 - uvicorn.error - INFO - Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+2025-12-08 17:32:15,344 - app.services.agent_service - ERROR - Failed to list threads: 
+2025-12-08 17:33:00,297 - app.services.agent_service - ERROR - Failed to delete thread test-thread-123: 
+2025-12-08 17:33:00,305 - app.services.agent_service - ERROR - Failed to delete thread test-thread-456: 
+2025-12-08 17:33:55,404 - app.services.agent_service - ERROR - Failed to list threads: 
+2025-12-08 17:34:07,358 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-12-08 17:34:07,374 - app.services.agent_service - INFO - Agent executed successfully for thread test-delete-123
+2025-12-08 17:34:15,136 - app.services.agent_service - ERROR - Failed to list threads: 
+2025-12-08 17:34:21,595 - app.services.agent_service - ERROR - Failed to delete thread test-delete-123: 
+2025-12-08 17:34:51,687 - app.services.agent_service - ERROR - Failed to delete thread test-delete-123: 
+2025-12-08 17:35:25,454 - app.services.agent_service - ERROR - Failed to delete thread test-delete-123: 
+2025-12-08 17:57:21,287 - uvicorn.error - INFO - Shutting down
+2025-12-08 17:57:21,389 - uvicorn.error - INFO - Waiting for application shutdown.
+2025-12-08 17:57:21,391 - server - INFO - Shutting down Agent Backend API...
+2025-12-08 17:57:21,392 - app.core.database - INFO - psycopg connection pool closed
+2025-12-08 17:57:21,393 - app.core.database - INFO - SQLAlchemy async engine disposed
+2025-12-08 17:57:21,393 - app.core.database - INFO - SQLAlchemy sync engine disposed
+2025-12-08 17:57:21,394 - uvicorn.error - INFO - Application shutdown complete.
+2025-12-08 17:57:21,394 - uvicorn.error - INFO - Finished server process [1]
+2025-12-08 18:00:40,194 - server - INFO - Logging configuration complete
+2025-12-08 18:00:40,195 - server - INFO - Starting up Agent Backend API...
+2025-12-08 18:00:40,247 - app.core.database - INFO - ✅ Connected to PostgreSQL (psycopg): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:00:40,280 - app.core.database - INFO - ✅ Connected to PostgreSQL (SQLAlchemy async): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:00:40,295 - app.core.checkpointer - INFO - ✅ LangGraph checkpointer tables created/verified
+2025-12-08 18:00:40,636 - app.services.agent_service - INFO - Agent service initialized successfully
+2025-12-08 18:00:40,636 - server - INFO - ✅ Agent service initialized with DB: app/resource/chinook.db
+2025-12-08 18:00:40,636 - server - INFO - ✅ Using LLM provider: openai
+2025-12-08 18:00:50,559 - server - INFO - Shutting down Agent Backend API...
+2025-12-08 18:00:50,559 - app.services.agent_service - INFO - Agent service shutdown completed
+2025-12-08 18:00:50,560 - app.core.database - INFO - psycopg connection pool closed
+2025-12-08 18:00:50,563 - app.core.database - INFO - SQLAlchemy async engine disposed
+2025-12-08 18:00:50,563 - app.core.database - INFO - SQLAlchemy sync engine disposed
+2025-12-08 18:00:52,130 - server - INFO - Logging configuration complete
+2025-12-08 18:00:52,131 - server - INFO - Starting up Agent Backend API...
+2025-12-08 18:00:52,166 - app.core.database - INFO - ✅ Connected to PostgreSQL (psycopg): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:00:52,188 - app.core.database - INFO - ✅ Connected to PostgreSQL (SQLAlchemy async): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:00:52,198 - app.core.checkpointer - INFO - ✅ LangGraph checkpointer tables created/verified
+2025-12-08 18:00:52,501 - app.services.agent_service - INFO - Agent service initialized successfully
+2025-12-08 18:00:52,501 - server - INFO - ✅ Agent service initialized with DB: app/resource/chinook.db
+2025-12-08 18:00:52,501 - server - INFO - ✅ Using LLM provider: openai
+2025-12-08 18:02:25,505 - server - INFO - Shutting down Agent Backend API...
+2025-12-08 18:02:25,505 - app.services.agent_service - INFO - Agent service shutdown completed
+2025-12-08 18:02:25,506 - app.core.database - INFO - psycopg connection pool closed
+2025-12-08 18:02:25,510 - app.core.database - INFO - SQLAlchemy async engine disposed
+2025-12-08 18:02:25,510 - app.core.database - INFO - SQLAlchemy sync engine disposed
+2025-12-08 18:02:27,258 - server - INFO - Logging configuration complete
+2025-12-08 18:02:27,258 - server - INFO - Starting up Agent Backend API...
+2025-12-08 18:02:27,299 - app.core.database - INFO - ✅ Connected to PostgreSQL (psycopg): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:02:27,328 - app.core.database - INFO - ✅ Connected to PostgreSQL (SQLAlchemy async): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:02:27,339 - app.core.checkpointer - INFO - ✅ LangGraph checkpointer tables created/verified
+2025-12-08 18:02:27,684 - app.services.agent_service - INFO - Agent service initialized successfully
+2025-12-08 18:02:27,684 - server - INFO - ✅ Agent service initialized with DB: app/resource/chinook.db
+2025-12-08 18:02:27,684 - server - INFO - ✅ Using LLM provider: openai
+2025-12-08 18:02:34,701 - server - INFO - Shutting down Agent Backend API...
+2025-12-08 18:02:34,701 - app.services.agent_service - INFO - Agent service shutdown completed
+2025-12-08 18:02:34,702 - app.core.database - INFO - psycopg connection pool closed
+2025-12-08 18:02:34,705 - app.core.database - INFO - SQLAlchemy async engine disposed
+2025-12-08 18:02:34,706 - app.core.database - INFO - SQLAlchemy sync engine disposed
+2025-12-08 18:02:36,355 - server - INFO - Logging configuration complete
+2025-12-08 18:02:36,356 - server - INFO - Starting up Agent Backend API...
+2025-12-08 18:02:36,396 - app.core.database - INFO - ✅ Connected to PostgreSQL (psycopg): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:02:36,421 - app.core.database - INFO - ✅ Connected to PostgreSQL (SQLAlchemy async): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:02:36,431 - app.core.checkpointer - INFO - ✅ LangGraph checkpointer tables created/verified
+2025-12-08 18:02:36,892 - app.services.agent_service - INFO - Agent service initialized successfully
+2025-12-08 18:02:36,892 - server - INFO - ✅ Agent service initialized with DB: app/resource/chinook.db
+2025-12-08 18:02:36,893 - server - INFO - ✅ Using LLM provider: openai
+2025-12-08 18:02:38,636 - server - INFO - Logging configuration complete
+2025-12-08 18:02:38,637 - server - INFO - Starting up Agent Backend API...
+2025-12-08 18:02:38,678 - app.core.database - INFO - ✅ Connected to PostgreSQL (psycopg): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:02:38,704 - app.core.database - INFO - ✅ Connected to PostgreSQL (SQLAlchemy async): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:02:38,716 - app.core.checkpointer - INFO - ✅ LangGraph checkpointer tables created/verified
+2025-12-08 18:02:39,062 - app.services.agent_service - INFO - Agent service initialized successfully
+2025-12-08 18:02:39,063 - server - INFO - ✅ Agent service initialized with DB: app/resource/chinook.db
+2025-12-08 18:02:39,063 - server - INFO - ✅ Using LLM provider: openai
+2025-12-08 18:02:47,885 - server - INFO - Shutting down Agent Backend API...
+2025-12-08 18:02:47,885 - app.services.agent_service - INFO - Agent service shutdown completed
+2025-12-08 18:02:47,887 - app.core.database - INFO - psycopg connection pool closed
+2025-12-08 18:02:47,890 - app.core.database - INFO - SQLAlchemy async engine disposed
+2025-12-08 18:02:47,891 - app.core.database - INFO - SQLAlchemy sync engine disposed
+2025-12-08 18:02:49,610 - server - INFO - Logging configuration complete
+2025-12-08 18:02:49,611 - server - INFO - Starting up Agent Backend API...
+2025-12-08 18:02:49,648 - app.core.database - INFO - ✅ Connected to PostgreSQL (psycopg): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:02:49,674 - app.core.database - INFO - ✅ Connected to PostgreSQL (SQLAlchemy async): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:02:49,684 - app.core.checkpointer - INFO - ✅ LangGraph checkpointer tables created/verified
+2025-12-08 18:02:50,039 - app.services.agent_service - INFO - Agent service initialized successfully
+2025-12-08 18:02:50,039 - server - INFO - ✅ Agent service initialized with DB: app/resource/chinook.db
+2025-12-08 18:02:50,040 - server - INFO - ✅ Using LLM provider: openai
+2025-12-08 18:03:21,006 - server - INFO - Shutting down Agent Backend API...
+2025-12-08 18:03:21,006 - app.services.agent_service - INFO - Agent service shutdown completed
+2025-12-08 18:03:21,007 - app.core.database - INFO - psycopg connection pool closed
+2025-12-08 18:03:21,011 - app.core.database - INFO - SQLAlchemy async engine disposed
+2025-12-08 18:03:21,011 - app.core.database - INFO - SQLAlchemy sync engine disposed
+2025-12-08 18:03:22,869 - server - INFO - Logging configuration complete
+2025-12-08 18:03:22,869 - server - INFO - Starting up Agent Backend API...
+2025-12-08 18:03:22,908 - app.core.database - INFO - ✅ Connected to PostgreSQL (psycopg): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:03:22,940 - app.core.database - INFO - ✅ Connected to PostgreSQL (SQLAlchemy async): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:03:22,957 - app.core.checkpointer - INFO - ✅ LangGraph checkpointer tables created/verified
+2025-12-08 18:03:23,322 - app.services.agent_service - INFO - Agent service initialized successfully
+2025-12-08 18:03:23,323 - server - INFO - ✅ Agent service initialized with DB: app/resource/chinook.db
+2025-12-08 18:03:23,323 - server - INFO - ✅ Using LLM provider: openai
+2025-12-08 18:03:24,870 - server - INFO - Logging configuration complete
+2025-12-08 18:03:24,871 - server - INFO - Starting up Agent Backend API...
+2025-12-08 18:03:24,907 - app.core.database - INFO - ✅ Connected to PostgreSQL (psycopg): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:03:24,930 - app.core.database - INFO - ✅ Connected to PostgreSQL (SQLAlchemy async): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:03:24,941 - app.core.checkpointer - INFO - ✅ LangGraph checkpointer tables created/verified
+2025-12-08 18:03:25,255 - app.services.agent_service - INFO - Agent service initialized successfully
+2025-12-08 18:03:25,255 - server - INFO - ✅ Agent service initialized with DB: app/resource/chinook.db
+2025-12-08 18:03:25,255 - server - INFO - ✅ Using LLM provider: openai
+2025-12-08 18:04:29,495 - server - INFO - Shutting down Agent Backend API...
+2025-12-08 18:04:29,495 - app.services.agent_service - INFO - Agent service shutdown completed
+2025-12-08 18:04:29,497 - app.core.database - INFO - psycopg connection pool closed
+2025-12-08 18:04:29,502 - app.core.database - INFO - SQLAlchemy async engine disposed
+2025-12-08 18:04:29,502 - app.core.database - INFO - SQLAlchemy sync engine disposed
+2025-12-08 18:04:31,397 - server - INFO - Logging configuration complete
+2025-12-08 18:04:31,398 - server - INFO - Starting up Agent Backend API...
+2025-12-08 18:04:31,444 - app.core.database - INFO - ✅ Connected to PostgreSQL (psycopg): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:04:31,469 - app.core.database - INFO - ✅ Connected to PostgreSQL (SQLAlchemy async): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:04:31,482 - app.core.checkpointer - INFO - ✅ LangGraph checkpointer tables created/verified
+2025-12-08 18:04:31,835 - app.services.agent_service - INFO - Agent service initialized successfully
+2025-12-08 18:04:31,835 - server - INFO - ✅ Agent service initialized with DB: app/resource/chinook.db
+2025-12-08 18:04:31,835 - server - INFO - ✅ Using LLM provider: openai
+2025-12-08 18:04:32,638 - server - INFO - Shutting down Agent Backend API...
+2025-12-08 18:04:32,639 - app.services.agent_service - INFO - Agent service shutdown completed
+2025-12-08 18:04:32,640 - app.core.database - INFO - psycopg connection pool closed
+2025-12-08 18:04:32,644 - app.core.database - INFO - SQLAlchemy async engine disposed
+2025-12-08 18:04:32,645 - app.core.database - INFO - SQLAlchemy sync engine disposed
+2025-12-08 18:04:34,538 - server - INFO - Logging configuration complete
+2025-12-08 18:04:34,539 - server - INFO - Starting up Agent Backend API...
+2025-12-08 18:04:34,577 - app.core.database - INFO - ✅ Connected to PostgreSQL (psycopg): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:04:34,608 - app.core.database - INFO - ✅ Connected to PostgreSQL (SQLAlchemy async): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:04:34,620 - app.core.checkpointer - INFO - ✅ LangGraph checkpointer tables created/verified
+2025-12-08 18:04:35,009 - app.services.agent_service - INFO - Agent service initialized successfully
+2025-12-08 18:04:35,009 - server - INFO - ✅ Agent service initialized with DB: app/resource/chinook.db
+2025-12-08 18:04:35,009 - server - INFO - ✅ Using LLM provider: openai
+2025-12-08 18:04:49,644 - server - INFO - Shutting down Agent Backend API...
+2025-12-08 18:04:49,645 - app.services.agent_service - INFO - Agent service shutdown completed
+2025-12-08 18:04:49,646 - app.core.database - INFO - psycopg connection pool closed
+2025-12-08 18:04:49,650 - app.core.database - INFO - SQLAlchemy async engine disposed
+2025-12-08 18:04:49,650 - app.core.database - INFO - SQLAlchemy sync engine disposed
+2025-12-08 18:04:51,231 - server - INFO - Logging configuration complete
+2025-12-08 18:04:51,232 - server - INFO - Starting up Agent Backend API...
+2025-12-08 18:04:51,276 - app.core.database - INFO - ✅ Connected to PostgreSQL (psycopg): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:04:51,301 - app.core.database - INFO - ✅ Connected to PostgreSQL (SQLAlchemy async): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:04:51,311 - app.core.checkpointer - INFO - ✅ LangGraph checkpointer tables created/verified
+2025-12-08 18:04:51,629 - app.services.agent_service - INFO - Agent service initialized successfully
+2025-12-08 18:04:51,629 - server - INFO - ✅ Agent service initialized with DB: app/resource/chinook.db
+2025-12-08 18:04:51,630 - server - INFO - ✅ Using LLM provider: openai
+2025-12-08 18:06:11,296 - server - INFO - Shutting down Agent Backend API...
+2025-12-08 18:06:11,297 - app.services.agent_service - INFO - Agent service shutdown completed
+2025-12-08 18:06:11,298 - app.core.database - INFO - psycopg connection pool closed
+2025-12-08 18:06:11,303 - app.core.database - INFO - SQLAlchemy async engine disposed
+2025-12-08 18:06:11,304 - app.core.database - INFO - SQLAlchemy sync engine disposed
+2025-12-08 18:06:13,160 - server - INFO - Logging configuration complete
+2025-12-08 18:06:13,161 - server - INFO - Starting up Agent Backend API...
+2025-12-08 18:06:13,197 - app.core.database - INFO - ✅ Connected to PostgreSQL (psycopg): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:06:13,221 - app.core.database - INFO - ✅ Connected to PostgreSQL (SQLAlchemy async): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:06:13,231 - app.core.checkpointer - INFO - ✅ LangGraph checkpointer tables created/verified
+2025-12-08 18:06:13,558 - app.services.agent_service - INFO - Agent service initialized successfully
+2025-12-08 18:06:13,559 - server - INFO - ✅ Agent service initialized with DB: app/resource/chinook.db
+2025-12-08 18:06:13,559 - server - INFO - ✅ Using LLM provider: openai
+2025-12-08 18:06:28,194 - server - INFO - Shutting down Agent Backend API...
+2025-12-08 18:06:28,194 - app.services.agent_service - INFO - Agent service shutdown completed
+2025-12-08 18:06:28,195 - app.core.database - INFO - psycopg connection pool closed
+2025-12-08 18:06:28,199 - app.core.database - INFO - SQLAlchemy async engine disposed
+2025-12-08 18:06:28,199 - app.core.database - INFO - SQLAlchemy sync engine disposed
+2025-12-08 18:06:30,082 - server - INFO - Logging configuration complete
+2025-12-08 18:06:30,087 - server - INFO - Starting up Agent Backend API...
+2025-12-08 18:06:30,144 - app.core.database - INFO - ✅ Connected to PostgreSQL (psycopg): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:06:30,192 - app.core.database - INFO - ✅ Connected to PostgreSQL (SQLAlchemy async): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:06:30,204 - app.core.checkpointer - INFO - ✅ LangGraph checkpointer tables created/verified
+2025-12-08 18:06:30,588 - app.services.agent_service - INFO - Agent service initialized successfully
+2025-12-08 18:06:30,588 - server - INFO - ✅ Agent service initialized with DB: app/resource/chinook.db
+2025-12-08 18:06:30,589 - server - INFO - ✅ Using LLM provider: openai
+2025-12-08 18:06:35,200 - server - INFO - Shutting down Agent Backend API...
+2025-12-08 18:06:35,200 - app.services.agent_service - INFO - Agent service shutdown completed
+2025-12-08 18:06:35,201 - app.core.database - INFO - psycopg connection pool closed
+2025-12-08 18:06:35,205 - app.core.database - INFO - SQLAlchemy async engine disposed
+2025-12-08 18:06:35,206 - app.core.database - INFO - SQLAlchemy sync engine disposed
+2025-12-08 18:06:36,853 - server - INFO - Logging configuration complete
+2025-12-08 18:06:36,853 - server - INFO - Starting up Agent Backend API...
+2025-12-08 18:06:36,891 - app.core.database - INFO - ✅ Connected to PostgreSQL (psycopg): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:06:36,914 - app.core.database - INFO - ✅ Connected to PostgreSQL (SQLAlchemy async): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:06:36,924 - app.core.checkpointer - INFO - ✅ LangGraph checkpointer tables created/verified
+2025-12-08 18:06:37,233 - app.services.agent_service - INFO - Agent service initialized successfully
+2025-12-08 18:06:37,233 - server - INFO - ✅ Agent service initialized with DB: app/resource/chinook.db
+2025-12-08 18:06:37,233 - server - INFO - ✅ Using LLM provider: openai
+2025-12-08 18:07:39,469 - server - INFO - Shutting down Agent Backend API...
+2025-12-08 18:07:39,469 - app.services.agent_service - INFO - Agent service shutdown completed
+2025-12-08 18:07:39,470 - app.core.database - INFO - psycopg connection pool closed
+2025-12-08 18:07:39,473 - app.core.database - INFO - SQLAlchemy async engine disposed
+2025-12-08 18:07:39,474 - app.core.database - INFO - SQLAlchemy sync engine disposed
+2025-12-08 18:07:41,239 - server - INFO - Logging configuration complete
+2025-12-08 18:07:41,239 - server - INFO - Starting up Agent Backend API...
+2025-12-08 18:07:41,288 - app.core.database - INFO - ✅ Connected to PostgreSQL (psycopg): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:07:41,318 - app.core.database - INFO - ✅ Connected to PostgreSQL (SQLAlchemy async): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:07:41,328 - app.core.checkpointer - INFO - ✅ LangGraph checkpointer tables created/verified
+2025-12-08 18:07:41,661 - app.services.agent_service - INFO - Agent service initialized successfully
+2025-12-08 18:07:41,661 - server - INFO - ✅ Agent service initialized with DB: app/resource/chinook.db
+2025-12-08 18:07:41,662 - server - INFO - ✅ Using LLM provider: openai
+2025-12-08 18:07:49,881 - server - INFO - Shutting down Agent Backend API...
+2025-12-08 18:07:49,881 - app.services.agent_service - INFO - Agent service shutdown completed
+2025-12-08 18:07:49,882 - app.core.database - INFO - psycopg connection pool closed
+2025-12-08 18:07:49,885 - app.core.database - INFO - SQLAlchemy async engine disposed
+2025-12-08 18:07:49,886 - app.core.database - INFO - SQLAlchemy sync engine disposed
+2025-12-08 18:07:51,677 - server - INFO - Logging configuration complete
+2025-12-08 18:07:51,677 - server - INFO - Starting up Agent Backend API...
+2025-12-08 18:07:51,713 - app.core.database - INFO - ✅ Connected to PostgreSQL (psycopg): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:07:51,738 - app.core.database - INFO - ✅ Connected to PostgreSQL (SQLAlchemy async): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:07:51,749 - app.core.checkpointer - INFO - ✅ LangGraph checkpointer tables created/verified
+2025-12-08 18:07:52,072 - app.services.agent_service - INFO - Agent service initialized successfully
+2025-12-08 18:07:52,073 - server - INFO - ✅ Agent service initialized with DB: app/resource/chinook.db
+2025-12-08 18:07:52,073 - server - INFO - ✅ Using LLM provider: openai
+2025-12-08 18:07:53,076 - server - INFO - Shutting down Agent Backend API...
+2025-12-08 18:07:53,077 - app.services.agent_service - INFO - Agent service shutdown completed
+2025-12-08 18:07:53,078 - app.core.database - INFO - psycopg connection pool closed
+2025-12-08 18:07:53,083 - app.core.database - INFO - SQLAlchemy async engine disposed
+2025-12-08 18:07:53,084 - app.core.database - INFO - SQLAlchemy sync engine disposed
+2025-12-08 18:07:54,828 - server - INFO - Logging configuration complete
+2025-12-08 18:07:54,829 - server - INFO - Starting up Agent Backend API...
+2025-12-08 18:07:54,868 - app.core.database - INFO - ✅ Connected to PostgreSQL (psycopg): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:07:54,894 - app.core.database - INFO - ✅ Connected to PostgreSQL (SQLAlchemy async): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:07:54,906 - app.core.checkpointer - INFO - ✅ LangGraph checkpointer tables created/verified
+2025-12-08 18:07:55,257 - app.services.agent_service - INFO - Agent service initialized successfully
+2025-12-08 18:07:55,257 - server - INFO - ✅ Agent service initialized with DB: app/resource/chinook.db
+2025-12-08 18:07:55,258 - server - INFO - ✅ Using LLM provider: openai
+2025-12-08 18:07:58,566 - server - INFO - Shutting down Agent Backend API...
+2025-12-08 18:07:58,566 - app.services.agent_service - INFO - Agent service shutdown completed
+2025-12-08 18:07:58,568 - app.core.database - INFO - psycopg connection pool closed
+2025-12-08 18:07:58,572 - app.core.database - INFO - SQLAlchemy async engine disposed
+2025-12-08 18:07:58,573 - app.core.database - INFO - SQLAlchemy sync engine disposed
+2025-12-08 18:08:00,310 - server - INFO - Logging configuration complete
+2025-12-08 18:08:00,311 - server - INFO - Starting up Agent Backend API...
+2025-12-08 18:08:00,346 - app.core.database - INFO - ✅ Connected to PostgreSQL (psycopg): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:08:00,374 - app.core.database - INFO - ✅ Connected to PostgreSQL (SQLAlchemy async): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:08:00,384 - app.core.checkpointer - INFO - ✅ LangGraph checkpointer tables created/verified
+2025-12-08 18:08:00,703 - app.services.agent_service - INFO - Agent service initialized successfully
+2025-12-08 18:08:00,703 - server - INFO - ✅ Agent service initialized with DB: app/resource/chinook.db
+2025-12-08 18:08:00,703 - server - INFO - ✅ Using LLM provider: openai
+2025-12-08 18:08:09,623 - server - INFO - Shutting down Agent Backend API...
+2025-12-08 18:08:09,623 - app.services.agent_service - INFO - Agent service shutdown completed
+2025-12-08 18:08:09,624 - app.core.database - INFO - psycopg connection pool closed
+2025-12-08 18:08:09,627 - app.core.database - INFO - SQLAlchemy async engine disposed
+2025-12-08 18:08:09,628 - app.core.database - INFO - SQLAlchemy sync engine disposed
+2025-12-08 18:08:11,429 - server - INFO - Logging configuration complete
+2025-12-08 18:08:11,430 - server - INFO - Starting up Agent Backend API...
+2025-12-08 18:08:11,469 - app.core.database - INFO - ✅ Connected to PostgreSQL (psycopg): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:08:11,494 - app.core.database - INFO - ✅ Connected to PostgreSQL (SQLAlchemy async): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:08:11,504 - app.core.checkpointer - INFO - ✅ LangGraph checkpointer tables created/verified
+2025-12-08 18:08:11,848 - app.services.agent_service - INFO - Agent service initialized successfully
+2025-12-08 18:08:11,848 - server - INFO - ✅ Agent service initialized with DB: app/resource/chinook.db
+2025-12-08 18:08:11,848 - server - INFO - ✅ Using LLM provider: openai
+2025-12-08 18:08:12,050 - server - INFO - Shutting down Agent Backend API...
+2025-12-08 18:08:12,051 - app.services.agent_service - INFO - Agent service shutdown completed
+2025-12-08 18:08:12,052 - app.core.database - INFO - psycopg connection pool closed
+2025-12-08 18:08:12,055 - app.core.database - INFO - SQLAlchemy async engine disposed
+2025-12-08 18:08:12,055 - app.core.database - INFO - SQLAlchemy sync engine disposed
+2025-12-08 18:08:13,855 - server - INFO - Logging configuration complete
+2025-12-08 18:08:13,856 - server - INFO - Starting up Agent Backend API...
+2025-12-08 18:08:13,907 - app.core.database - INFO - ✅ Connected to PostgreSQL (psycopg): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:08:13,932 - app.core.database - INFO - ✅ Connected to PostgreSQL (SQLAlchemy async): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:08:13,941 - app.core.checkpointer - INFO - ✅ LangGraph checkpointer tables created/verified
+2025-12-08 18:08:14,261 - app.services.agent_service - INFO - Agent service initialized successfully
+2025-12-08 18:08:14,261 - server - INFO - ✅ Agent service initialized with DB: app/resource/chinook.db
+2025-12-08 18:08:14,261 - server - INFO - ✅ Using LLM provider: openai
+2025-12-08 18:08:16,822 - app.services.agent_service - INFO - Checkpointer type: PostgresSaver
+2025-12-08 18:08:16,823 - app.services.agent_service - INFO - Has adelete_thread: True, Has delete_thread: True
+2025-12-08 18:08:16,823 - app.services.agent_service - INFO - Using adelete_thread (async method)
+2025-12-08 18:08:16,823 - app.services.agent_service - INFO - adelete_thread type: <class 'method'>
+2025-12-08 18:08:16,824 - app.services.agent_service - INFO - adelete_thread is coroutine function: True
+2025-12-08 18:08:16,824 - app.services.agent_service - INFO - Attempting adelete_thread with thread_id: test-thread-123
+2025-12-08 18:08:16,824 - app.services.agent_service - INFO - adelete_thread result type: <class 'coroutine'>
+2025-12-08 18:08:16,825 - app.services.agent_service - INFO - adelete_thread result is awaitable: True
+2025-12-08 18:08:16,825 - app.services.agent_service - ERROR - Failed to delete thread test-thread-123: 
+Traceback (most recent call last):
+  File "/app/app/services/agent_service.py", line 309, in delete_thread
+    await result
+  File "/usr/local/lib/python3.11/site-packages/langgraph/checkpoint/base/__init__.py", line 351, in adelete_thread
+    raise NotImplementedError
+NotImplementedError
+2025-12-08 18:08:41,122 - server - INFO - Shutting down Agent Backend API...
+2025-12-08 18:08:41,122 - app.services.agent_service - INFO - Agent service shutdown completed
+2025-12-08 18:08:41,123 - app.core.database - INFO - psycopg connection pool closed
+2025-12-08 18:08:41,127 - app.core.database - INFO - SQLAlchemy async engine disposed
+2025-12-08 18:08:41,129 - app.core.database - INFO - SQLAlchemy sync engine disposed
+2025-12-08 18:08:42,727 - server - INFO - Logging configuration complete
+2025-12-08 18:08:42,727 - server - INFO - Starting up Agent Backend API...
+2025-12-08 18:08:42,760 - app.core.database - INFO - ✅ Connected to PostgreSQL (psycopg): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:08:42,783 - app.core.database - INFO - ✅ Connected to PostgreSQL (SQLAlchemy async): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:08:42,793 - app.core.checkpointer - INFO - ✅ LangGraph checkpointer tables created/verified
+2025-12-08 18:08:43,127 - app.services.agent_service - INFO - Agent service initialized successfully
+2025-12-08 18:08:43,127 - server - INFO - ✅ Agent service initialized with DB: app/resource/chinook.db
+2025-12-08 18:08:43,128 - server - INFO - ✅ Using LLM provider: openai
+2025-12-08 18:09:38,949 - server - INFO - Shutting down Agent Backend API...
+2025-12-08 18:09:38,949 - app.services.agent_service - INFO - Agent service shutdown completed
+2025-12-08 18:09:38,950 - app.core.database - INFO - psycopg connection pool closed
+2025-12-08 18:09:38,954 - app.core.database - INFO - SQLAlchemy async engine disposed
+2025-12-08 18:09:38,954 - app.core.database - INFO - SQLAlchemy sync engine disposed
+2025-12-08 18:09:40,817 - server - INFO - Logging configuration complete
+2025-12-08 18:09:40,817 - server - INFO - Starting up Agent Backend API...
+2025-12-08 18:09:40,862 - app.core.database - INFO - ✅ Connected to PostgreSQL (psycopg): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:09:40,898 - app.core.database - INFO - ✅ Connected to PostgreSQL (SQLAlchemy async): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:09:40,909 - app.core.checkpointer - INFO - ✅ LangGraph checkpointer tables created/verified
+2025-12-08 18:09:41,263 - app.services.agent_service - INFO - Agent service initialized successfully
+2025-12-08 18:09:41,263 - server - INFO - ✅ Agent service initialized with DB: app/resource/chinook.db
+2025-12-08 18:09:41,264 - server - INFO - ✅ Using LLM provider: openai
+2025-12-08 18:09:42,066 - server - INFO - Shutting down Agent Backend API...
+2025-12-08 18:09:42,067 - app.services.agent_service - INFO - Agent service shutdown completed
+2025-12-08 18:09:42,068 - app.core.database - INFO - psycopg connection pool closed
+2025-12-08 18:09:42,071 - app.core.database - INFO - SQLAlchemy async engine disposed
+2025-12-08 18:09:42,072 - app.core.database - INFO - SQLAlchemy sync engine disposed
+2025-12-08 18:09:43,853 - server - INFO - Logging configuration complete
+2025-12-08 18:09:43,854 - server - INFO - Starting up Agent Backend API...
+2025-12-08 18:09:43,891 - app.core.database - INFO - ✅ Connected to PostgreSQL (psycopg): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:09:43,918 - app.core.database - INFO - ✅ Connected to PostgreSQL (SQLAlchemy async): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:09:43,928 - app.core.checkpointer - INFO - ✅ LangGraph checkpointer tables created/verified
+2025-12-08 18:09:44,271 - app.services.agent_service - INFO - Agent service initialized successfully
+2025-12-08 18:09:44,271 - server - INFO - ✅ Agent service initialized with DB: app/resource/chinook.db
+2025-12-08 18:09:44,271 - server - INFO - ✅ Using LLM provider: openai
+2025-12-08 18:09:47,036 - app.services.agent_service - INFO - Checkpointer type: PostgresSaver
+2025-12-08 18:09:47,037 - app.services.agent_service - INFO - Using sync delete_thread method for thread_id: test-thread-123
+2025-12-08 18:09:47,037 - app.services.agent_service - INFO - delete_thread type: <class 'method'>, is callable: True
+2025-12-08 18:09:47,045 - app.services.agent_service - INFO - Successfully deleted thread test-thread-123
+2025-12-08 18:10:02,409 - server - INFO - Shutting down Agent Backend API...
+2025-12-08 18:10:02,410 - app.services.agent_service - INFO - Agent service shutdown completed
+2025-12-08 18:10:02,411 - app.core.database - INFO - psycopg connection pool closed
+2025-12-08 18:10:02,416 - app.core.database - INFO - SQLAlchemy async engine disposed
+2025-12-08 18:10:02,416 - app.core.database - INFO - SQLAlchemy sync engine disposed
+2025-12-08 18:10:04,031 - server - INFO - Logging configuration complete
+2025-12-08 18:10:04,031 - server - INFO - Starting up Agent Backend API...
+2025-12-08 18:10:04,067 - app.core.database - INFO - ✅ Connected to PostgreSQL (psycopg): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:10:04,092 - app.core.database - INFO - ✅ Connected to PostgreSQL (SQLAlchemy async): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:10:04,101 - app.core.checkpointer - INFO - ✅ LangGraph checkpointer tables created/verified
+2025-12-08 18:10:04,397 - app.services.agent_service - INFO - Agent service initialized successfully
+2025-12-08 18:10:04,397 - server - INFO - ✅ Agent service initialized with DB: app/resource/chinook.db
+2025-12-08 18:10:04,397 - server - INFO - ✅ Using LLM provider: openai
+2025-12-08 18:10:37,267 - server - INFO - Shutting down Agent Backend API...
+2025-12-08 18:10:37,268 - app.services.agent_service - INFO - Agent service shutdown completed
+2025-12-08 18:10:37,269 - app.core.database - INFO - psycopg connection pool closed
+2025-12-08 18:10:37,273 - app.core.database - INFO - SQLAlchemy async engine disposed
+2025-12-08 18:10:37,273 - app.core.database - INFO - SQLAlchemy sync engine disposed
+2025-12-08 18:10:39,057 - server - INFO - Logging configuration complete
+2025-12-08 18:10:39,057 - server - INFO - Starting up Agent Backend API...
+2025-12-08 18:10:39,105 - app.core.database - INFO - ✅ Connected to PostgreSQL (psycopg): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:10:39,133 - app.core.database - INFO - ✅ Connected to PostgreSQL (SQLAlchemy async): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:10:39,144 - app.core.checkpointer - INFO - ✅ LangGraph checkpointer tables created/verified
+2025-12-08 18:10:39,505 - app.services.agent_service - INFO - Agent service initialized successfully
+2025-12-08 18:10:39,506 - server - INFO - ✅ Agent service initialized with DB: app/resource/chinook.db
+2025-12-08 18:10:39,506 - server - INFO - ✅ Using LLM provider: openai
+2025-12-08 18:10:46,522 - server - INFO - Shutting down Agent Backend API...
+2025-12-08 18:10:46,523 - app.services.agent_service - INFO - Agent service shutdown completed
+2025-12-08 18:10:46,524 - app.core.database - INFO - psycopg connection pool closed
+2025-12-08 18:10:46,527 - app.core.database - INFO - SQLAlchemy async engine disposed
+2025-12-08 18:10:46,528 - app.core.database - INFO - SQLAlchemy sync engine disposed
+2025-12-08 18:10:48,374 - server - INFO - Logging configuration complete
+2025-12-08 18:10:48,375 - server - INFO - Starting up Agent Backend API...
+2025-12-08 18:10:48,414 - app.core.database - INFO - ✅ Connected to PostgreSQL (psycopg): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:10:48,437 - app.core.database - INFO - ✅ Connected to PostgreSQL (SQLAlchemy async): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:10:48,448 - app.core.checkpointer - INFO - ✅ LangGraph checkpointer tables created/verified
+2025-12-08 18:10:48,805 - app.services.agent_service - INFO - Agent service initialized successfully
+2025-12-08 18:10:48,806 - server - INFO - ✅ Agent service initialized with DB: app/resource/chinook.db
+2025-12-08 18:10:48,806 - server - INFO - ✅ Using LLM provider: openai
+2025-12-08 18:10:50,493 - server - INFO - Logging configuration complete
+2025-12-08 18:10:50,494 - server - INFO - Starting up Agent Backend API...
+2025-12-08 18:10:50,530 - app.core.database - INFO - ✅ Connected to PostgreSQL (psycopg): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:10:50,555 - app.core.database - INFO - ✅ Connected to PostgreSQL (SQLAlchemy async): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:10:50,565 - app.core.checkpointer - INFO - ✅ LangGraph checkpointer tables created/verified
+2025-12-08 18:10:50,878 - app.services.agent_service - INFO - Agent service initialized successfully
+2025-12-08 18:10:50,879 - server - INFO - ✅ Agent service initialized with DB: app/resource/chinook.db
+2025-12-08 18:10:50,879 - server - INFO - ✅ Using LLM provider: openai
+2025-12-08 18:10:58,897 - server - INFO - Shutting down Agent Backend API...
+2025-12-08 18:10:58,898 - app.services.agent_service - INFO - Agent service shutdown completed
+2025-12-08 18:10:58,899 - app.core.database - INFO - psycopg connection pool closed
+2025-12-08 18:10:58,902 - app.core.database - INFO - SQLAlchemy async engine disposed
+2025-12-08 18:10:58,903 - app.core.database - INFO - SQLAlchemy sync engine disposed
+2025-12-08 18:11:00,529 - server - INFO - Logging configuration complete
+2025-12-08 18:11:00,529 - server - INFO - Starting up Agent Backend API...
+2025-12-08 18:11:00,562 - app.core.database - INFO - ✅ Connected to PostgreSQL (psycopg): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:11:00,586 - app.core.database - INFO - ✅ Connected to PostgreSQL (SQLAlchemy async): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:11:00,598 - app.core.checkpointer - INFO - ✅ LangGraph checkpointer tables created/verified
+2025-12-08 18:11:00,897 - app.services.agent_service - INFO - Agent service initialized successfully
+2025-12-08 18:11:00,898 - server - INFO - ✅ Agent service initialized with DB: app/resource/chinook.db
+2025-12-08 18:11:00,898 - server - INFO - ✅ Using LLM provider: openai
+2025-12-08 18:13:27,511 - server - INFO - Shutting down Agent Backend API...
+2025-12-08 18:13:27,512 - app.services.agent_service - INFO - Agent service shutdown completed
+2025-12-08 18:13:27,513 - app.core.database - INFO - psycopg connection pool closed
+2025-12-08 18:13:27,518 - app.core.database - INFO - SQLAlchemy async engine disposed
+2025-12-08 18:13:27,519 - app.core.database - INFO - SQLAlchemy sync engine disposed
+2025-12-08 18:13:29,412 - server - INFO - Logging configuration complete
+2025-12-08 18:13:29,413 - server - INFO - Starting up Agent Backend API...
+2025-12-08 18:13:29,448 - app.core.database - INFO - ✅ Connected to PostgreSQL (psycopg): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:13:29,474 - app.core.database - INFO - ✅ Connected to PostgreSQL (SQLAlchemy async): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:13:29,483 - app.core.checkpointer - INFO - ✅ LangGraph checkpointer tables created/verified
+2025-12-08 18:13:29,816 - app.services.agent_service - INFO - Agent service initialized successfully
+2025-12-08 18:13:29,816 - server - INFO - ✅ Agent service initialized with DB: app/resource/chinook.db
+2025-12-08 18:13:29,816 - server - INFO - ✅ Using LLM provider: openai
+2025-12-08 18:13:49,863 - server - INFO - Shutting down Agent Backend API...
+2025-12-08 18:13:49,863 - app.services.agent_service - INFO - Agent service shutdown completed
+2025-12-08 18:13:49,864 - app.core.database - INFO - psycopg connection pool closed
+2025-12-08 18:13:49,868 - app.core.database - INFO - SQLAlchemy async engine disposed
+2025-12-08 18:13:49,868 - app.core.database - INFO - SQLAlchemy sync engine disposed
+2025-12-08 18:13:51,687 - server - INFO - Logging configuration complete
+2025-12-08 18:13:51,687 - server - INFO - Starting up Agent Backend API...
+2025-12-08 18:13:51,726 - app.core.database - INFO - ✅ Connected to PostgreSQL (psycopg): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:13:51,752 - app.core.database - INFO - ✅ Connected to PostgreSQL (SQLAlchemy async): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:13:51,761 - app.core.checkpointer - INFO - ✅ LangGraph checkpointer tables created/verified
+2025-12-08 18:13:52,086 - app.services.agent_service - INFO - Agent service initialized successfully
+2025-12-08 18:13:52,086 - server - INFO - ✅ Agent service initialized with DB: app/resource/chinook.db
+2025-12-08 18:13:52,086 - server - INFO - ✅ Using LLM provider: openai
+2025-12-08 18:13:53,889 - server - INFO - Logging configuration complete
+2025-12-08 18:13:53,890 - server - INFO - Starting up Agent Backend API...
+2025-12-08 18:13:53,930 - app.core.database - INFO - ✅ Connected to PostgreSQL (psycopg): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:13:53,955 - app.core.database - INFO - ✅ Connected to PostgreSQL (SQLAlchemy async): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:13:53,965 - app.core.checkpointer - INFO - ✅ LangGraph checkpointer tables created/verified
+2025-12-08 18:13:54,366 - app.services.agent_service - INFO - Agent service initialized successfully
+2025-12-08 18:13:54,366 - server - INFO - ✅ Agent service initialized with DB: app/resource/chinook.db
+2025-12-08 18:13:54,367 - server - INFO - ✅ Using LLM provider: openai
+2025-12-08 18:14:19,922 - server - INFO - Shutting down Agent Backend API...
+2025-12-08 18:14:19,923 - app.services.agent_service - INFO - Agent service shutdown completed
+2025-12-08 18:14:19,924 - app.core.database - INFO - psycopg connection pool closed
+2025-12-08 18:14:19,927 - app.core.database - INFO - SQLAlchemy async engine disposed
+2025-12-08 18:14:19,928 - app.core.database - INFO - SQLAlchemy sync engine disposed
+2025-12-08 18:14:21,741 - server - INFO - Logging configuration complete
+2025-12-08 18:14:21,742 - server - INFO - Starting up Agent Backend API...
+2025-12-08 18:14:21,785 - app.core.database - INFO - ✅ Connected to PostgreSQL (psycopg): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:14:21,810 - app.core.database - INFO - ✅ Connected to PostgreSQL (SQLAlchemy async): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:14:21,820 - app.core.checkpointer - INFO - ✅ LangGraph checkpointer tables created/verified
+2025-12-08 18:14:22,222 - app.services.agent_service - INFO - Agent service initialized successfully
+2025-12-08 18:14:22,223 - server - INFO - ✅ Agent service initialized with DB: app/resource/chinook.db
+2025-12-08 18:14:22,223 - server - INFO - ✅ Using LLM provider: openai
+2025-12-08 18:14:26,132 - server - INFO - Shutting down Agent Backend API...
+2025-12-08 18:14:26,133 - app.services.agent_service - INFO - Agent service shutdown completed
+2025-12-08 18:14:26,134 - app.core.database - INFO - psycopg connection pool closed
+2025-12-08 18:14:26,137 - app.core.database - INFO - SQLAlchemy async engine disposed
+2025-12-08 18:14:26,138 - app.core.database - INFO - SQLAlchemy sync engine disposed
+2025-12-08 18:14:27,934 - server - INFO - Logging configuration complete
+2025-12-08 18:14:27,934 - server - INFO - Starting up Agent Backend API...
+2025-12-08 18:14:27,977 - app.core.database - INFO - ✅ Connected to PostgreSQL (psycopg): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:14:28,002 - app.core.database - INFO - ✅ Connected to PostgreSQL (SQLAlchemy async): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:14:28,012 - app.core.checkpointer - INFO - ✅ LangGraph checkpointer tables created/verified
+2025-12-08 18:14:28,371 - app.services.agent_service - INFO - Agent service initialized successfully
+2025-12-08 18:14:28,372 - server - INFO - ✅ Agent service initialized with DB: app/resource/chinook.db
+2025-12-08 18:14:28,372 - server - INFO - ✅ Using LLM provider: openai
+2025-12-08 18:14:32,634 - app.services.agent_service - INFO - Retrieved 23 checkpoints using list method
+2025-12-08 18:14:58,135 - server - INFO - Shutting down Agent Backend API...
+2025-12-08 18:14:58,136 - app.services.agent_service - INFO - Agent service shutdown completed
+2025-12-08 18:14:58,137 - app.core.database - INFO - psycopg connection pool closed
+2025-12-08 18:14:58,140 - app.core.database - INFO - SQLAlchemy async engine disposed
+2025-12-08 18:14:58,140 - app.core.database - INFO - SQLAlchemy sync engine disposed
+2025-12-08 18:14:59,979 - server - INFO - Logging configuration complete
+2025-12-08 18:14:59,979 - server - INFO - Starting up Agent Backend API...
+2025-12-08 18:15:00,027 - app.core.database - INFO - ✅ Connected to PostgreSQL (psycopg): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:15:00,053 - app.core.database - INFO - ✅ Connected to PostgreSQL (SQLAlchemy async): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:15:00,063 - app.core.checkpointer - INFO - ✅ LangGraph checkpointer tables created/verified
+2025-12-08 18:15:00,483 - app.services.agent_service - INFO - Agent service initialized successfully
+2025-12-08 18:15:00,484 - server - INFO - ✅ Agent service initialized with DB: app/resource/chinook.db
+2025-12-08 18:15:00,487 - server - INFO - ✅ Using LLM provider: openai
+2025-12-08 18:15:01,292 - server - INFO - Shutting down Agent Backend API...
+2025-12-08 18:15:01,292 - app.services.agent_service - INFO - Agent service shutdown completed
+2025-12-08 18:15:01,293 - app.core.database - INFO - psycopg connection pool closed
+2025-12-08 18:15:01,297 - app.core.database - INFO - SQLAlchemy async engine disposed
+2025-12-08 18:15:01,297 - app.core.database - INFO - SQLAlchemy sync engine disposed
+2025-12-08 18:15:03,027 - server - INFO - Logging configuration complete
+2025-12-08 18:15:03,028 - server - INFO - Starting up Agent Backend API...
+2025-12-08 18:15:03,085 - app.core.database - INFO - ✅ Connected to PostgreSQL (psycopg): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:15:03,135 - app.core.database - INFO - ✅ Connected to PostgreSQL (SQLAlchemy async): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:15:03,152 - app.core.checkpointer - INFO - ✅ LangGraph checkpointer tables created/verified
+2025-12-08 18:15:03,526 - app.services.agent_service - INFO - Agent service initialized successfully
+2025-12-08 18:15:03,526 - server - INFO - ✅ Agent service initialized with DB: app/resource/chinook.db
+2025-12-08 18:15:03,526 - server - INFO - ✅ Using LLM provider: openai
+2025-12-08 18:15:10,642 - server - INFO - Shutting down Agent Backend API...
+2025-12-08 18:15:10,643 - app.services.agent_service - INFO - Agent service shutdown completed
+2025-12-08 18:15:10,644 - app.core.database - INFO - psycopg connection pool closed
+2025-12-08 18:15:10,650 - app.core.database - INFO - SQLAlchemy async engine disposed
+2025-12-08 18:15:10,651 - app.core.database - INFO - SQLAlchemy sync engine disposed
+2025-12-08 18:15:12,287 - server - INFO - Logging configuration complete
+2025-12-08 18:15:12,287 - server - INFO - Starting up Agent Backend API...
+2025-12-08 18:15:12,328 - app.core.database - INFO - ✅ Connected to PostgreSQL (psycopg): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:15:12,352 - app.core.database - INFO - ✅ Connected to PostgreSQL (SQLAlchemy async): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:15:12,362 - app.core.checkpointer - INFO - ✅ LangGraph checkpointer tables created/verified
+2025-12-08 18:15:12,665 - app.services.agent_service - INFO - Agent service initialized successfully
+2025-12-08 18:15:12,665 - server - INFO - ✅ Agent service initialized with DB: app/resource/chinook.db
+2025-12-08 18:15:12,665 - server - INFO - ✅ Using LLM provider: openai
+2025-12-08 18:16:18,204 - server - INFO - Shutting down Agent Backend API...
+2025-12-08 18:16:18,205 - app.services.agent_service - INFO - Agent service shutdown completed
+2025-12-08 18:16:18,206 - app.core.database - INFO - psycopg connection pool closed
+2025-12-08 18:16:18,210 - app.core.database - INFO - SQLAlchemy async engine disposed
+2025-12-08 18:16:18,210 - app.core.database - INFO - SQLAlchemy sync engine disposed
+2025-12-08 18:16:19,976 - server - INFO - Logging configuration complete
+2025-12-08 18:16:19,977 - server - INFO - Starting up Agent Backend API...
+2025-12-08 18:16:20,015 - app.core.database - INFO - ✅ Connected to PostgreSQL (psycopg): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:16:20,041 - app.core.database - INFO - ✅ Connected to PostgreSQL (SQLAlchemy async): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:16:20,050 - app.core.checkpointer - INFO - ✅ LangGraph checkpointer tables created/verified
+2025-12-08 18:16:20,389 - app.services.agent_service - INFO - Agent service initialized successfully
+2025-12-08 18:16:20,390 - server - INFO - ✅ Agent service initialized with DB: app/resource/chinook.db
+2025-12-08 18:16:20,390 - server - INFO - ✅ Using LLM provider: openai
+2025-12-08 18:16:34,824 - server - INFO - Shutting down Agent Backend API...
+2025-12-08 18:16:34,824 - app.services.agent_service - INFO - Agent service shutdown completed
+2025-12-08 18:16:34,825 - app.core.database - INFO - psycopg connection pool closed
+2025-12-08 18:16:34,829 - app.core.database - INFO - SQLAlchemy async engine disposed
+2025-12-08 18:16:34,830 - app.core.database - INFO - SQLAlchemy sync engine disposed
+2025-12-08 18:16:36,733 - server - INFO - Logging configuration complete
+2025-12-08 18:16:36,733 - server - INFO - Starting up Agent Backend API...
+2025-12-08 18:16:36,775 - app.core.database - INFO - ✅ Connected to PostgreSQL (psycopg): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:16:36,800 - app.core.database - INFO - ✅ Connected to PostgreSQL (SQLAlchemy async): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:16:36,811 - app.core.checkpointer - INFO - ✅ LangGraph checkpointer tables created/verified
+2025-12-08 18:16:37,149 - app.services.agent_service - INFO - Agent service initialized successfully
+2025-12-08 18:16:37,149 - server - INFO - ✅ Agent service initialized with DB: app/resource/chinook.db
+2025-12-08 18:16:37,149 - server - INFO - ✅ Using LLM provider: openai
+2025-12-08 18:16:38,897 - server - INFO - Logging configuration complete
+2025-12-08 18:16:38,897 - server - INFO - Starting up Agent Backend API...
+2025-12-08 18:16:38,940 - app.core.database - INFO - ✅ Connected to PostgreSQL (psycopg): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:16:38,966 - app.core.database - INFO - ✅ Connected to PostgreSQL (SQLAlchemy async): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:16:38,976 - app.core.checkpointer - INFO - ✅ LangGraph checkpointer tables created/verified
+2025-12-08 18:16:39,303 - app.services.agent_service - INFO - Agent service initialized successfully
+2025-12-08 18:16:39,304 - server - INFO - ✅ Agent service initialized with DB: app/resource/chinook.db
+2025-12-08 18:16:39,304 - server - INFO - ✅ Using LLM provider: openai
+2025-12-08 18:16:41,169 - app.services.agent_service - INFO - Retrieved 5 checkpoint IDs using list method
+2025-12-08 18:16:48,024 - server - INFO - Shutting down Agent Backend API...
+2025-12-08 18:16:48,025 - app.services.agent_service - INFO - Agent service shutdown completed
+2025-12-08 18:16:48,026 - app.core.database - INFO - psycopg connection pool closed
+2025-12-08 18:16:48,030 - app.core.database - INFO - SQLAlchemy async engine disposed
+2025-12-08 18:16:48,030 - app.core.database - INFO - SQLAlchemy sync engine disposed
+2025-12-08 18:16:49,678 - server - INFO - Logging configuration complete
+2025-12-08 18:16:49,678 - server - INFO - Starting up Agent Backend API...
+2025-12-08 18:16:49,714 - app.core.database - INFO - ✅ Connected to PostgreSQL (psycopg): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:16:49,740 - app.core.database - INFO - ✅ Connected to PostgreSQL (SQLAlchemy async): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:16:49,750 - app.core.checkpointer - INFO - ✅ LangGraph checkpointer tables created/verified
+2025-12-08 18:16:50,044 - app.services.agent_service - INFO - Agent service initialized successfully
+2025-12-08 18:16:50,044 - server - INFO - ✅ Agent service initialized with DB: app/resource/chinook.db
+2025-12-08 18:16:50,045 - server - INFO - ✅ Using LLM provider: openai
+2025-12-08 18:18:25,659 - server - INFO - Shutting down Agent Backend API...
+2025-12-08 18:18:25,659 - app.services.agent_service - INFO - Agent service shutdown completed
+2025-12-08 18:18:25,661 - app.core.database - INFO - psycopg connection pool closed
+2025-12-08 18:18:25,664 - app.core.database - INFO - SQLAlchemy async engine disposed
+2025-12-08 18:18:25,665 - app.core.database - INFO - SQLAlchemy sync engine disposed
+2025-12-08 18:18:27,529 - server - INFO - Logging configuration complete
+2025-12-08 18:18:27,529 - server - INFO - Starting up Agent Backend API...
+2025-12-08 18:18:27,567 - app.core.database - INFO - ✅ Connected to PostgreSQL (psycopg): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:18:27,597 - app.core.database - INFO - ✅ Connected to PostgreSQL (SQLAlchemy async): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:18:27,608 - app.core.checkpointer - INFO - ✅ LangGraph checkpointer tables created/verified
+2025-12-08 18:18:27,963 - app.services.agent_service - INFO - Agent service initialized successfully
+2025-12-08 18:18:27,963 - server - INFO - ✅ Agent service initialized with DB: app/resource/chinook.db
+2025-12-08 18:18:27,963 - server - INFO - ✅ Using LLM provider: openai
+2025-12-08 18:18:28,366 - server - INFO - Shutting down Agent Backend API...
+2025-12-08 18:18:28,366 - app.services.agent_service - INFO - Agent service shutdown completed
+2025-12-08 18:18:28,368 - app.core.database - INFO - psycopg connection pool closed
+2025-12-08 18:18:28,372 - app.core.database - INFO - SQLAlchemy async engine disposed
+2025-12-08 18:18:28,372 - app.core.database - INFO - SQLAlchemy sync engine disposed
+2025-12-08 18:18:30,104 - server - INFO - Logging configuration complete
+2025-12-08 18:18:30,104 - server - INFO - Starting up Agent Backend API...
+2025-12-08 18:18:30,143 - app.core.database - INFO - ✅ Connected to PostgreSQL (psycopg): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:18:30,167 - app.core.database - INFO - ✅ Connected to PostgreSQL (SQLAlchemy async): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:18:30,178 - app.core.checkpointer - INFO - ✅ LangGraph checkpointer tables created/verified
+2025-12-08 18:18:30,504 - app.services.agent_service - INFO - Agent service initialized successfully
+2025-12-08 18:18:30,504 - server - INFO - ✅ Agent service initialized with DB: app/resource/chinook.db
+2025-12-08 18:18:30,505 - server - INFO - ✅ Using LLM provider: openai
+2025-12-08 18:18:31,407 - server - INFO - Shutting down Agent Backend API...
+2025-12-08 18:18:31,407 - app.services.agent_service - INFO - Agent service shutdown completed
+2025-12-08 18:18:31,408 - app.core.database - INFO - psycopg connection pool closed
+2025-12-08 18:18:31,411 - app.core.database - INFO - SQLAlchemy async engine disposed
+2025-12-08 18:18:31,412 - app.core.database - INFO - SQLAlchemy sync engine disposed
+2025-12-08 18:18:33,141 - server - INFO - Logging configuration complete
+2025-12-08 18:18:33,142 - server - INFO - Starting up Agent Backend API...
+2025-12-08 18:18:33,202 - app.core.database - INFO - ✅ Connected to PostgreSQL (psycopg): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:18:33,240 - app.core.database - INFO - ✅ Connected to PostgreSQL (SQLAlchemy async): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:18:33,251 - app.core.checkpointer - INFO - ✅ LangGraph checkpointer tables created/verified
+2025-12-08 18:18:33,650 - app.services.agent_service - INFO - Agent service initialized successfully
+2025-12-08 18:18:33,650 - server - INFO - ✅ Agent service initialized with DB: app/resource/chinook.db
+2025-12-08 18:18:33,650 - server - INFO - ✅ Using LLM provider: openai
+2025-12-08 18:18:39,766 - server - INFO - Shutting down Agent Backend API...
+2025-12-08 18:18:39,766 - app.services.agent_service - INFO - Agent service shutdown completed
+2025-12-08 18:18:39,767 - app.core.database - INFO - psycopg connection pool closed
+2025-12-08 18:18:39,770 - app.core.database - INFO - SQLAlchemy async engine disposed
+2025-12-08 18:18:39,771 - app.core.database - INFO - SQLAlchemy sync engine disposed
+2025-12-08 18:18:41,434 - server - INFO - Logging configuration complete
+2025-12-08 18:18:41,434 - server - INFO - Starting up Agent Backend API...
+2025-12-08 18:18:41,472 - app.core.database - INFO - ✅ Connected to PostgreSQL (psycopg): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:18:41,496 - app.core.database - INFO - ✅ Connected to PostgreSQL (SQLAlchemy async): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:18:41,506 - app.core.checkpointer - INFO - ✅ LangGraph checkpointer tables created/verified
+2025-12-08 18:18:41,793 - app.services.agent_service - INFO - Agent service initialized successfully
+2025-12-08 18:18:41,793 - server - INFO - ✅ Agent service initialized with DB: app/resource/chinook.db
+2025-12-08 18:18:41,794 - server - INFO - ✅ Using LLM provider: openai
+2025-12-08 18:18:43,310 - server - INFO - Logging configuration complete
+2025-12-08 18:18:43,310 - server - INFO - Starting up Agent Backend API...
+2025-12-08 18:18:43,345 - app.core.database - INFO - ✅ Connected to PostgreSQL (psycopg): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:18:43,368 - app.core.database - INFO - ✅ Connected to PostgreSQL (SQLAlchemy async): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:18:43,377 - app.core.checkpointer - INFO - ✅ LangGraph checkpointer tables created/verified
+2025-12-08 18:18:43,710 - app.services.agent_service - INFO - Agent service initialized successfully
+2025-12-08 18:18:43,710 - server - INFO - ✅ Agent service initialized with DB: app/resource/chinook.db
+2025-12-08 18:18:43,711 - server - INFO - ✅ Using LLM provider: openai
+2025-12-08 18:23:01,167 - app.services.agent_service - ERROR - Failed to list threads: column "ts" does not exist
+LINE 5:                     MAX(ts) as last_updated
+                                ^
+Traceback (most recent call last):
+  File "/app/app/services/agent_service.py", line 237, in list_threads
+    await cur.execute(query)
+  File "/usr/local/lib/python3.11/site-packages/psycopg/cursor_async.py", line 97, in execute
+    raise ex.with_traceback(None)
+psycopg.errors.UndefinedColumn: column "ts" does not exist
+LINE 5:                     MAX(ts) as last_updated
+                                ^
+2025-12-08 18:23:46,923 - app.services.agent_service - ERROR - Failed to get thread metadata for test-thread-456: 
+2025-12-08 18:23:49,290 - app.services.agent_service - ERROR - Failed to get thread metadata for test-thread-456: 
+2025-12-08 18:23:59,533 - server - INFO - Shutting down Agent Backend API...
+2025-12-08 18:23:59,534 - app.services.agent_service - INFO - Agent service shutdown completed
+2025-12-08 18:23:59,535 - app.core.database - INFO - psycopg connection pool closed
+2025-12-08 18:23:59,538 - app.core.database - INFO - SQLAlchemy async engine disposed
+2025-12-08 18:23:59,539 - app.core.database - INFO - SQLAlchemy sync engine disposed
+2025-12-08 18:24:05,986 - server - INFO - Logging configuration complete
+2025-12-08 18:24:05,986 - server - INFO - Starting up Agent Backend API...
+2025-12-08 18:24:06,030 - app.core.database - INFO - ✅ Connected to PostgreSQL (psycopg): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:24:06,058 - app.core.database - INFO - ✅ Connected to PostgreSQL (SQLAlchemy async): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:24:06,068 - app.core.checkpointer - INFO - ✅ LangGraph checkpointer tables created/verified
+2025-12-08 18:24:06,428 - app.services.agent_service - INFO - Agent service initialized successfully
+2025-12-08 18:24:06,428 - server - INFO - ✅ Agent service initialized with DB: app/resource/chinook.db
+2025-12-08 18:24:06,429 - server - INFO - ✅ Using LLM provider: openai
+2025-12-08 18:24:23,969 - server - INFO - Shutting down Agent Backend API...
+2025-12-08 18:24:23,970 - app.services.agent_service - INFO - Agent service shutdown completed
+2025-12-08 18:24:23,971 - app.core.database - INFO - psycopg connection pool closed
+2025-12-08 18:24:23,974 - app.core.database - INFO - SQLAlchemy async engine disposed
+2025-12-08 18:24:23,974 - app.core.database - INFO - SQLAlchemy sync engine disposed
+2025-12-08 18:24:25,854 - server - INFO - Logging configuration complete
+2025-12-08 18:24:25,854 - server - INFO - Starting up Agent Backend API...
+2025-12-08 18:24:25,891 - app.core.database - INFO - ✅ Connected to PostgreSQL (psycopg): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:24:25,916 - app.core.database - INFO - ✅ Connected to PostgreSQL (SQLAlchemy async): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:24:25,926 - app.core.checkpointer - INFO - ✅ LangGraph checkpointer tables created/verified
+2025-12-08 18:24:26,275 - app.services.agent_service - INFO - Agent service initialized successfully
+2025-12-08 18:24:26,276 - server - INFO - ✅ Agent service initialized with DB: app/resource/chinook.db
+2025-12-08 18:24:26,276 - server - INFO - ✅ Using LLM provider: openai
+2025-12-08 18:24:28,025 - server - INFO - Logging configuration complete
+2025-12-08 18:24:28,026 - server - INFO - Starting up Agent Backend API...
+2025-12-08 18:24:28,064 - app.core.database - INFO - ✅ Connected to PostgreSQL (psycopg): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:24:28,090 - app.core.database - INFO - ✅ Connected to PostgreSQL (SQLAlchemy async): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:24:28,100 - app.core.checkpointer - INFO - ✅ LangGraph checkpointer tables created/verified
+2025-12-08 18:24:28,424 - app.services.agent_service - INFO - Agent service initialized successfully
+2025-12-08 18:24:28,425 - server - INFO - ✅ Agent service initialized with DB: app/resource/chinook.db
+2025-12-08 18:24:28,425 - server - INFO - ✅ Using LLM provider: openai
+2025-12-08 18:24:30,136 - server - INFO - Logging configuration complete
+2025-12-08 18:24:30,136 - server - INFO - Starting up Agent Backend API...
+2025-12-08 18:24:30,176 - app.core.database - INFO - ✅ Connected to PostgreSQL (psycopg): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:24:30,203 - app.core.database - INFO - ✅ Connected to PostgreSQL (SQLAlchemy async): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:24:30,213 - app.core.checkpointer - INFO - ✅ LangGraph checkpointer tables created/verified
+2025-12-08 18:24:30,543 - app.services.agent_service - INFO - Agent service initialized successfully
+2025-12-08 18:24:30,544 - server - INFO - ✅ Agent service initialized with DB: app/resource/chinook.db
+2025-12-08 18:24:30,544 - server - INFO - ✅ Using LLM provider: openai
+2025-12-08 18:24:32,243 - server - INFO - Logging configuration complete
+2025-12-08 18:24:32,244 - server - INFO - Starting up Agent Backend API...
+2025-12-08 18:24:32,285 - app.core.database - INFO - ✅ Connected to PostgreSQL (psycopg): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:24:32,311 - app.core.database - INFO - ✅ Connected to PostgreSQL (SQLAlchemy async): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:24:32,321 - app.core.checkpointer - INFO - ✅ LangGraph checkpointer tables created/verified
+2025-12-08 18:24:32,711 - app.services.agent_service - INFO - Agent service initialized successfully
+2025-12-08 18:24:32,712 - server - INFO - ✅ Agent service initialized with DB: app/resource/chinook.db
+2025-12-08 18:24:32,712 - server - INFO - ✅ Using LLM provider: openai
+2025-12-08 18:24:34,516 - server - INFO - Logging configuration complete
+2025-12-08 18:24:34,516 - server - INFO - Starting up Agent Backend API...
+2025-12-08 18:24:34,552 - app.core.database - INFO - ✅ Connected to PostgreSQL (psycopg): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:24:34,582 - app.core.database - INFO - ✅ Connected to PostgreSQL (SQLAlchemy async): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:24:34,592 - app.core.checkpointer - INFO - ✅ LangGraph checkpointer tables created/verified
+2025-12-08 18:24:34,910 - app.services.agent_service - INFO - Agent service initialized successfully
+2025-12-08 18:24:34,910 - server - INFO - ✅ Agent service initialized with DB: app/resource/chinook.db
+2025-12-08 18:24:34,910 - server - INFO - ✅ Using LLM provider: openai
+2025-12-08 18:25:12,496 - server - INFO - Shutting down Agent Backend API...
+2025-12-08 18:25:12,496 - app.services.agent_service - INFO - Agent service shutdown completed
+2025-12-08 18:25:12,497 - app.core.database - INFO - psycopg connection pool closed
+2025-12-08 18:25:12,501 - app.core.database - INFO - SQLAlchemy async engine disposed
+2025-12-08 18:25:12,501 - app.core.database - INFO - SQLAlchemy sync engine disposed
+2025-12-08 18:25:14,418 - server - INFO - Logging configuration complete
+2025-12-08 18:25:14,418 - server - INFO - Starting up Agent Backend API...
+2025-12-08 18:25:14,453 - app.core.database - INFO - ✅ Connected to PostgreSQL (psycopg): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:25:14,475 - app.core.database - INFO - ✅ Connected to PostgreSQL (SQLAlchemy async): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:25:14,483 - app.core.checkpointer - INFO - ✅ LangGraph checkpointer tables created/verified
+2025-12-08 18:25:14,793 - app.services.agent_service - INFO - Agent service initialized successfully
+2025-12-08 18:25:14,794 - server - INFO - ✅ Agent service initialized with DB: app/resource/chinook.db
+2025-12-08 18:25:14,794 - server - INFO - ✅ Using LLM provider: openai
+2025-12-08 18:25:38,648 - server - INFO - Shutting down Agent Backend API...
+2025-12-08 18:25:38,648 - app.services.agent_service - INFO - Agent service shutdown completed
+2025-12-08 18:25:38,649 - app.core.database - INFO - psycopg connection pool closed
+2025-12-08 18:25:38,653 - app.core.database - INFO - SQLAlchemy async engine disposed
+2025-12-08 18:25:38,654 - app.core.database - INFO - SQLAlchemy sync engine disposed
+2025-12-08 18:25:40,460 - server - INFO - Logging configuration complete
+2025-12-08 18:25:40,461 - server - INFO - Starting up Agent Backend API...
+2025-12-08 18:25:40,495 - app.core.database - INFO - ✅ Connected to PostgreSQL (psycopg): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:25:40,518 - app.core.database - INFO - ✅ Connected to PostgreSQL (SQLAlchemy async): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:25:40,526 - app.core.checkpointer - INFO - ✅ LangGraph checkpointer tables created/verified
+2025-12-08 18:25:40,838 - app.services.agent_service - INFO - Agent service initialized successfully
+2025-12-08 18:25:40,838 - server - INFO - ✅ Agent service initialized with DB: app/resource/chinook.db
+2025-12-08 18:25:40,838 - server - INFO - ✅ Using LLM provider: openai
+2025-12-08 18:25:47,854 - server - INFO - Shutting down Agent Backend API...
+2025-12-08 18:25:47,854 - app.services.agent_service - INFO - Agent service shutdown completed
+2025-12-08 18:25:47,855 - app.core.database - INFO - psycopg connection pool closed
+2025-12-08 18:25:47,859 - app.core.database - INFO - SQLAlchemy async engine disposed
+2025-12-08 18:25:47,859 - app.core.database - INFO - SQLAlchemy sync engine disposed
+2025-12-08 18:25:49,656 - server - INFO - Logging configuration complete
+2025-12-08 18:25:49,656 - server - INFO - Starting up Agent Backend API...
+2025-12-08 18:25:49,692 - app.core.database - INFO - ✅ Connected to PostgreSQL (psycopg): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:25:49,715 - app.core.database - INFO - ✅ Connected to PostgreSQL (SQLAlchemy async): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:25:49,724 - app.core.checkpointer - INFO - ✅ LangGraph checkpointer tables created/verified
+2025-12-08 18:25:50,037 - app.services.agent_service - INFO - Agent service initialized successfully
+2025-12-08 18:25:50,038 - server - INFO - ✅ Agent service initialized with DB: app/resource/chinook.db
+2025-12-08 18:25:50,038 - server - INFO - ✅ Using LLM provider: openai
+2025-12-08 18:32:47,080 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-12-08 18:32:47,100 - app.agents.simple_agent - INFO - Tool node executed, returned 1 messages
+2025-12-08 18:32:49,200 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-12-08 18:32:49,212 - app.services.agent_service - INFO - Agent executed successfully for thread test123
+2025-12-08 18:50:41,082 - server - INFO - Shutting down Agent Backend API...
+2025-12-08 18:50:41,083 - app.services.agent_service - INFO - Agent service shutdown completed
+2025-12-08 18:50:41,084 - app.core.database - INFO - psycopg connection pool closed
+2025-12-08 18:50:41,088 - app.core.database - INFO - SQLAlchemy async engine disposed
+2025-12-08 18:50:41,088 - app.core.database - INFO - SQLAlchemy sync engine disposed
+2025-12-08 18:50:43,467 - server - INFO - Logging configuration complete
+2025-12-08 18:50:43,467 - server - INFO - Starting up Agent Backend API...
+2025-12-08 18:50:43,521 - app.core.database - INFO - ✅ Connected to PostgreSQL (psycopg): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:50:43,543 - app.core.database - INFO - ✅ Connected to PostgreSQL (SQLAlchemy async): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:50:43,551 - app.core.checkpointer - INFO - ✅ LangGraph checkpointer tables created/verified
+2025-12-08 18:50:43,958 - app.services.agent_service - INFO - Agent service initialized successfully
+2025-12-08 18:50:43,959 - server - INFO - ✅ Agent service initialized with DB: app/resource/chinook.db
+2025-12-08 18:50:43,959 - server - INFO - ✅ Using LLM provider: openai
+2025-12-08 18:51:06,607 - server - INFO - Shutting down Agent Backend API...
+2025-12-08 18:51:06,608 - app.services.agent_service - INFO - Agent service shutdown completed
+2025-12-08 18:51:06,608 - app.core.database - INFO - psycopg connection pool closed
+2025-12-08 18:51:06,611 - app.core.database - INFO - SQLAlchemy async engine disposed
+2025-12-08 18:51:06,611 - app.core.database - INFO - SQLAlchemy sync engine disposed
+2025-12-08 18:51:08,191 - server - INFO - Logging configuration complete
+2025-12-08 18:51:08,191 - server - INFO - Starting up Agent Backend API...
+2025-12-08 18:51:08,236 - app.core.database - INFO - ✅ Connected to PostgreSQL (psycopg): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:51:08,266 - app.core.database - INFO - ✅ Connected to PostgreSQL (SQLAlchemy async): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:51:08,276 - app.core.checkpointer - INFO - ✅ LangGraph checkpointer tables created/verified
+2025-12-08 18:51:08,607 - app.services.agent_service - INFO - Agent service initialized successfully
+2025-12-08 18:51:08,607 - server - INFO - ✅ Agent service initialized with DB: app/resource/chinook.db
+2025-12-08 18:51:08,607 - server - INFO - ✅ Using LLM provider: openai
+2025-12-08 18:51:53,504 - server - INFO - Shutting down Agent Backend API...
+2025-12-08 18:51:53,505 - app.services.agent_service - INFO - Agent service shutdown completed
+2025-12-08 18:51:53,506 - app.core.database - INFO - psycopg connection pool closed
+2025-12-08 18:51:53,509 - app.core.database - INFO - SQLAlchemy async engine disposed
+2025-12-08 18:51:53,509 - app.core.database - INFO - SQLAlchemy sync engine disposed
+2025-12-08 18:51:55,057 - server - INFO - Logging configuration complete
+2025-12-08 18:51:55,057 - server - INFO - Starting up Agent Backend API...
+2025-12-08 18:51:55,092 - app.core.database - INFO - ✅ Connected to PostgreSQL (psycopg): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:51:55,117 - app.core.database - INFO - ✅ Connected to PostgreSQL (SQLAlchemy async): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:51:55,125 - app.core.checkpointer - INFO - ✅ LangGraph checkpointer tables created/verified
+2025-12-08 18:51:55,448 - app.services.agent_service - INFO - Agent service initialized successfully
+2025-12-08 18:51:55,448 - server - INFO - ✅ Agent service initialized with DB: app/resource/chinook.db
+2025-12-08 18:51:55,448 - server - INFO - ✅ Using LLM provider: openai
+2025-12-08 18:51:56,942 - server - INFO - Logging configuration complete
+2025-12-08 18:51:56,942 - server - INFO - Starting up Agent Backend API...
+2025-12-08 18:51:56,973 - app.core.database - INFO - ✅ Connected to PostgreSQL (psycopg): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:51:56,995 - app.core.database - INFO - ✅ Connected to PostgreSQL (SQLAlchemy async): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:51:57,004 - app.core.checkpointer - INFO - ✅ LangGraph checkpointer tables created/verified
+2025-12-08 18:51:57,326 - app.services.agent_service - INFO - Agent service initialized successfully
+2025-12-08 18:51:57,327 - server - INFO - ✅ Agent service initialized with DB: app/resource/chinook.db
+2025-12-08 18:51:57,327 - server - INFO - ✅ Using LLM provider: openai
+2025-12-08 18:52:27,387 - server - INFO - Shutting down Agent Backend API...
+2025-12-08 18:52:27,387 - app.services.agent_service - INFO - Agent service shutdown completed
+2025-12-08 18:52:27,388 - app.core.database - INFO - psycopg connection pool closed
+2025-12-08 18:52:27,391 - app.core.database - INFO - SQLAlchemy async engine disposed
+2025-12-08 18:52:27,392 - app.core.database - INFO - SQLAlchemy sync engine disposed
+2025-12-08 18:52:28,973 - server - INFO - Logging configuration complete
+2025-12-08 18:52:28,973 - server - INFO - Starting up Agent Backend API...
+2025-12-08 18:52:29,008 - app.core.database - INFO - ✅ Connected to PostgreSQL (psycopg): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:52:29,032 - app.core.database - INFO - ✅ Connected to PostgreSQL (SQLAlchemy async): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:52:29,043 - app.core.checkpointer - INFO - ✅ LangGraph checkpointer tables created/verified
+2025-12-08 18:52:29,356 - app.services.agent_service - INFO - Agent service initialized successfully
+2025-12-08 18:52:29,356 - server - INFO - ✅ Agent service initialized with DB: app/resource/chinook.db
+2025-12-08 18:52:29,356 - server - INFO - ✅ Using LLM provider: openai
+2025-12-08 18:52:32,063 - server - INFO - Shutting down Agent Backend API...
+2025-12-08 18:52:32,063 - app.services.agent_service - INFO - Agent service shutdown completed
+2025-12-08 18:52:32,064 - app.core.database - INFO - psycopg connection pool closed
+2025-12-08 18:52:32,069 - app.core.database - INFO - SQLAlchemy async engine disposed
+2025-12-08 18:52:32,069 - app.core.database - INFO - SQLAlchemy sync engine disposed
+2025-12-08 18:52:33,787 - server - INFO - Logging configuration complete
+2025-12-08 18:52:33,787 - server - INFO - Starting up Agent Backend API...
+2025-12-08 18:52:33,804 - app.core.database - INFO - ✅ Connected to PostgreSQL (psycopg): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:52:33,826 - app.core.database - INFO - ✅ Connected to PostgreSQL (SQLAlchemy async): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:52:33,835 - app.core.checkpointer - INFO - ✅ LangGraph checkpointer tables created/verified
+2025-12-08 18:52:34,180 - app.services.agent_service - INFO - Agent service initialized successfully
+2025-12-08 18:52:34,180 - server - INFO - ✅ Agent service initialized with DB: app/resource/chinook.db
+2025-12-08 18:52:34,181 - server - INFO - ✅ Using LLM provider: openai
+2025-12-08 18:52:35,817 - server - INFO - Logging configuration complete
+2025-12-08 18:52:35,817 - server - INFO - Starting up Agent Backend API...
+2025-12-08 18:52:35,833 - app.core.database - INFO - ✅ Connected to PostgreSQL (psycopg): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:52:35,859 - app.core.database - INFO - ✅ Connected to PostgreSQL (SQLAlchemy async): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:52:35,867 - app.core.checkpointer - INFO - ✅ LangGraph checkpointer tables created/verified
+2025-12-08 18:52:36,181 - app.services.agent_service - INFO - Agent service initialized successfully
+2025-12-08 18:52:36,182 - server - INFO - ✅ Agent service initialized with DB: app/resource/chinook.db
+2025-12-08 18:52:36,182 - server - INFO - ✅ Using LLM provider: openai
+2025-12-08 18:53:13,459 - server - INFO - Shutting down Agent Backend API...
+2025-12-08 18:53:13,459 - app.services.agent_service - INFO - Agent service shutdown completed
+2025-12-08 18:53:13,460 - app.core.database - INFO - psycopg connection pool closed
+2025-12-08 18:53:13,463 - app.core.database - INFO - SQLAlchemy async engine disposed
+2025-12-08 18:53:13,463 - app.core.database - INFO - SQLAlchemy sync engine disposed
+2025-12-08 18:53:15,106 - server - INFO - Logging configuration complete
+2025-12-08 18:53:15,106 - server - INFO - Starting up Agent Backend API...
+2025-12-08 18:53:15,123 - app.core.database - INFO - ✅ Connected to PostgreSQL (psycopg): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:53:15,145 - app.core.database - INFO - ✅ Connected to PostgreSQL (SQLAlchemy async): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:53:15,153 - app.core.checkpointer - INFO - ✅ LangGraph checkpointer tables created/verified
+2025-12-08 18:53:15,451 - app.services.agent_service - INFO - Agent service initialized successfully
+2025-12-08 18:53:15,452 - server - INFO - ✅ Agent service initialized with DB: app/resource/chinook.db
+2025-12-08 18:53:15,452 - server - INFO - ✅ Using LLM provider: openai
+2025-12-08 18:53:45,515 - server - INFO - Shutting down Agent Backend API...
+2025-12-08 18:53:45,515 - app.services.agent_service - INFO - Agent service shutdown completed
+2025-12-08 18:53:45,516 - app.core.database - INFO - psycopg connection pool closed
+2025-12-08 18:53:45,519 - app.core.database - INFO - SQLAlchemy async engine disposed
+2025-12-08 18:53:45,519 - app.core.database - INFO - SQLAlchemy sync engine disposed
+2025-12-08 18:53:47,196 - server - INFO - Logging configuration complete
+2025-12-08 18:53:47,197 - server - INFO - Starting up Agent Backend API...
+2025-12-08 18:53:47,216 - app.core.database - INFO - ✅ Connected to PostgreSQL (psycopg): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:53:47,246 - app.core.database - INFO - ✅ Connected to PostgreSQL (SQLAlchemy async): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:53:47,257 - app.core.checkpointer - INFO - ✅ LangGraph checkpointer tables created/verified
+2025-12-08 18:53:47,576 - app.services.agent_service - INFO - Agent service initialized successfully
+2025-12-08 18:53:47,576 - server - INFO - ✅ Agent service initialized with DB: app/resource/chinook.db
+2025-12-08 18:53:47,576 - server - INFO - ✅ Using LLM provider: openai
+2025-12-08 18:53:48,680 - server - INFO - Shutting down Agent Backend API...
+2025-12-08 18:53:48,680 - app.services.agent_service - INFO - Agent service shutdown completed
+2025-12-08 18:53:48,682 - app.core.database - INFO - psycopg connection pool closed
+2025-12-08 18:53:48,684 - app.core.database - INFO - SQLAlchemy async engine disposed
+2025-12-08 18:53:48,685 - app.core.database - INFO - SQLAlchemy sync engine disposed
+2025-12-08 18:53:50,386 - server - INFO - Logging configuration complete
+2025-12-08 18:53:50,387 - server - INFO - Starting up Agent Backend API...
+2025-12-08 18:53:50,411 - app.core.database - INFO - ✅ Connected to PostgreSQL (psycopg): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:53:50,451 - app.core.database - INFO - ✅ Connected to PostgreSQL (SQLAlchemy async): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:53:50,463 - app.core.checkpointer - INFO - ✅ LangGraph checkpointer tables created/verified
+2025-12-08 18:53:50,756 - app.services.agent_service - INFO - Agent service initialized successfully
+2025-12-08 18:53:50,756 - server - INFO - ✅ Agent service initialized with DB: app/resource/chinook.db
+2025-12-08 18:53:50,756 - server - INFO - ✅ Using LLM provider: openai
+2025-12-08 18:56:30,186 - server - INFO - Shutting down Agent Backend API...
+2025-12-08 18:56:30,186 - app.services.agent_service - INFO - Agent service shutdown completed
+2025-12-08 18:56:30,187 - app.core.database - INFO - psycopg connection pool closed
+2025-12-08 18:56:30,189 - app.core.database - INFO - SQLAlchemy async engine disposed
+2025-12-08 18:56:30,190 - app.core.database - INFO - SQLAlchemy sync engine disposed
+2025-12-08 18:56:31,932 - server - INFO - Logging configuration complete
+2025-12-08 18:56:31,932 - server - INFO - Starting up Agent Backend API...
+2025-12-08 18:56:31,950 - app.core.database - INFO - ✅ Connected to PostgreSQL (psycopg): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:56:31,976 - app.core.database - INFO - ✅ Connected to PostgreSQL (SQLAlchemy async): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:56:31,985 - app.core.checkpointer - INFO - ✅ LangGraph checkpointer tables created/verified
+2025-12-08 18:56:32,304 - app.services.agent_service - INFO - Agent service initialized successfully
+2025-12-08 18:56:32,304 - server - INFO - ✅ Agent service initialized with DB: app/resource/chinook.db
+2025-12-08 18:56:32,304 - server - INFO - ✅ Using LLM provider: openai
+2025-12-08 18:57:24,216 - server - INFO - Shutting down Agent Backend API...
+2025-12-08 18:57:24,216 - app.services.agent_service - INFO - Agent service shutdown completed
+2025-12-08 18:57:24,218 - app.core.database - INFO - psycopg connection pool closed
+2025-12-08 18:57:24,223 - app.core.database - INFO - SQLAlchemy async engine disposed
+2025-12-08 18:57:24,224 - app.core.database - INFO - SQLAlchemy sync engine disposed
+2025-12-08 18:57:26,089 - server - INFO - Logging configuration complete
+2025-12-08 18:57:26,089 - server - INFO - Starting up Agent Backend API...
+2025-12-08 18:57:26,111 - app.core.database - INFO - ✅ Connected to PostgreSQL (psycopg): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:57:26,140 - app.core.database - INFO - ✅ Connected to PostgreSQL (SQLAlchemy async): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:57:26,150 - app.core.checkpointer - INFO - ✅ LangGraph checkpointer tables created/verified
+2025-12-08 18:57:26,485 - app.services.agent_service - INFO - Agent service initialized successfully
+2025-12-08 18:57:26,485 - server - INFO - ✅ Agent service initialized with DB: app/resource/chinook.db
+2025-12-08 18:57:26,485 - server - INFO - ✅ Using LLM provider: openai
+2025-12-08 18:57:28,145 - server - INFO - Logging configuration complete
+2025-12-08 18:57:28,145 - server - INFO - Starting up Agent Backend API...
+2025-12-08 18:57:28,164 - app.core.database - INFO - ✅ Connected to PostgreSQL (psycopg): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:57:28,189 - app.core.database - INFO - ✅ Connected to PostgreSQL (SQLAlchemy async): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:57:28,199 - app.core.checkpointer - INFO - ✅ LangGraph checkpointer tables created/verified
+2025-12-08 18:57:28,515 - app.services.agent_service - INFO - Agent service initialized successfully
+2025-12-08 18:57:28,515 - server - INFO - ✅ Agent service initialized with DB: app/resource/chinook.db
+2025-12-08 18:57:28,516 - server - INFO - ✅ Using LLM provider: openai
+2025-12-08 18:57:56,375 - server - INFO - Shutting down Agent Backend API...
+2025-12-08 18:57:56,375 - app.services.agent_service - INFO - Agent service shutdown completed
+2025-12-08 18:57:56,376 - app.core.database - INFO - psycopg connection pool closed
+2025-12-08 18:57:56,379 - app.core.database - INFO - SQLAlchemy async engine disposed
+2025-12-08 18:57:56,379 - app.core.database - INFO - SQLAlchemy sync engine disposed
+2025-12-08 18:57:58,033 - server - INFO - Logging configuration complete
+2025-12-08 18:57:58,033 - server - INFO - Starting up Agent Backend API...
+2025-12-08 18:57:58,061 - app.core.database - INFO - ✅ Connected to PostgreSQL (psycopg): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:57:58,092 - app.core.database - INFO - ✅ Connected to PostgreSQL (SQLAlchemy async): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:57:58,102 - app.core.checkpointer - INFO - ✅ LangGraph checkpointer tables created/verified
+2025-12-08 18:57:58,418 - app.services.agent_service - INFO - Agent service initialized successfully
+2025-12-08 18:57:58,418 - server - INFO - ✅ Agent service initialized with DB: app/resource/chinook.db
+2025-12-08 18:57:58,418 - server - INFO - ✅ Using LLM provider: openai
+2025-12-08 18:58:07,738 - server - INFO - Shutting down Agent Backend API...
+2025-12-08 18:58:07,738 - app.services.agent_service - INFO - Agent service shutdown completed
+2025-12-08 18:58:07,739 - app.core.database - INFO - psycopg connection pool closed
+2025-12-08 18:58:07,742 - app.core.database - INFO - SQLAlchemy async engine disposed
+2025-12-08 18:58:07,742 - app.core.database - INFO - SQLAlchemy sync engine disposed
+2025-12-08 18:58:09,350 - server - INFO - Logging configuration complete
+2025-12-08 18:58:09,350 - server - INFO - Starting up Agent Backend API...
+2025-12-08 18:58:09,370 - app.core.database - INFO - ✅ Connected to PostgreSQL (psycopg): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:58:09,400 - app.core.database - INFO - ✅ Connected to PostgreSQL (SQLAlchemy async): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:58:09,411 - app.core.checkpointer - INFO - ✅ LangGraph checkpointer tables created/verified
+2025-12-08 18:58:09,724 - app.services.agent_service - INFO - Agent service initialized successfully
+2025-12-08 18:58:09,724 - server - INFO - ✅ Agent service initialized with DB: app/resource/chinook.db
+2025-12-08 18:58:09,724 - server - INFO - ✅ Using LLM provider: openai
+2025-12-08 18:58:25,862 - server - INFO - Shutting down Agent Backend API...
+2025-12-08 18:58:25,862 - app.services.agent_service - INFO - Agent service shutdown completed
+2025-12-08 18:58:25,863 - app.core.database - INFO - psycopg connection pool closed
+2025-12-08 18:58:25,866 - app.core.database - INFO - SQLAlchemy async engine disposed
+2025-12-08 18:58:25,866 - app.core.database - INFO - SQLAlchemy sync engine disposed
+2025-12-08 18:58:27,548 - server - INFO - Logging configuration complete
+2025-12-08 18:58:27,548 - server - INFO - Starting up Agent Backend API...
+2025-12-08 18:58:27,565 - app.core.database - INFO - ✅ Connected to PostgreSQL (psycopg): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:58:27,589 - app.core.database - INFO - ✅ Connected to PostgreSQL (SQLAlchemy async): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:58:27,599 - app.core.checkpointer - INFO - ✅ LangGraph checkpointer tables created/verified
+2025-12-08 18:58:27,884 - app.services.agent_service - INFO - Agent service initialized successfully
+2025-12-08 18:58:27,884 - server - INFO - ✅ Agent service initialized with DB: app/resource/chinook.db
+2025-12-08 18:58:27,884 - server - INFO - ✅ Using LLM provider: openai
+2025-12-08 18:58:43,218 - server - INFO - Shutting down Agent Backend API...
+2025-12-08 18:58:43,218 - app.services.agent_service - INFO - Agent service shutdown completed
+2025-12-08 18:58:43,220 - app.core.database - INFO - psycopg connection pool closed
+2025-12-08 18:58:43,223 - app.core.database - INFO - SQLAlchemy async engine disposed
+2025-12-08 18:58:43,224 - app.core.database - INFO - SQLAlchemy sync engine disposed
+2025-12-08 18:58:44,805 - server - INFO - Logging configuration complete
+2025-12-08 18:58:44,806 - server - INFO - Starting up Agent Backend API...
+2025-12-08 18:58:44,828 - app.core.database - INFO - ✅ Connected to PostgreSQL (psycopg): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:58:44,854 - app.core.database - INFO - ✅ Connected to PostgreSQL (SQLAlchemy async): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 18:58:44,863 - app.core.checkpointer - INFO - ✅ LangGraph checkpointer tables created/verified
+2025-12-08 18:58:45,195 - app.services.agent_service - INFO - Agent service initialized successfully
+2025-12-08 18:58:45,195 - server - INFO - ✅ Agent service initialized with DB: app/resource/chinook.db
+2025-12-08 18:58:45,195 - server - INFO - ✅ Using LLM provider: openai
+2025-12-08 19:02:28,560 - server - INFO - Shutting down Agent Backend API...
+2025-12-08 19:02:28,560 - app.services.agent_service - INFO - Agent service shutdown completed
+2025-12-08 19:02:28,561 - app.core.database - INFO - psycopg connection pool closed
+2025-12-08 19:02:28,564 - app.core.database - INFO - SQLAlchemy async engine disposed
+2025-12-08 19:02:28,564 - app.core.database - INFO - SQLAlchemy sync engine disposed
+2025-12-08 19:02:30,306 - server - INFO - Logging configuration complete
+2025-12-08 19:02:30,306 - server - INFO - Starting up Agent Backend API...
+2025-12-08 19:02:30,330 - app.core.database - INFO - ✅ Connected to PostgreSQL (psycopg): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 19:02:30,356 - app.core.database - INFO - ✅ Connected to PostgreSQL (SQLAlchemy async): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 19:02:30,384 - app.core.checkpointer - INFO - ✅ LangGraph checkpointer tables created/verified
+2025-12-08 19:02:30,737 - app.services.agent_service - INFO - Agent service initialized successfully
+2025-12-08 19:02:30,739 - server - INFO - ✅ Agent service initialized with DB: app/resource/chinook.db
+2025-12-08 19:02:30,739 - server - INFO - ✅ Using LLM provider: openai
+2025-12-08 19:02:32,491 - server - INFO - Logging configuration complete
+2025-12-08 19:02:32,492 - server - INFO - Starting up Agent Backend API...
+2025-12-08 19:02:32,511 - app.core.database - INFO - ✅ Connected to PostgreSQL (psycopg): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 19:02:32,538 - app.core.database - INFO - ✅ Connected to PostgreSQL (SQLAlchemy async): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 19:02:32,546 - app.core.checkpointer - INFO - ✅ LangGraph checkpointer tables created/verified
+2025-12-08 19:02:32,852 - app.services.agent_service - INFO - Agent service initialized successfully
+2025-12-08 19:02:32,852 - server - INFO - ✅ Agent service initialized with DB: app/resource/chinook.db
+2025-12-08 19:02:32,852 - server - INFO - ✅ Using LLM provider: openai
+2025-12-08 19:13:52,610 - server - INFO - Shutting down Agent Backend API...
+2025-12-08 19:13:52,610 - app.services.agent_service - INFO - Agent service shutdown completed
+2025-12-08 19:13:52,611 - app.core.database - INFO - psycopg connection pool closed
+2025-12-08 19:13:52,614 - app.core.database - INFO - SQLAlchemy async engine disposed
+2025-12-08 19:13:52,615 - app.core.database - INFO - SQLAlchemy sync engine disposed
+2025-12-08 19:13:54,907 - server - INFO - Logging configuration complete
+2025-12-08 19:13:54,908 - server - INFO - Starting up Agent Backend API...
+2025-12-08 19:13:54,934 - app.core.database - INFO - ✅ Connected to PostgreSQL (psycopg): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 19:13:54,957 - app.core.database - INFO - ✅ Connected to PostgreSQL (SQLAlchemy async): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 19:13:54,966 - app.core.checkpointer - INFO - ✅ LangGraph checkpointer tables created/verified
+2025-12-08 19:13:55,417 - app.services.agent_service - INFO - Agent service initialized successfully
+2025-12-08 19:13:55,418 - server - INFO - ✅ Agent service initialized with DB: app/resource/chinook.db
+2025-12-08 19:13:55,418 - server - INFO - ✅ Using LLM provider: openai
+2025-12-08 19:14:10,649 - server - INFO - Shutting down Agent Backend API...
+2025-12-08 19:14:10,649 - app.services.agent_service - INFO - Agent service shutdown completed
+2025-12-08 19:14:10,650 - app.core.database - INFO - psycopg connection pool closed
+2025-12-08 19:14:10,653 - app.core.database - INFO - SQLAlchemy async engine disposed
+2025-12-08 19:14:10,653 - app.core.database - INFO - SQLAlchemy sync engine disposed
+2025-12-08 19:14:12,316 - server - INFO - Logging configuration complete
+2025-12-08 19:14:12,316 - server - INFO - Starting up Agent Backend API...
+2025-12-08 19:14:12,333 - app.core.database - INFO - ✅ Connected to PostgreSQL (psycopg): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 19:14:12,355 - app.core.database - INFO - ✅ Connected to PostgreSQL (SQLAlchemy async): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 19:14:12,363 - app.core.checkpointer - INFO - ✅ LangGraph checkpointer tables created/verified
+2025-12-08 19:14:12,658 - app.services.agent_service - INFO - Agent service initialized successfully
+2025-12-08 19:14:12,658 - server - INFO - ✅ Agent service initialized with DB: app/resource/chinook.db
+2025-12-08 19:14:12,658 - server - INFO - ✅ Using LLM provider: openai
+2025-12-08 19:20:28,662 - server - INFO - Shutting down Agent Backend API...
+2025-12-08 19:20:28,662 - app.services.agent_service - INFO - Agent service shutdown completed
+2025-12-08 19:20:28,664 - app.core.database - INFO - psycopg connection pool closed
+2025-12-08 19:20:28,667 - app.core.database - INFO - SQLAlchemy async engine disposed
+2025-12-08 19:20:28,667 - app.core.database - INFO - SQLAlchemy sync engine disposed
+2025-12-08 19:20:30,462 - server - INFO - Logging configuration complete
+2025-12-08 19:20:30,462 - server - INFO - Starting up Agent Backend API...
+2025-12-08 19:20:30,483 - app.core.database - INFO - ✅ Connected to PostgreSQL (psycopg): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 19:20:30,511 - app.core.database - INFO - ✅ Connected to PostgreSQL (SQLAlchemy async): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 19:20:30,520 - app.core.checkpointer - INFO - ✅ LangGraph checkpointer tables created/verified
+2025-12-08 19:20:30,820 - app.services.agent_service - INFO - Agent service initialized successfully
+2025-12-08 19:20:30,821 - server - INFO - ✅ Agent service initialized with DB: app/resource/chinook.db
+2025-12-08 19:20:30,821 - server - INFO - ✅ Using LLM provider: openai
+2025-12-08 19:20:40,541 - server - INFO - Shutting down Agent Backend API...
+2025-12-08 19:20:40,541 - app.services.agent_service - INFO - Agent service shutdown completed
+2025-12-08 19:20:40,542 - app.core.database - INFO - psycopg connection pool closed
+2025-12-08 19:20:40,546 - app.core.database - INFO - SQLAlchemy async engine disposed
+2025-12-08 19:20:40,546 - app.core.database - INFO - SQLAlchemy sync engine disposed
+2025-12-08 19:20:42,183 - server - INFO - Logging configuration complete
+2025-12-08 19:20:42,183 - server - INFO - Starting up Agent Backend API...
+2025-12-08 19:20:42,200 - app.core.database - INFO - ✅ Connected to PostgreSQL (psycopg): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 19:20:42,222 - app.core.database - INFO - ✅ Connected to PostgreSQL (SQLAlchemy async): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 19:20:42,231 - app.core.checkpointer - INFO - ✅ LangGraph checkpointer tables created/verified
+2025-12-08 19:20:42,549 - app.services.agent_service - INFO - Agent service initialized successfully
+2025-12-08 19:20:42,549 - server - INFO - ✅ Agent service initialized with DB: app/resource/chinook.db
+2025-12-08 19:20:42,550 - server - INFO - ✅ Using LLM provider: openai
+2025-12-08 19:22:49,922 - server - INFO - Shutting down Agent Backend API...
+2025-12-08 19:22:49,923 - app.services.agent_service - INFO - Agent service shutdown completed
+2025-12-08 19:22:49,924 - app.core.database - INFO - psycopg connection pool closed
+2025-12-08 19:22:49,926 - app.core.database - INFO - SQLAlchemy async engine disposed
+2025-12-08 19:22:49,927 - app.core.database - INFO - SQLAlchemy sync engine disposed
+2025-12-08 19:22:51,642 - server - INFO - Logging configuration complete
+2025-12-08 19:22:51,642 - server - INFO - Starting up Agent Backend API...
+2025-12-08 19:22:51,664 - app.core.database - INFO - ✅ Connected to PostgreSQL (psycopg): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 19:22:51,692 - app.core.database - INFO - ✅ Connected to PostgreSQL (SQLAlchemy async): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 19:22:51,703 - app.core.checkpointer - INFO - ✅ LangGraph checkpointer tables created/verified
+2025-12-08 19:22:52,042 - app.services.agent_service - INFO - Agent service initialized successfully
+2025-12-08 19:22:52,043 - server - INFO - ✅ Agent service initialized with DB: app/resource/chinook.db
+2025-12-08 19:22:52,043 - server - INFO - ✅ Using LLM provider: openai
+2025-12-08 19:22:52,345 - server - INFO - Shutting down Agent Backend API...
+2025-12-08 19:22:52,345 - app.services.agent_service - INFO - Agent service shutdown completed
+2025-12-08 19:22:52,346 - app.core.database - INFO - psycopg connection pool closed
+2025-12-08 19:22:52,351 - app.core.database - INFO - SQLAlchemy async engine disposed
+2025-12-08 19:22:52,351 - app.core.database - INFO - SQLAlchemy sync engine disposed
+2025-12-08 19:22:54,109 - server - INFO - Logging configuration complete
+2025-12-08 19:22:54,109 - server - INFO - Starting up Agent Backend API...
+2025-12-08 19:22:54,128 - app.core.database - INFO - ✅ Connected to PostgreSQL (psycopg): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 19:22:54,154 - app.core.database - INFO - ✅ Connected to PostgreSQL (SQLAlchemy async): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 19:22:54,164 - app.core.checkpointer - INFO - ✅ LangGraph checkpointer tables created/verified
+2025-12-08 19:22:54,556 - app.services.agent_service - INFO - Agent service initialized successfully
+2025-12-08 19:22:54,556 - server - INFO - ✅ Agent service initialized with DB: app/resource/chinook.db
+2025-12-08 19:22:54,556 - server - INFO - ✅ Using LLM provider: openai
+2025-12-08 19:22:58,365 - server - INFO - Shutting down Agent Backend API...
+2025-12-08 19:22:58,365 - app.services.agent_service - INFO - Agent service shutdown completed
+2025-12-08 19:22:58,366 - app.core.database - INFO - psycopg connection pool closed
+2025-12-08 19:22:58,370 - app.core.database - INFO - SQLAlchemy async engine disposed
+2025-12-08 19:22:58,370 - app.core.database - INFO - SQLAlchemy sync engine disposed
+2025-12-08 19:23:00,146 - server - INFO - Logging configuration complete
+2025-12-08 19:23:00,147 - server - INFO - Starting up Agent Backend API...
+2025-12-08 19:23:00,166 - app.core.database - INFO - ✅ Connected to PostgreSQL (psycopg): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 19:23:00,191 - app.core.database - INFO - ✅ Connected to PostgreSQL (SQLAlchemy async): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 19:23:00,200 - app.core.checkpointer - INFO - ✅ LangGraph checkpointer tables created/verified
+2025-12-08 19:23:00,498 - app.services.agent_service - INFO - Agent service initialized successfully
+2025-12-08 19:23:00,499 - server - INFO - ✅ Agent service initialized with DB: app/resource/chinook.db
+2025-12-08 19:23:00,499 - server - INFO - ✅ Using LLM provider: openai
+2025-12-08 19:23:02,216 - server - INFO - Logging configuration complete
+2025-12-08 19:23:02,216 - server - INFO - Starting up Agent Backend API...
+2025-12-08 19:23:02,234 - app.core.database - INFO - ✅ Connected to PostgreSQL (psycopg): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 19:23:02,255 - app.core.database - INFO - ✅ Connected to PostgreSQL (SQLAlchemy async): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 19:23:02,265 - app.core.checkpointer - INFO - ✅ LangGraph checkpointer tables created/verified
+2025-12-08 19:23:02,585 - app.services.agent_service - INFO - Agent service initialized successfully
+2025-12-08 19:23:02,585 - server - INFO - ✅ Agent service initialized with DB: app/resource/chinook.db
+2025-12-08 19:23:02,585 - server - INFO - ✅ Using LLM provider: openai
+2025-12-08 19:23:53,396 - server - INFO - Shutting down Agent Backend API...
+2025-12-08 19:23:53,397 - app.services.agent_service - INFO - Agent service shutdown completed
+2025-12-08 19:23:53,398 - app.core.database - INFO - psycopg connection pool closed
+2025-12-08 19:23:53,400 - app.core.database - INFO - SQLAlchemy async engine disposed
+2025-12-08 19:23:53,401 - app.core.database - INFO - SQLAlchemy sync engine disposed
+2025-12-08 19:23:54,976 - server - INFO - Logging configuration complete
+2025-12-08 19:23:54,976 - server - INFO - Starting up Agent Backend API...
+2025-12-08 19:23:54,995 - app.core.database - INFO - ✅ Connected to PostgreSQL (psycopg): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 19:23:55,019 - app.core.database - INFO - ✅ Connected to PostgreSQL (SQLAlchemy async): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 19:23:55,028 - app.core.checkpointer - INFO - ✅ LangGraph checkpointer tables created/verified
+2025-12-08 19:23:55,324 - app.services.agent_service - INFO - Agent service initialized successfully
+2025-12-08 19:23:55,324 - server - INFO - ✅ Agent service initialized with DB: app/resource/chinook.db
+2025-12-08 19:23:55,324 - server - INFO - ✅ Using LLM provider: openai
+2025-12-08 19:24:20,974 - server - INFO - Shutting down Agent Backend API...
+2025-12-08 19:24:20,974 - app.services.agent_service - INFO - Agent service shutdown completed
+2025-12-08 19:24:20,975 - app.core.database - INFO - psycopg connection pool closed
+2025-12-08 19:24:20,978 - app.core.database - INFO - SQLAlchemy async engine disposed
+2025-12-08 19:24:20,978 - app.core.database - INFO - SQLAlchemy sync engine disposed
+2025-12-08 19:24:22,771 - server - INFO - Logging configuration complete
+2025-12-08 19:24:22,771 - server - INFO - Starting up Agent Backend API...
+2025-12-08 19:24:22,789 - app.core.database - INFO - ✅ Connected to PostgreSQL (psycopg): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 19:24:22,813 - app.core.database - INFO - ✅ Connected to PostgreSQL (SQLAlchemy async): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 19:24:22,823 - app.core.checkpointer - INFO - ✅ LangGraph checkpointer tables created/verified
+2025-12-08 19:24:23,171 - app.services.agent_service - INFO - Agent service initialized successfully
+2025-12-08 19:24:23,171 - server - INFO - ✅ Agent service initialized with DB: app/resource/chinook.db
+2025-12-08 19:24:23,171 - server - INFO - ✅ Using LLM provider: openai
+2025-12-08 19:24:24,575 - server - INFO - Shutting down Agent Backend API...
+2025-12-08 19:24:24,575 - app.services.agent_service - INFO - Agent service shutdown completed
+2025-12-08 19:24:24,576 - app.core.database - INFO - psycopg connection pool closed
+2025-12-08 19:24:24,579 - app.core.database - INFO - SQLAlchemy async engine disposed
+2025-12-08 19:24:24,579 - app.core.database - INFO - SQLAlchemy sync engine disposed
+2025-12-08 19:24:26,359 - server - INFO - Logging configuration complete
+2025-12-08 19:24:26,359 - server - INFO - Starting up Agent Backend API...
+2025-12-08 19:24:26,377 - app.core.database - INFO - ✅ Connected to PostgreSQL (psycopg): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 19:24:26,403 - app.core.database - INFO - ✅ Connected to PostgreSQL (SQLAlchemy async): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 19:24:26,414 - app.core.checkpointer - INFO - ✅ LangGraph checkpointer tables created/verified
+2025-12-08 19:24:26,732 - app.services.agent_service - INFO - Agent service initialized successfully
+2025-12-08 19:24:26,732 - server - INFO - ✅ Agent service initialized with DB: app/resource/chinook.db
+2025-12-08 19:24:26,733 - server - INFO - ✅ Using LLM provider: openai
+2025-12-08 19:24:32,646 - server - INFO - Shutting down Agent Backend API...
+2025-12-08 19:24:32,646 - app.services.agent_service - INFO - Agent service shutdown completed
+2025-12-08 19:24:32,647 - app.core.database - INFO - psycopg connection pool closed
+2025-12-08 19:24:32,650 - app.core.database - INFO - SQLAlchemy async engine disposed
+2025-12-08 19:24:32,650 - app.core.database - INFO - SQLAlchemy sync engine disposed
+2025-12-08 19:24:34,500 - server - INFO - Logging configuration complete
+2025-12-08 19:24:34,501 - server - INFO - Starting up Agent Backend API...
+2025-12-08 19:24:34,519 - app.core.database - INFO - ✅ Connected to PostgreSQL (psycopg): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 19:24:34,543 - app.core.database - INFO - ✅ Connected to PostgreSQL (SQLAlchemy async): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 19:24:34,553 - app.core.checkpointer - INFO - ✅ LangGraph checkpointer tables created/verified
+2025-12-08 19:24:34,862 - app.services.agent_service - INFO - Agent service initialized successfully
+2025-12-08 19:24:34,863 - server - INFO - ✅ Agent service initialized with DB: app/resource/chinook.db
+2025-12-08 19:24:34,863 - server - INFO - ✅ Using LLM provider: openai
+2025-12-08 19:26:54,059 - server - INFO - Shutting down Agent Backend API...
+2025-12-08 19:26:54,059 - app.services.agent_service - INFO - Agent service shutdown completed
+2025-12-08 19:26:54,060 - app.core.database - INFO - psycopg connection pool closed
+2025-12-08 19:26:54,063 - app.core.database - INFO - SQLAlchemy async engine disposed
+2025-12-08 19:26:54,064 - app.core.database - INFO - SQLAlchemy sync engine disposed
+2025-12-08 19:26:55,731 - server - INFO - Logging configuration complete
+2025-12-08 19:26:55,732 - server - INFO - Starting up Agent Backend API...
+2025-12-08 19:26:55,749 - app.core.database - INFO - ✅ Connected to PostgreSQL (psycopg): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 19:26:55,773 - app.core.database - INFO - ✅ Connected to PostgreSQL (SQLAlchemy async): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 19:26:55,782 - app.core.checkpointer - INFO - ✅ LangGraph checkpointer tables created/verified
+2025-12-08 19:26:56,155 - app.services.agent_service - INFO - Agent service initialized successfully
+2025-12-08 19:26:56,155 - server - INFO - ✅ Agent service initialized with DB: app/resource/chinook.db
+2025-12-08 19:26:56,156 - server - INFO - ✅ Using LLM provider: openai
+2025-12-08 19:27:20,007 - server - INFO - Shutting down Agent Backend API...
+2025-12-08 19:27:20,007 - app.services.agent_service - INFO - Agent service shutdown completed
+2025-12-08 19:27:20,008 - app.core.database - INFO - psycopg connection pool closed
+2025-12-08 19:27:20,011 - app.core.database - INFO - SQLAlchemy async engine disposed
+2025-12-08 19:27:20,011 - app.core.database - INFO - SQLAlchemy sync engine disposed
+2025-12-08 19:46:54,311 - server - INFO - Logging configuration complete
+2025-12-08 19:46:54,311 - server - INFO - Starting up Agent Backend API...
+2025-12-08 19:46:54,334 - app.core.database - INFO - ✅ Connected to PostgreSQL (psycopg): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 19:46:54,362 - app.core.database - INFO - ✅ Connected to PostgreSQL (SQLAlchemy async): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 19:46:54,373 - app.core.checkpointer - INFO - ✅ LangGraph checkpointer tables created/verified
+2025-12-08 19:46:54,828 - app.services.agent_service - INFO - Agent service initialized successfully
+2025-12-08 19:46:54,828 - server - INFO - ✅ Agent service initialized with DB: app/resource/chinook.db
+2025-12-08 19:46:54,829 - server - INFO - ✅ Using LLM provider: openai
+2025-12-08 19:46:57,245 - server - INFO - Logging configuration complete
+2025-12-08 19:46:57,245 - server - INFO - Starting up Agent Backend API...
+2025-12-08 19:46:57,271 - app.core.database - INFO - ✅ Connected to PostgreSQL (psycopg): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 19:46:57,298 - app.core.database - INFO - ✅ Connected to PostgreSQL (SQLAlchemy async): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 19:46:57,310 - app.core.checkpointer - INFO - ✅ LangGraph checkpointer tables created/verified
+2025-12-08 19:46:57,744 - app.services.agent_service - INFO - Agent service initialized successfully
+2025-12-08 19:46:57,744 - server - INFO - ✅ Agent service initialized with DB: app/resource/chinook.db
+2025-12-08 19:46:57,744 - server - INFO - ✅ Using LLM provider: openai
+2025-12-08 19:46:57,773 - app.services.agent_service - ERROR - Agent execution failed: '_GeneratorContextManager' object has no attribute 'get_next_version'
+2025-12-08 19:47:09,268 - server - INFO - Shutting down Agent Backend API...
+2025-12-08 19:47:09,269 - app.services.agent_service - INFO - Agent service shutdown completed
+2025-12-08 19:47:09,270 - app.core.database - INFO - psycopg connection pool closed
+2025-12-08 19:47:09,273 - app.core.database - INFO - SQLAlchemy async engine disposed
+2025-12-08 19:47:09,274 - app.core.database - INFO - SQLAlchemy sync engine disposed
+2025-12-08 19:47:11,829 - server - INFO - Logging configuration complete
+2025-12-08 19:47:11,829 - server - INFO - Starting up Agent Backend API...
+2025-12-08 19:47:11,853 - app.core.database - INFO - ✅ Connected to PostgreSQL (psycopg): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 19:47:11,883 - app.core.database - INFO - ✅ Connected to PostgreSQL (SQLAlchemy async): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 19:47:11,896 - app.core.checkpointer - INFO - ✅ LangGraph checkpointer tables created/verified
+2025-12-08 19:47:12,311 - app.services.agent_service - INFO - Agent service initialized successfully
+2025-12-08 19:47:12,311 - server - INFO - ✅ Agent service initialized with DB: app/resource/chinook.db
+2025-12-08 19:47:12,311 - server - INFO - ✅ Using LLM provider: openai
+2025-12-08 19:47:21,232 - server - INFO - Shutting down Agent Backend API...
+2025-12-08 19:47:21,232 - app.services.agent_service - INFO - Agent service shutdown completed
+2025-12-08 19:47:21,233 - app.core.database - INFO - psycopg connection pool closed
+2025-12-08 19:47:21,239 - app.core.database - INFO - SQLAlchemy async engine disposed
+2025-12-08 19:47:21,239 - app.core.database - INFO - SQLAlchemy sync engine disposed
+2025-12-08 19:47:24,506 - server - INFO - Logging configuration complete
+2025-12-08 19:47:24,506 - server - INFO - Starting up Agent Backend API...
+2025-12-08 19:47:24,527 - app.core.database - INFO - ✅ Connected to PostgreSQL (psycopg): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 19:47:24,555 - app.core.database - INFO - ✅ Connected to PostgreSQL (SQLAlchemy async): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 19:47:24,566 - app.core.checkpointer - INFO - ✅ LangGraph checkpointer tables created/verified
+2025-12-08 19:47:24,985 - app.services.agent_service - INFO - Agent service initialized successfully
+2025-12-08 19:47:24,986 - server - INFO - ✅ Agent service initialized with DB: app/resource/chinook.db
+2025-12-08 19:47:24,986 - server - INFO - ✅ Using LLM provider: openai
+2025-12-08 19:47:52,148 - server - INFO - Shutting down Agent Backend API...
+2025-12-08 19:47:52,149 - app.services.agent_service - INFO - Agent service shutdown completed
+2025-12-08 19:47:52,150 - app.core.database - INFO - psycopg connection pool closed
+2025-12-08 19:47:52,154 - app.core.database - INFO - SQLAlchemy async engine disposed
+2025-12-08 19:47:52,154 - app.core.database - INFO - SQLAlchemy sync engine disposed
+2025-12-08 19:47:54,507 - server - INFO - Logging configuration complete
+2025-12-08 19:47:54,507 - server - INFO - Starting up Agent Backend API...
+2025-12-08 19:47:54,525 - app.core.database - INFO - ✅ Connected to PostgreSQL (psycopg): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 19:47:54,556 - app.core.database - INFO - ✅ Connected to PostgreSQL (SQLAlchemy async): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 19:47:54,567 - app.core.checkpointer - INFO - ✅ LangGraph checkpointer tables created/verified
+2025-12-08 19:47:54,981 - app.services.agent_service - INFO - Agent service initialized successfully
+2025-12-08 19:47:54,982 - server - INFO - ✅ Agent service initialized with DB: app/resource/chinook.db
+2025-12-08 19:47:54,982 - server - INFO - ✅ Using LLM provider: openai
+2025-12-08 19:48:12,026 - app.services.agent_service - ERROR - Agent execution failed: '_GeneratorContextManager' object has no attribute 'get_next_version'
+2025-12-08 19:48:53,014 - server - INFO - Shutting down Agent Backend API...
+2025-12-08 19:48:53,014 - app.services.agent_service - INFO - Agent service shutdown completed
+2025-12-08 19:48:53,015 - app.core.database - INFO - psycopg connection pool closed
+2025-12-08 19:48:53,019 - app.core.database - INFO - SQLAlchemy async engine disposed
+2025-12-08 19:48:53,019 - app.core.database - INFO - SQLAlchemy sync engine disposed
+2025-12-08 19:48:55,374 - server - INFO - Logging configuration complete
+2025-12-08 19:48:55,374 - server - INFO - Starting up Agent Backend API...
+2025-12-08 19:48:55,394 - app.core.database - INFO - ✅ Connected to PostgreSQL (psycopg): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 19:48:55,423 - app.core.database - INFO - ✅ Connected to PostgreSQL (SQLAlchemy async): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 19:48:55,433 - app.core.checkpointer - INFO - ✅ LangGraph checkpointer tables created/verified
+2025-12-08 19:48:55,877 - app.services.agent_service - INFO - Agent service initialized successfully
+2025-12-08 19:48:55,877 - server - INFO - ✅ Agent service initialized with DB: app/resource/chinook.db
+2025-12-08 19:48:55,878 - server - INFO - ✅ Using LLM provider: openai
+2025-12-08 19:49:10,610 - server - INFO - Shutting down Agent Backend API...
+2025-12-08 19:49:10,611 - app.services.agent_service - INFO - Agent service shutdown completed
+2025-12-08 19:49:10,612 - app.core.database - INFO - psycopg connection pool closed
+2025-12-08 19:49:10,618 - app.core.database - INFO - SQLAlchemy async engine disposed
+2025-12-08 19:49:10,618 - app.core.database - INFO - SQLAlchemy sync engine disposed
+2025-12-08 19:49:13,724 - server - INFO - Logging configuration complete
+2025-12-08 19:49:13,724 - server - INFO - Starting up Agent Backend API...
+2025-12-08 19:49:13,748 - app.core.database - INFO - ✅ Connected to PostgreSQL (psycopg): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 19:49:13,774 - app.core.database - INFO - ✅ Connected to PostgreSQL (SQLAlchemy async): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 19:49:13,785 - app.core.checkpointer - INFO - ✅ LangGraph checkpointer tables created/verified
+2025-12-08 19:49:14,238 - app.services.agent_service - INFO - Agent service initialized successfully
+2025-12-08 19:49:14,238 - server - INFO - ✅ Agent service initialized with DB: app/resource/chinook.db
+2025-12-08 19:49:14,239 - server - INFO - ✅ Using LLM provider: openai
+2025-12-08 19:49:28,594 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-12-08 19:49:31,413 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-12-08 19:49:31,424 - app.services.agent_service - INFO - Agent executed successfully for thread session-_R_4lrlb_
+2025-12-08 19:52:04,443 - server - INFO - Shutting down Agent Backend API...
+2025-12-08 19:52:04,444 - app.services.agent_service - INFO - Agent service shutdown completed
+2025-12-08 19:52:04,445 - app.core.database - INFO - psycopg connection pool closed
+2025-12-08 19:52:04,449 - app.core.database - INFO - SQLAlchemy async engine disposed
+2025-12-08 19:52:04,449 - app.core.database - INFO - SQLAlchemy sync engine disposed
+2025-12-08 19:52:06,913 - server - INFO - Logging configuration complete
+2025-12-08 19:52:06,913 - server - INFO - Starting up Agent Backend API...
+2025-12-08 19:52:06,934 - app.core.database - INFO - ✅ Connected to PostgreSQL (psycopg): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 19:52:06,959 - app.core.database - INFO - ✅ Connected to PostgreSQL (SQLAlchemy async): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 19:52:06,968 - app.core.checkpointer - INFO - ✅ LangGraph checkpointer tables created/verified
+2025-12-08 19:52:07,404 - app.services.agent_service - INFO - Agent service initialized successfully
+2025-12-08 19:52:07,404 - server - INFO - ✅ Agent service initialized with DB: app/resource/chinook.db
+2025-12-08 19:52:07,405 - server - INFO - ✅ Using LLM provider: openai
+2025-12-08 19:52:14,119 - server - INFO - Shutting down Agent Backend API...
+2025-12-08 19:52:14,119 - app.services.agent_service - INFO - Agent service shutdown completed
+2025-12-08 19:52:14,120 - app.core.database - INFO - psycopg connection pool closed
+2025-12-08 19:52:14,126 - app.core.database - INFO - SQLAlchemy async engine disposed
+2025-12-08 19:52:14,127 - app.core.database - INFO - SQLAlchemy sync engine disposed
+2025-12-08 19:52:17,235 - server - INFO - Logging configuration complete
+2025-12-08 19:52:17,236 - server - INFO - Starting up Agent Backend API...
+2025-12-08 19:52:17,254 - app.core.database - INFO - ✅ Connected to PostgreSQL (psycopg): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 19:52:17,279 - app.core.database - INFO - ✅ Connected to PostgreSQL (SQLAlchemy async): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 19:52:17,290 - app.core.checkpointer - INFO - ✅ LangGraph checkpointer tables created/verified
+2025-12-08 19:52:17,705 - app.services.agent_service - INFO - Agent service initialized successfully
+2025-12-08 19:52:17,706 - server - INFO - ✅ Agent service initialized with DB: app/resource/chinook.db
+2025-12-08 19:52:17,706 - server - INFO - ✅ Using LLM provider: openai
+2025-12-08 19:52:53,689 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-12-08 19:52:55,102 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-12-08 19:52:55,808 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-12-08 19:52:55,833 - app.agents.data_exploration_agent - INFO - Tool node result: {'messages': [ToolMessage(content='albums, artists, customers, employees, genres, invoice_items, invoices, media_types, playlist_track, playlists, tracks', name='sql_db_list_tables', tool_call_id='call_c9JL3iPj1hbriv73viMTaNWQ')]}
+2025-12-08 19:52:58,286 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-12-08 19:52:58,299 - app.services.agent_service - INFO - Agent executed successfully for thread session-_R_4lrlb_
+2025-12-08 19:55:56,588 - server - INFO - Shutting down Agent Backend API...
+2025-12-08 19:55:56,588 - app.services.agent_service - INFO - Agent service shutdown completed
+2025-12-08 19:55:56,590 - app.core.database - INFO - psycopg connection pool closed
+2025-12-08 19:55:56,594 - app.core.database - INFO - SQLAlchemy async engine disposed
+2025-12-08 19:55:56,594 - app.core.database - INFO - SQLAlchemy sync engine disposed
+2025-12-08 19:55:59,212 - server - INFO - Logging configuration complete
+2025-12-08 19:55:59,213 - server - INFO - Starting up Agent Backend API...
+2025-12-08 19:55:59,231 - app.core.database - INFO - ✅ Connected to PostgreSQL (psycopg): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 19:55:59,258 - app.core.database - INFO - ✅ Connected to PostgreSQL (SQLAlchemy async): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 19:55:59,268 - app.core.checkpointer - INFO - ✅ LangGraph checkpointer tables created/verified
+2025-12-08 19:55:59,747 - app.services.agent_service - INFO - Agent service initialized successfully
+2025-12-08 19:55:59,748 - server - INFO - ✅ Agent service initialized with DB: app/resource/chinook.db
+2025-12-08 19:55:59,748 - server - INFO - ✅ Using LLM provider: openai
+2025-12-08 19:56:05,263 - server - INFO - Shutting down Agent Backend API...
+2025-12-08 19:56:05,263 - app.services.agent_service - INFO - Agent service shutdown completed
+2025-12-08 19:56:05,265 - app.core.database - INFO - psycopg connection pool closed
+2025-12-08 19:56:05,270 - app.core.database - INFO - SQLAlchemy async engine disposed
+2025-12-08 19:56:05,270 - app.core.database - INFO - SQLAlchemy sync engine disposed
+2025-12-08 19:56:08,326 - server - INFO - Logging configuration complete
+2025-12-08 19:56:08,326 - server - INFO - Starting up Agent Backend API...
+2025-12-08 19:56:08,345 - app.core.database - INFO - ✅ Connected to PostgreSQL (psycopg): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 19:56:08,373 - app.core.database - INFO - ✅ Connected to PostgreSQL (SQLAlchemy async): PostgreSQL 15.15 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+2025-12-08 19:56:08,385 - app.core.checkpointer - INFO - ✅ LangGraph checkpointer tables created/verified
+2025-12-08 19:56:08,821 - app.services.agent_service - INFO - Agent service initialized successfully
+2025-12-08 19:56:08,821 - server - INFO - ✅ Agent service initialized with DB: app/resource/chinook.db
+2025-12-08 19:56:08,822 - server - INFO - ✅ Using LLM provider: openai
+2025-12-08 19:56:32,646 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-12-08 19:56:34,562 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-12-08 19:56:34,572 - app.services.agent_service - INFO - Agent executed successfully for thread session-_R_4lrlb_
+2025-12-08 19:57:59,122 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-12-08 19:58:01,497 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-12-08 19:58:01,511 - app.services.agent_service - INFO - Agent executed successfully for thread session-_R_4lrlb_
+2025-12-08 19:59:00,772 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-12-08 19:59:02,295 - httpx - INFO - HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-12-08 19:59:02,309 - app.services.agent_service - INFO - Agent executed successfully for thread session-_R_4lrlb_
