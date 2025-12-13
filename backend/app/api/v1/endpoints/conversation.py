@@ -272,12 +272,18 @@ async def update_conversation_title(
 
 @router.delete("/{thread_id}", response_model=SuccessResponse)
 async def delete_conversation(
+    request: Request,
     thread_id: str,
-    chat_service: ChatThreadService = Depends(get_chat_thread_service)
+    chat_service: ChatThreadService = Depends(get_chat_thread_service),
+    agent_service: AgentService = Depends(get_agent_service)
 ) -> SuccessResponse:
-    """Delete a conversation thread."""
+    """Delete a conversation thread and its associated checkpoints."""
     try:
-        success = await chat_service.delete_thread(thread_id)
+        success = await chat_service.delete_thread(
+            thread_id, 
+            delete_checkpoint=True,
+            agent_service=agent_service
+        )
         if not success:
             raise HTTPException(
                 status_code=404,

@@ -1,9 +1,12 @@
 """Chat thread service for managing chat threads and related operations."""
 
-from typing import List, Optional
+from typing import List, Optional, TYPE_CHECKING
 from datetime import datetime
 import uuid
 import logging
+
+if TYPE_CHECKING:
+    from app.services.agent_service import AgentService
 
 from app.repositories.chat_thread_repository import ChatThreadRepository
 from app.repositories.messages_repository import MessagesRepository
@@ -214,7 +217,12 @@ class ChatThreadService:
             logger.error(f"Error retrieving chat thread summaries: {e}")
             raise Exception(f"Failed to retrieve chat thread summaries: {e}")
     
-    async def delete_thread(self, thread_id: str, delete_checkpoint: bool = True) -> bool:
+    async def delete_thread(
+        self, 
+        thread_id: str, 
+        delete_checkpoint: bool = True,
+        agent_service: Optional['AgentService'] = None
+    ) -> bool:
         try:
             logger.info(f"Deleting thread {thread_id} (delete_checkpoint={delete_checkpoint})")
             
@@ -231,11 +239,8 @@ class ChatThreadService:
             )
             
             # Also delete the checkpoint if requested
-            if delete_checkpoint:
+            if delete_checkpoint and agent_service:
                 try:
-                    from app.services.dependencies import get_agent_service
-                    agent_service = get_agent_service()
-                    
                     if agent_service.is_initialized():
                         checkpoint_deleted = await agent_service.delete_thread(thread_id)
                         if checkpoint_deleted:
@@ -247,6 +252,8 @@ class ChatThreadService:
                 except Exception as e:
                     logger.warning(f"Failed to delete checkpoint for thread {thread_id}: {e}")
                     # Don't fail the whole operation if checkpoint deletion fails
+            elif delete_checkpoint and not agent_service:
+                logger.warning(f"AgentService not provided, skipping checkpoint deletion for thread {thread_id}")
             
             return True
                 
