@@ -37,8 +37,7 @@ logger = logging.getLogger(__name__)
 
 
 class DataExplorationAgent:
-    """Data Exploration Agent - Specialized for SQL database queries and data analysis with explanations, routing, and hybrid execution"""
-    
+  
     def __init__(self, llm, db_path: str, logs_dir: str = None, checkpointer=None, store=None, use_postgres_checkpointer: bool = True):
         self.llm = llm
         self.db_path = db_path
@@ -98,10 +97,8 @@ class DataExplorationAgent:
         else:
             self.checkpointer = None
         
-        # Create handoff tools and assistant agent
         self.create_handoff_tools()
         
-        # Create base assistant agent with routing capabilities
         base_assistant_agent = create_react_agent(
             model=llm,
             tools=[self.transfer_to_data_exploration],
@@ -135,7 +132,6 @@ class DataExplorationAgent:
             agent_type = state.get("agent_type", "data_exploration_agent")
             query = state.get("query", "")
             
-            # Store use_planning value for tools to access
             self._use_planning = use_planning
             self._use_explainer = use_explainer
             result = base_assistant_agent.invoke(state)
@@ -150,24 +146,18 @@ class DataExplorationAgent:
         
         self.assistant_agent = assistant_agent
         
-        # Bind node methods
         self.task_parser_node = lambda state: self.task_parser.execute(state)
         self.agent_executor_node = lambda state: self.agent_executor.execute(state)
         self.joiner_node = lambda state: self.joiner.execute(state)
         
-        # Create the graph
         self.graph = self.create_graph()
         
-        # Generate and save graph visualization
         self.save_graph_visualization()
     
     def save_graph_visualization(self):
-        """Generate and save graph visualization as PNG"""
         try:
-            # Generate the graph image
             graph_image = self.graph.get_graph().draw_mermaid_png()
             
-            # Save to logs directory
             graph_path = os.path.join(self.logs_dir, "agent_graph.png")
             with open(graph_path, "wb") as f:
                 f.write(graph_image)
@@ -178,16 +168,12 @@ class DataExplorationAgent:
             logger.info("Note: Graph visualization requires pygraphviz. Install with: pip install pygraphviz")
     
     def create_handoff_tools(self):
-        """Create tools for handing off to specialized agents"""
-        
         @tool("transfer_to_data_exploration", description="Transfer database and SQL queries to the data exploration agent")
         def transfer_to_data_exploration(
             state: Annotated[Dict[str, Any], InjectedState],
             tool_call_id: Annotated[str, InjectedToolCallId],
             task_description: str = ""
         ) -> Command:
-            """Transfer to data exploration agent"""
-            
             tool_message = {
                 "role": "tool",
                 "content": f"Transferring to data exploration agent: {task_description}",
@@ -195,7 +181,6 @@ class DataExplorationAgent:
                 "tool_call_id": tool_call_id,
             }
             
-            # Extract query from latest human message for new queries
             query = state.get("query", "")
             status = state.get("status", "approved")
             
@@ -204,12 +189,10 @@ class DataExplorationAgent:
                 if latest_human_msg:
                     query = latest_human_msg
             
-            # Get use_planning value from stored value
             use_planning = self._use_planning
             if use_planning is None:
                 use_planning = state.get("use_planning", True)
             
-            # Get use_explainer value from state
             use_explainer = self._use_explainer
             if use_explainer is None:
                 use_explainer = state.get("use_explainer", True)
@@ -243,10 +226,8 @@ class DataExplorationAgent:
         self.transfer_to_data_exploration = transfer_to_data_exploration
     
     def create_graph(self):
-        """Create the LangGraph state graph with hybrid execution"""
         graph = StateGraph(ExplainableAgentState)
         
-        # ===== EXISTING NODES =====
         graph.add_node("assistant", self.assistant_agent)
         graph.add_node("data_exploration_flow", self.data_exploration_entry)
         graph.add_node("planner", self.planner_node)
@@ -256,16 +237,12 @@ class DataExplorationAgent:
         graph.add_node("explain", self.explainer_node)
         graph.add_node("human_feedback", self.human_feedback)
         
-        # ===== NEW NODES FOR AGENT-BASED PARALLEL EXECUTION =====
         graph.add_node("task_parser", self.task_parser_node)
         graph.add_node("agent_executor", self.agent_executor_node)
         graph.add_node("joiner", self.joiner_node)
         
-        # ===== EDGES =====
-        # Start with assistant for routing
         graph.set_entry_point("assistant")
         
-        # Data exploration flow entry point - decides planning vs direct
         graph.add_conditional_edges(
             "data_exploration_flow",
             self.should_plan,
@@ -275,39 +252,34 @@ class DataExplorationAgent:
             }
         )
 
-        # After planning, go to human feedback
         graph.add_edge("planner", "human_feedback")
         
-        # After human approval
         graph.add_conditional_edges(
             "human_feedback",
             self.route_after_approval,
             {
-                "task_parser": "task_parser",  # NEW: Parse plan into tasks
-                "agent": "agent",  # OLD: Sequential execution
-                "planner": "planner",  # Feedback loop
+                "task_parser": "task_parser",
+                "agent": "agent",
+                "planner": "planner",
                 "end": END
             }
         )
         
-        # Task parser routes to task scheduler (uses Send API)
         graph.add_conditional_edges(
             "task_parser",
-            self.route_tasks,  # Uses Send API
+            self.route_tasks,
             ["agent_executor", "joiner"]
         )
         
-        # Agent executor decides: continue for error recovery or go to joiner
         graph.add_conditional_edges(
             "agent_executor",
             self.should_continue_group,
             {
-                "agent_executor": "agent_executor",  # Loop for error recovery
-                "joiner": "joiner"  # Group complete
+                "agent_executor": "agent_executor",
+                "joiner": "joiner"
             }
         )
         
-        # Joiner decides: explain or replan
         graph.add_conditional_edges(
             "joiner",
             self.after_joiner,
@@ -318,7 +290,6 @@ class DataExplorationAgent:
             }
         )
         
-        # OLD FLOW (preserved for backward compatibility)
         graph.add_conditional_edges(
             "agent",
             self.should_continue,
@@ -338,14 +309,12 @@ class DataExplorationAgent:
         )
         graph.add_edge("explain", "agent")
         
-        # Compile with checkpointer
         if self.checkpointer:
             if self.store:
                 return graph.compile(interrupt_before=["human_feedback"], checkpointer=self.checkpointer, store=self.store)
             else:
                 return graph.compile(interrupt_before=["human_feedback"], checkpointer=self.checkpointer)
         else:
-            # Fallback to MemorySaver if no checkpointer provided
             return graph.compile(interrupt_before=["human_feedback"], checkpointer=MemorySaver())
     
     def route_after_approval(self, state: ExplainableAgentState) -> str:
@@ -364,7 +333,6 @@ class DataExplorationAgent:
             return "agent"
     
     def route_tasks(self, state: ExplainableAgentState):
-        """Route tasks using dependency-aware scheduler"""
         return self.task_scheduler.route_tasks(state)
     
     def after_joiner(self, state: ExplainableAgentState) -> str:
@@ -431,20 +399,17 @@ class DataExplorationAgent:
         return None
     
     def should_plan(self, state: ExplainableAgentState):
-        """Determine if planning is needed"""
         use_planning = state.get("use_planning", True)
         
         if use_planning:
-            return "planner"  # Go through planning first
+            return "planner"
         else:
-            return "agent"    # Go directly to data exploration
+            return "agent"
     
     def human_feedback(self, state: ExplainableAgentState):
-        """Human feedback interrupt point"""
         pass
     
     def should_execute(self, state: ExplainableAgentState):
-        """Determine next step after human feedback"""
         if state.get("status") == "approved":
             return "agent"
         elif state.get("status") == "feedback":
@@ -453,11 +418,9 @@ class DataExplorationAgent:
             return "end"  # End the conversation
     
     def planner_node(self, state: ExplainableAgentState):
-        """Execute planner node"""
         return self.planner.execute(state)
     
     def should_continue(self, state: ExplainableAgentState):
-        """Determine if agent should continue to tools or end"""
         messages = state["messages"]
         last_message = messages[-1]
         
@@ -467,7 +430,6 @@ class DataExplorationAgent:
             return "end"  # End the conversation after agent completes
     
     def should_explain(self, state: ExplainableAgentState):
-        """Determine if explanation is needed"""
         use_explainer = state.get("use_explainer", True)
         
         if use_explainer:
@@ -476,7 +438,6 @@ class DataExplorationAgent:
             return "agent"  # Skip explainer and go directly back to agent
     
     def agent_node(self, state: ExplainableAgentState):
-        """Agent node that processes messages and decides on tool usage"""
         messages = state["messages"]
         
         system_message = self._build_system_message()

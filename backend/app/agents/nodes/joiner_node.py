@@ -1,6 +1,6 @@
 """Joiner Node - Decides whether to finish or replan"""
 from typing import Dict, Any, Union
-from langchain_core.messages import AIMessage, SystemMessage, ToolMessage
+from langchain_core.messages import AIMessage, SystemMessage, ToolMessage, HumanMessage
 from app.agents.state import ExplainableAgentState
 from pydantic import BaseModel, Field
 import logging
@@ -25,28 +25,19 @@ class JoinerDecision(BaseModel):
 
 
 class JoinerNode:
-    """Combines group results and decides next action"""
     
     def __init__(self, llm):
         self.llm = llm
     
     def execute(self, state: ExplainableAgentState) -> Dict[str, Any]:
-        """Analyze group results and decide: finish or replan"""
         
         group_results = state.get("group_results", {})
         query = state.get("query", "")
         task_groups = state.get("task_groups", [])
-        
-        # Build context from group results
-        context = self._build_context(task_groups, group_results)
-        
-        # Prompt for joiner
+   
         joiner_prompt = f"""Analyze the execution results and decide whether to finish or replan.
 
 Original Query: {query}
-
-Executed Groups & Results:
-{context}
 
 Your job is to:
 1. **Analyze the results**: What was actually accomplished? Did the tools succeed or fail? What data/insights were obtained?
@@ -72,37 +63,54 @@ Examples of BAD analysis (avoid these):
 - "The plan worked" (doesn't describe results)
 - "Everything is done" (doesn't assess if query is answered)
 
-Provide your decision:"""
+The execution results will be provided in the next message. Analyze them carefully."""
         
-        # Get structured response
         llm_with_structure = self.llm.with_structured_output(JoinerDecision)
         
         messages = state.get("messages", [])
         
-        # Filter out tool messages and system messages to avoid OpenAI validation errors
+        logger.info(f"Joiner received {len(messages)} messages")
+        for i, msg in enumerate(messages):
+            msg_type = type(msg).__name__
+            content_preview = str(msg.content)[:100] if hasattr(msg, 'content') else "no content"
+            logger.info(f"  Message {i}: {msg_type} - {content_preview}")
+        
+     
+        tool_call_ids_to_skip = set()
+        for msg in messages:
+            if isinstance(msg, AIMessage) and msg.tool_calls:
+                for tool_call in msg.tool_calls:
+                    tool_call_ids_to_skip.add(tool_call['id'])
+        
         filtered_messages = []
         for msg in messages:
-            # Skip system messages (we add our own)
             if hasattr(msg, 'type') and msg.type == 'system':
                 continue
                 
-            # Skip ToolMessages
-            if isinstance(msg, ToolMessage):
+            if isinstance(msg, AIMessage) and msg.tool_calls:
                 continue
                 
-            # Skip AIMessages with tool_calls
-            if isinstance(msg, AIMessage) and msg.tool_calls:
+            if isinstance(msg, ToolMessage) and msg.tool_call_id in tool_call_ids_to_skip:
                 continue
                 
             filtered_messages.append(msg)
         
+        execution_results = self._build_execution_results(task_groups, group_results)
+        
+        execution_results_message = HumanMessage(
+            content=f"""**Execution Results:**
+
+{execution_results}
+
+Please analyze these results and provide your decision."""
+        )
+        
         decision_messages = [
             SystemMessage(content=joiner_prompt)
-        ] + filtered_messages
+        ] + filtered_messages + [execution_results_message]
         
         decision = llm_with_structure.invoke(decision_messages)
         
-        # Process decision
         if isinstance(decision.action, FinalResponse):
             return {
                 "joiner_decision": "finish",
@@ -121,15 +129,26 @@ Provide your decision:"""
                 ]
             }
     
-    def _build_context(self, task_groups: list, group_results: Dict[int, Any]) -> str:
-        """Build readable context from group results"""
+    def _build_execution_results(self, task_groups: list, group_results: Dict[int, Any]) -> str:
         lines = []
         
         for idx, group in enumerate(task_groups):
             result = group_results.get(idx, "Not executed")
             
-            lines.append(f"Group {idx + 1}: {', '.join(group)}")
-            lines.append(f"  Result: {str(result)[:1000]}")  # Show more context
+            lines.append(f"**Group {idx + 1}:**")
+            
+            if isinstance(result, str):
+                result_lines = result.split('\n')
+                current_tool = None
+                
+                for line in result_lines:
+                    if ' result: ' in line:
+                        tool_name, output = line.split(' result: ', 1)
+                        truncated_output = output[:2000] + '...' if len(output) > 2000 else output
+                        lines.append(f"  - {tool_name}: {truncated_output}")
+            else:
+                lines.append(f"  Result: {str(result)[:2000]}")
+            
             lines.append("")
         
         return "\n".join(lines)

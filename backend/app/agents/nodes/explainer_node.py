@@ -20,20 +20,11 @@ class StepExplanation(BaseModel):
 
 
 class ExplainerNode:
-    """Node responsible for explaining agent steps and decisions"""
     
     def __init__(self, llm):
         self.llm = llm
     
-    def explain_step(self, step: Dict[str, Any]) -> StepExplanation:
-        """Generate explanation for a single step
-        
-        Args:
-            step: Step information containing tool name, input, output, etc.
-            
-        Returns:
-            StepExplanation with decision, reasoning, confidence, and why_chosen
-        """
+    def explain_step(self, step: Dict[str, Any]) -> StepExplanation:  
         try:
             tool_name = step.get("tool_name", "unknown")
             tool_input = step.get("input", "")
@@ -76,14 +67,7 @@ Be concise, clear, and user-friendly. Avoid technical jargon unless necessary.""
             )
     
     def explain_multiple_steps(self, steps: list[Dict[str, Any]]) -> list[StepExplanation]:
-        """Generate explanations for multiple steps
-        
-        Args:
-            steps: List of step information dicts
-            
-        Returns:
-            List of StepExplanation objects
-        """
+
         explanations = []
         for step in steps:
             explanation = self.explain_step(step)

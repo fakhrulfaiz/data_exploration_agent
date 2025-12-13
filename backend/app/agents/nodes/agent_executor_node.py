@@ -1,15 +1,15 @@
-"""Agent Executor Node - Executes tools one at a time from the plan"""
 from typing import Dict, Any
 from langchain_core.messages import AIMessage, SystemMessage, ToolMessage
 from app.agents.state import ExplainableAgentState
+from app.schemas.chat import DataContext
+from datetime import datetime
+import json
 import logging
 
 logger = logging.getLogger(__name__)
 
 
 class AgentExecutorNode:
-    """Executes tools one at a time from the planned sequence"""
-    
     def __init__(self, llm, tools):
         self.llm = llm
         self.tools = tools
@@ -39,12 +39,9 @@ class AgentExecutorNode:
                 "group_results": {group_index: "Error: No tasks to execute"}
             }
         
-        # Get the FIRST task from the list (full description)
         current_task = group_tools[0]
-        remaining_tasks = group_tools[1:]  # Rest of the tasks
+        remaining_tasks = group_tools[1:]  
         
-        # Parse tool name and description from task
-        # Format: "tool_name: description"
         if ':' not in current_task:
             logger.error(f"Invalid task format: {current_task}")
             return {
@@ -60,7 +57,6 @@ class AgentExecutorNode:
         logger.info(f"Executing {tool_name} ({len(remaining_tasks)} tasks remaining)")
         logger.info(f"Task description: {task_description[:100]}...")
         
-        # Get the tool
         tool = self.tool_map.get(tool_name)
         if not tool:
             logger.error(f"Tool {tool_name} not found")
@@ -69,8 +65,7 @@ class AgentExecutorNode:
                 "continue_group": len(remaining_tasks) > 0,
                 "messages": [AIMessage(content=f"Error: Tool {tool_name} not found")]
             }
-        
-        # Build system message with task description
+    
         system_message = SystemMessage(content=f"""You are executing step {group_index + 1} of the plan.
 
 Original Query: {query}
@@ -111,13 +106,47 @@ Remaining tasks after this: {len(remaining_tasks)}
         logger.info(f"Executing {tool_call['name']} with args: {tool_call['args']}")
         
         try:
-            result = tool.invoke(tool_call['args'])
-            tool_message = ToolMessage(
-                content=str(result),
-                tool_call_id=tool_call['id'],
-                name=tool_call['name']
-            )
+            # Use ToolNode to properly handle InjectedState
+            from langgraph.prebuilt import ToolNode
+            
+            # Create a ToolNode with just this one tool
+            tool_node = ToolNode(tools=[tool])
+            
+            # Build state for tool execution (must include messages with the AI message containing tool_calls)
+            tool_state = {
+                **state,
+                "messages": messages + [response],  # Include the AI message with tool_calls
+            }
+            
+            # Execute the tool through ToolNode (this properly injects state)
+            tool_result = tool_node.invoke(tool_state)
+            
+            # Extract the tool message from the result
+            tool_message = tool_result["messages"][0]  # ToolNode returns messages in result
             logger.info(f"Tool {tool_name} executed successfully")
+            
+            updated_data_context = state.get("data_context")
+            if tool_name == "sql_db_to_df":
+                logger.info(f"sql_db_to_df raw output: {tool_message.content}")
+                try:
+                    parsed_output = json.loads(tool_message.content)
+                    data_context_payload = parsed_output.get("data_context")
+                    if data_context_payload:
+                        # Convert shape list to tuple if needed
+                        if "shape" in data_context_payload and isinstance(data_context_payload["shape"], list):
+                            data_context_payload["shape"] = tuple(data_context_payload["shape"])
+                        
+                        # Parse datetime strings if needed
+                        if "created_at" in data_context_payload and isinstance(data_context_payload["created_at"], str):
+                            data_context_payload["created_at"] = datetime.fromisoformat(data_context_payload["created_at"])
+                        
+                        if "expires_at" in data_context_payload and isinstance(data_context_payload["expires_at"], str):
+                            data_context_payload["expires_at"] = datetime.fromisoformat(data_context_payload["expires_at"])
+                        
+                        updated_data_context = DataContext(**data_context_payload)
+                        logger.info(f"Successfully updated data_context: df_id={data_context_payload.get('df_id')}")
+                except Exception as e:
+                    logger.error(f"Failed to extract data_context from sql_db_to_df output: {e}")
             
             # Check if this was the last task
             if not remaining_tasks:
@@ -130,18 +159,25 @@ Remaining tasks after this: {len(remaining_tasks)}
                 group_results = state.get("group_results", {})
                 group_results[group_index] = group_summary
                 
+                # DEBUG: Log what we're returning
+                logger.info(f"Group {group_index} complete - returning 2 messages (AI + Tool)")
+                logger.info(f"  Total messages in state before: {len(messages)}")
+                logger.info(f"  Returning messages: {len([response, tool_message])}")
+                
                 return {
                     "current_group_tools": [],
                     "continue_group": False,
                     "messages": [response, tool_message],
-                    "group_results": group_results
+                    "group_results": group_results,
+                    "data_context": updated_data_context
                 }
             else:
                 logger.info(f"Moving to next task: {remaining_tasks[0].split(':')[0]}")
                 return {
                     "current_group_tools": remaining_tasks,
                     "continue_group": True,
-                    "messages": [response, tool_message]
+                    "messages": [response, tool_message],
+                    "data_context": updated_data_context
                 }
                 
         except Exception as e:
@@ -160,24 +196,14 @@ Remaining tasks after this: {len(remaining_tasks)}
             }
     
     def _build_group_summary(self, messages) -> str:
-        """Build a summary of tool executions from messages
-        
-        Extract the last few AI and Tool messages to show what actually happened
-        """
         summary_parts = []
         
-        # Get the last 10 messages (should cover all tool executions in the group)
-        recent_messages = messages[-10:] if len(messages) > 10 else messages
-        
-        for msg in recent_messages:
+        for msg in messages:
             if isinstance(msg, AIMessage) and hasattr(msg, 'tool_calls') and msg.tool_calls:
-                # AI message with tool calls
                 for call in msg.tool_calls:
                     summary_parts.append(f"Called {call['name']} with args: {call['args']}")
             elif isinstance(msg, ToolMessage):
-                # Tool result
-                content = msg.content[:500]  # Limit length
-                summary_parts.append(f"{msg.name} result: {content}")
+                summary_parts.append(f"{msg.name} result: {msg.content}")
         
         if not summary_parts:
             return "No tool executions found"

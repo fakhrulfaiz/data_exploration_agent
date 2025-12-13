@@ -242,7 +242,13 @@ consider replan. For vague feedback, ask for clarification. If user ask question
                             
                             
                             TOOL SELECTION GUIDELINES:
-                            1. For SQL queries - Choose based on output size and next steps:
+                            
+                            1. **SQL Query Generation**:
+                               - ALWAYS use text2SQL first to generate SQL queries from natural language
+                               - text2SQL has access to database schema and will generate correct queries
+                               - Provide context about what data you need
+                            
+                            2. **SQL Query Execution** - Choose based on output size and next steps:
                                
                                **Use sql_db_query when**:
                                - Query returns small results (≤20 rows)
@@ -251,23 +257,44 @@ consider replan. For vague feedback, ask for clarification. If user ask question
                                - Example: "Show me 5 customer names" → text2SQL + sql_db_query
                                
                                **Use sql_db_to_df when**:
-                               - Query returns large results (\u003e20 rows)
+                               - Query returns large results (>20 rows)
                                - Results need further processing (calculations, transformations, visualizations)
                                - Data will be used by python_repl or visualization tools
-                               - Example: "Show top 100 albums" → text2SQL + sql_db_to_df + smart_transform_for_viz or vague query that might return many rows
+                               - Example: "Show top 100 albums" → text2SQL + sql_db_to_df + visualization tool
                                
                                Key difference:
                                - sql_db_query: Returns results directly to agent (not stored)
                                - sql_db_to_df: Stores results as DataFrame in Redis for further use
                             
-                            2. For visualizations (when charts/graphs are requested):
-                               - First get data with text2SQL + sql_db_to_df
-                               - Then use smart_transform_for_viz for small datasets (≤100 rows)
-                               - Or use large_plotting_tool for large datasets (>100 rows)
+                            3. **DataFrame Management**:
+                               - ALWAYS run sql_db_to_df BEFORE using python_repl, smart_transform_for_viz, or large_plotting_tool
+                               - These tools require a DataFrame to be available in Redis
+                               - The DataFrame is automatically loaded by these tools using data_context
                             
-                            3. For data analysis:
+                            4. **Visualizations** (when charts/graphs are requested):
+                               
+                               **Use smart_transform_for_viz when**:
+                               - Small datasets (≤100 rows)
+                               - Interactive frontend charts (bar, line, pie)
+                               - User wants to explore data interactively
+                               - Requires DataFrame from sql_db_to_df
+                               
+                               **Use large_plotting_tool when**:
+                               - Large datasets (>100 rows)
+                               - User requests "matplotlib", "static image", or "high-quality" plots
+                               - Complex statistical plots (histograms, scatter plots, box plots)
+                               - Requires DataFrame from sql_db_to_df
+                            
+                            5. **Data Analysis**:
+                               - You can use use simple sql query with count, sum, avg, min, max, group by, order by, limit clauses for simple calculations
                                - Use python_repl for calculations, statistics, transformations
                                - Use dataframe_info to check what data is available
+                               - python_repl requires DataFrame from sql_db_to_df
+                            
+                            6. **Error Prevention**:
+                               - Use LIMIT clauses in SQL queries to avoid large datasets
+                               - Select only necessary columns
+                               - Be specific about what each tool does to avoid confusion
                             
                             COMMON WORKFLOWS:
                             
@@ -282,20 +309,20 @@ consider replan. For vague feedback, ask for clarification. If user ask question
                             
                             Query with Visualization (small data):
                             1. text2SQL: Convert question to SQL query
-                            2. sql_db_to_df: Execute query and store results
-                            3. smart_transform_for_viz: Create interactive chart
+                            2. sql_db_to_df: Execute query and store results as DataFrame
+                            3. smart_transform_for_viz: Create interactive chart from DataFrame
                             
                             Query with Visualization (large data):
                             1. text2SQL: Convert question to SQL query
-                            2. sql_db_to_df: Execute query and store results
-                            3. large_plotting_tool: Create matplotlib plot
+                            2. sql_db_to_df: Execute query and store results as DataFrame
+                            3. large_plotting_tool: Create matplotlib plot from DataFrame
                             
-                            EXAMPLE FORMAT (for "Show top 5 albums by sales"):
-                            1. text2SQL: Convert the natural language question into a SQL query. Input: question text. Action: Generate SQL SELECT statement with JOIN, GROUP BY, ORDER BY, and LIMIT clauses. Output: SQL query string.
+                            EXAMPLE FORMAT:
+                            1. [tool_name]: [What this tool receives as input]. Input: [specific input]. Action: [What this tool does]. Output: [What this tool produces].
                             
-                            2. sql_db_to_df: Execute the SQL query from step 1. Input: SQL query string. Action: Run query against database and store results. Output: pandas DataFrame saved in Redis with album names and sales figures.
+                            2. [next_tool]: [What this tool receives]. Input: [from previous step]. Action: [specific action]. Output: [result type and description].
                             
-                            3. smart_transform_for_viz: Create a bar chart from the DataFrame. Input: DataFrame with album and sales columns. Action: Map columns to chart axes and generate interactive visualization. Output: Plotly chart specification.
+                            3. [final_tool]: [What this tool does with the data]. Input: [data from previous step]. Action: [final processing]. Output: [final deliverable].
                             
                             HANDLING UNCERTAINTY:
                             If you're not sure about the exact approach or need to explore the data first, you can indicate this in your plan.
