@@ -24,12 +24,16 @@ export interface VisualizationsContent {
   visualizations?: any[]; // Optional cached data
 }
 
+export interface PlanContent {
+  plan: string;
+}
+
 export interface ContentBlock {
   id: string;
-  type: 'text' | 'tool_calls' | 'explorer' | 'visualizations';
+  type: 'text' | 'tool_calls' | 'explorer' | 'visualizations' | 'plan';
   needsApproval?: boolean;
   messageStatus?: 'pending' | 'approved' | 'rejected' | 'error' | 'timeout';
-  data: TextContent | ToolCallsContent | ExplorerContent | VisualizationsContent;
+  data: TextContent | ToolCallsContent | ExplorerContent | VisualizationsContent | PlanContent;
 }
 
 export interface Message {
@@ -102,6 +106,16 @@ export const isExplorerBlock = (block: ContentBlock): block is ContentBlock & { 
 
 export const isVisualizationsBlock = (block: ContentBlock): block is ContentBlock & { data: VisualizationsContent } =>
   block.type === 'visualizations';
+
+export const createPlanBlock = (id: string, plan: string, needsApproval?: boolean): ContentBlock => ({
+  id,
+  type: 'plan',
+  needsApproval,
+  data: { plan }
+});
+
+export const isPlanBlock = (block: ContentBlock): block is ContentBlock & { data: PlanContent } =>
+  block.type === 'plan';
 
 // Response object that handlers can return
 export interface HandlerResponse {

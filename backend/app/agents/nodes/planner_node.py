@@ -364,5 +364,6 @@ consider replan. For vague feedback, ask for clarification. If user ask question
             "query": user_query,
             "plan": plan,
             "steps": state.get("steps", []),
-            "step_counter": state.get("step_counter", 0)
+            "step_counter": state.get("step_counter", 0),
+            "response_type": "plan" 
         }

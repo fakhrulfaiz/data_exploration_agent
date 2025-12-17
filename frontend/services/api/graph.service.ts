@@ -5,7 +5,7 @@
 
 import { apiClient } from '../client';
 import { API_ENDPOINTS } from '../endpoints';
-import type {
+import {
     StartGraphRequest,
     ResumeGraphRequest,
     GraphResponse,
@@ -78,7 +78,7 @@ export class GraphService {
     static async cancelExecution(threadId: string): Promise<GraphResponse> {
         return this.resumeStreamingGraph({
             thread_id: threadId,
-            review_action: 'cancelled' as ApprovalStatus,
+            review_action: ApprovalStatus.REJECTED,
         });
     }
 

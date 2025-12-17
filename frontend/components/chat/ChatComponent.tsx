@@ -2,7 +2,7 @@
 
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { ThumbsUp, ThumbsDown, ChevronDown } from 'lucide-react';
-import { Message as MessageType, ChatComponentProps, HandlerResponse, ContentBlock, ToolCallsContent, createTextBlock, createToolCallsBlock, createExplorerBlock, createVisualizationsBlock } from '@/types/chat';
+import { Message as MessageType, ChatComponentProps, HandlerResponse, ContentBlock, ToolCallsContent, createTextBlock, createToolCallsBlock, createExplorerBlock, createVisualizationsBlock, createPlanBlock } from '@/types/chat';
 import Message from './Message';
 import GeneratingIndicator from './GeneratingIndicator';
 import InputForm from './InputForm';
@@ -530,6 +530,19 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
           } else {
             // Block found with finalized ID, just update the content
             (textBlock.data as any).text = blockData.content;
+          }
+        }
+      } else if (blockType === 'plan') {
+        // Handle plan blocks from planner node
+        if (action === 'add_planner') {
+          // Create or update plan block
+          let planBlock = updatedBlocks.find(b => b.id === blockId);
+          if (!planBlock) {
+            planBlock = createPlanBlock(blockId, blockData.content, false);
+            updatedBlocks = [...updatedBlocks, planBlock];
+          } else {
+            // Update existing plan block
+            (planBlock.data as any).plan = blockData.content;
           }
         }
       } else if (blockType === 'tool_calls') {
@@ -1593,7 +1606,7 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
           ))}
 
           {/* Loading indicator */}
-          {!useStreaming && isLoading && (
+          {((!useStreaming && isLoading) || (useStreaming && streamingActive)) && (
             <GeneratingIndicator
               activeTools={toolStepHistory?.steps.filter(s => s.status === 'calling').map(s => s.name)}
             />

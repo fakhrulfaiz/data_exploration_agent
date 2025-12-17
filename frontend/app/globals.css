@@ -168,16 +168,57 @@
   --tracking-widest: calc(var(--tracking-normal) + 0.1em);
 }
 
+html {
+  scrollbar-gutter: stable;
+}
+
+/* Apply slim scrollbar to html */
+html::-webkit-scrollbar {
+  width: 6px;
+}
+
+html::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+html::-webkit-scrollbar-thumb {
+  background-color: #d1d5db;
+  border-radius: 3px;
+  opacity: 0.7;
+}
+
+html::-webkit-scrollbar-thumb:hover {
+  background-color: #9ca3af;
+  opacity: 1;
+}
+
 body {
   letter-spacing: var(--tracking-normal);
   background: var(--background);
   color: var(--foreground);
   font-family: var(--font-sans);
+  scrollbar-gutter: stable;
 }
 
-/* ============================================
-   Global Scrollbar Styles
-   ============================================ */
+/* Apply slim scrollbar to body */
+body::-webkit-scrollbar {
+  width: 6px;
+}
+
+body::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+body::-webkit-scrollbar-thumb {
+  background-color: #d1d5db;
+  border-radius: 3px;
+  opacity: 0.7;
+}
+
+body::-webkit-scrollbar-thumb:hover {
+  background-color: #9ca3af;
+  opacity: 1;
+}
 
 /* Global slim scrollbar styles */
 .slim-scroll {
@@ -279,6 +320,28 @@ body {
 }
 
 .dark .slim-scroll-x::-webkit-scrollbar-thumb:hover {
+  background-color: #737373;
+  opacity: 1;
+}
+
+/* Dark mode for html scrollbar */
+.dark html::-webkit-scrollbar-thumb {
+  background-color: #525252;
+  opacity: 0.7;
+}
+
+.dark html::-webkit-scrollbar-thumb:hover {
+  background-color: #737373;
+  opacity: 1;
+}
+
+/* Dark mode for body scrollbar */
+.dark body::-webkit-scrollbar-thumb {
+  background-color: #525252;
+  opacity: 0.7;
+}
+
+.dark body::-webkit-scrollbar-thumb:hover {
   background-color: #737373;
   opacity: 1;
 }

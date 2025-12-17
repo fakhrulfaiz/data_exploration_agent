@@ -50,7 +50,7 @@ export enum ExecutionStatus {
 export enum ApprovalStatus {
     APPROVED = 'approved',
     FEEDBACK = 'feedback',
-    CANCELLED = 'cancelled',
+    REJECTED = 'rejected',
 }
 
 // ==================== Conversation Types ====================

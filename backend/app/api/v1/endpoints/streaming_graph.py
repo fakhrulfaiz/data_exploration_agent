@@ -451,6 +451,10 @@ async def stream_graph(
                         if node_name not in ['planner', 'agent']:
                             continue
                         
+                        # Skip token-by-token streaming for planner - send full message in finalize_text
+                        if node_name == 'planner':
+                            continue
+                        
                         chunk_text = msg.content
                         msg_id = _extract_stream_or_message_id(msg, preferred_key='message_id')
                         if chunk_text.startswith("{") or buffer:
@@ -509,14 +513,30 @@ async def stream_graph(
                             yield {"event": "content_block", "data": tool_expl_final}
                             continue
                         
-                        # Use text_block_id to ensure consistency with DB
+                        
+                        # Determine block type and ID based on node and response_type
+                        # For planner node, check response_type to decide block type
+                        block_type = "text"
+                        block_id = text_block_id
+                        
+                        if node_name == 'planner':
+                            # Get response_type from state to determine if this is a plan
+                            state_snapshot = agent.graph.get_state(config)
+                            values_snapshot = getattr(state_snapshot, 'values', {}) or {}
+                            response_type = values_snapshot.get("response_type")
+                            
+                            if response_type in ["plan", "replan"]:
+                                block_type = "plan"
+                                block_id = f"plan_{assistant_message_id or str(uuid4())}"
+                        
+                        # Use determined block type and ID
                         yield {"event": "content_block", "data": json.dumps({
-                            "block_type": "text",
-                            "block_id": text_block_id, # Use consistent ID
+                            "block_type": block_type,
+                            "block_id": block_id,
                             "content": msg.content,
                             "node": node_name,
                             "message_id": assistant_message_id,
-                            "action": "finalize_text"
+                            "action": "add_planner" if block_type == "plan" else "finalize_text"
                         })}
             
             # After streaming completes, emit final payloads
@@ -599,13 +619,30 @@ async def stream_graph(
                             if len(content_block["data"]["toolCalls"]) > 0:
                                 content_blocks.append(content_block)
 
+                        # Determine block type based on response_type for planner content
+                        # response_type is set by planner_node when generating plans
                         if assistant_response:
-                            content_blocks.append({
-                                "id": text_block_id or f"text_{assistant_message_id or str(uuid4())}",
-                                "type": "text",
-                                "needsApproval": True,
-                                "data": {"text": assistant_response}
-                            })
+                            block_type = "text"
+                            block_id = text_block_id or f"text_{assistant_message_id or str(uuid4())}"
+                            
+                            # If response_type is "plan" or "replan", use plan block type
+                            if response_type in ["plan", "replan"]:
+                                block_type = "plan"
+                                block_id = f"plan_{assistant_message_id or str(uuid4())}"
+                                content_blocks.append({
+                                    "id": block_id,
+                                    "type": "plan",
+                                    "needsApproval": True,
+                                    "data": {"plan": assistant_response}
+                                })
+                            else:
+                                # Regular text block for answers
+                                content_blocks.append({
+                                    "id": block_id,
+                                    "type": "text",
+                                    "needsApproval": True,
+                                    "data": {"text": assistant_response}
+                                })
                         
                         if steps and len(steps) > 0 and checkpoint_id:
                             content_blocks.append({
@@ -647,13 +684,32 @@ async def stream_graph(
                         if len(content_block["data"]["toolCalls"]) > 0:
                             content_blocks.append(content_block)
 
+
                     if assistant_response:
-                            content_blocks.append({
-                                "id": text_block_id or f"text_{assistant_message_id or str(uuid4())}",
-                                "type": "text",
-                                "needsApproval": False,
-                                "data": {"text": assistant_response}
+                            # Determine block type based on response_type
+                            response_type = values.get("response_type")
+                            block_type = "text"
+                            block_id = text_block_id or f"text_{assistant_message_id or str(uuid4())}"
+                            
+                            # If response_type is "plan" or "replan", use plan block type
+                            if response_type in ["plan", "replan"]:
+                                block_type = "plan"
+                                block_id = f"plan_{assistant_message_id or str(uuid4())}"
+                                content_blocks.append({
+                                    "id": block_id,
+                                    "type": "plan",
+                                    "needsApproval": False,
+                                    "data": {"plan": assistant_response}
+                                })
+                            else:
+                                # Regular text block
+                                content_blocks.append({
+                                    "id": block_id,
+                                    "type": "text",
+                                    "needsApproval": False,
+                                    "data": {"text": assistant_response}
                         })
+
                     
                     if steps and len(steps) > 0 and checkpoint_id:
                         content_blocks.append({
