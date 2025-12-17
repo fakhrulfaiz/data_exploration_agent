@@ -71,6 +71,7 @@ dist/
 # Project specific
 friends_code/
 plans/
+logs/
 
 # Temporary files
 *.tmp
