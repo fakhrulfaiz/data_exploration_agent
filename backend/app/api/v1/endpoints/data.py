@@ -6,7 +6,7 @@ import logging
 import pandas as pd
 
 from app.services.redis_dataframe_service import RedisDataFrameService
-from app.services.dependencies import get_redis_dataframe_service, get_agent_service
+from app.services.dependencies import get_redis_dataframe_service
 from app.services.agent_service import AgentService
 from app.schemas.data import (
     DataFramePreviewData,
@@ -18,6 +18,13 @@ from app.schemas.data import (
 from app.schemas.conversation import DataContext
 
 logger = logging.getLogger(__name__)
+
+# Dependency function to get agent service from app state
+def get_agent_service(request: Request) -> AgentService:
+    agent_service = request.app.state.agent_service
+    if not hasattr(agent_service, '_agent') or agent_service._agent is None:
+        raise HTTPException(status_code=500, detail="Agent service not properly initialized")
+    return agent_service
 
 router = APIRouter(
     prefix="/data",
@@ -84,7 +91,8 @@ async def get_dataframe_preview(
 
 @router.post("/recreate", response_model=RecreateDataFrameResponse)
 async def recreate_dataframe(
-    request: RecreateDataFrameRequest,
+    request_body: RecreateDataFrameRequest,
+    request: Request,
     redis_service: RedisDataFrameService = Depends(get_redis_dataframe_service),
     agent_service: AgentService = Depends(get_agent_service)
 ) -> RecreateDataFrameResponse:
@@ -94,13 +102,13 @@ async def recreate_dataframe(
     Returns a preview payload identical to the /{df_id}/preview endpoint.
     """
     try:
-        logger.info(f"Recreating DataFrame for thread {request.thread_id}")
+        logger.info(f"Recreating DataFrame for thread {request_body.thread_id}")
 
         # Get agent to reuse its SQL engine
         agent = agent_service.get_agent()
 
         # Re-execute SQL query using the same engine as the agent
-        df = pd.read_sql_query(request.sql_query, agent.engine)
+        df = pd.read_sql_query(request_body.sql_query, agent.engine)
 
         if df.empty:
             return RecreateDataFrameResponse(
@@ -112,35 +120,38 @@ async def recreate_dataframe(
         # Store DataFrame in Redis and build context
         context = redis_service.store_dataframe(
             df=df,
-            sql_query=request.sql_query,
+            sql_query=request_body.sql_query,
             metadata={
-                "thread_id": request.thread_id,
+                "thread_id": request_body.thread_id,
                 "created_by": "recreate_dataframe",
             },
         )
 
         # Update agent state data_context for this thread
+        # Convert datetime objects to ISO format strings for Pydantic validation
+        created_at_str = context["created_at"].isoformat() if hasattr(context["created_at"], 'isoformat') else str(context["created_at"])
+        expires_at_str = context["expires_at"].isoformat() if hasattr(context["expires_at"], 'isoformat') else str(context["expires_at"])
+        
         data_context = DataContext(
             df_id=context["df_id"],
             sql_query=context["sql_query"],
             columns=context["columns"],
             shape=context["shape"],
-            created_at=context["created_at"],
-            expires_at=context["expires_at"],
+            created_at=created_at_str,
+            expires_at=expires_at_str,
             metadata=context.get("metadata", {}),
         )
 
-        config = {"configurable": {"thread_id": request.thread_id}}
+        config = {"configurable": {"thread_id": request_body.thread_id}}
         try:
             agent.graph.update_state(config, {"data_context": data_context})
         except Exception as state_error:
             logger.warning(
                 "Failed to update agent state data_context for thread %s: %s",
-                request.thread_id,
+                request_body.thread_id,
                 state_error,
             )
 
-        # Build preview (first 100 rows) same as get_dataframe_preview
         preview_df = df.head(100)
         records = preview_df.where(pd.notnull(preview_df), None).to_dict(orient="records")
 
@@ -157,7 +168,7 @@ async def recreate_dataframe(
         )
 
     except Exception as e:
-        logger.error(f"Error recreating DataFrame for thread {request.thread_id}: {e}")
+        logger.error(f"Error recreating DataFrame for thread {request_body.thread_id}: {e}")
         return RecreateDataFrameResponse(
             status="error",
             message=f"Error recreating DataFrame: {str(e)}",

@@ -53,16 +53,6 @@ class RedisDataFrameService:
         sql_query: Optional[str] = None,
         metadata: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
-        """Store a DataFrame in Redis and return context information
-        
-        Args:
-            df: pandas DataFrame to store
-            sql_query: SQL query that generated this DataFrame
-            metadata: Additional metadata to store
-            
-        Returns:
-            Dict containing df_id, sql_query, columns, shape, created_at, expires_at
-        """
         try:
             # Generate unique key
             df_id = self._generate_key()
@@ -100,14 +90,6 @@ class RedisDataFrameService:
             raise RuntimeError(f"Failed to store DataFrame in Redis: {str(e)}")
     
     def get_dataframe(self, df_id: str) -> Optional[pd.DataFrame]:
-        """Retrieve a DataFrame from Redis by its ID
-        
-        Args:
-            df_id: Redis key for the DataFrame
-            
-        Returns:
-            DataFrame if found, None if expired or not found
-        """
         try:
             df_bytes = self.redis.get(df_id)
             if df_bytes is None:
@@ -123,14 +105,7 @@ class RedisDataFrameService:
             return None
     
     def get_metadata(self, df_id: str) -> Optional[Dict[str, Any]]:
-        """Get metadata for a stored DataFrame
-        
-        Args:
-            df_id: Redis key for the DataFrame
-            
-        Returns:
-            Metadata dict if found, None otherwise
-        """
+
         try:
             metadata_key = f"{df_id}:meta"
             metadata_bytes = self.redis.get(metadata_key)
@@ -146,14 +121,6 @@ class RedisDataFrameService:
             return None
     
     def exists(self, df_id: str) -> bool:
-        """Check if a DataFrame exists in Redis
-        
-        Args:
-            df_id: Redis key for the DataFrame
-            
-        Returns:
-            True if exists, False otherwise
-        """
         try:
             return self.redis.exists(df_id) > 0
         except Exception as e:
@@ -161,14 +128,6 @@ class RedisDataFrameService:
             return False
     
     def delete_dataframe(self, df_id: str) -> bool:
-        """Delete a DataFrame and its metadata from Redis
-        
-        Args:
-            df_id: Redis key for the DataFrame
-            
-        Returns:
-            True if deleted, False otherwise
-        """
         try:
             metadata_key = f"{df_id}:meta"
             
@@ -187,15 +146,7 @@ class RedisDataFrameService:
             return False
     
     def extend_ttl(self, df_id: str, additional_seconds: int = None) -> bool:
-        """Extend the TTL of a DataFrame
-        
-        Args:
-            df_id: Redis key for the DataFrame
-            additional_seconds: Seconds to extend (default: use service TTL)
-            
-        Returns:
-            True if extended, False otherwise
-        """
+    
         try:
             ttl_seconds = additional_seconds or self.ttl
             metadata_key = f"{df_id}:meta"

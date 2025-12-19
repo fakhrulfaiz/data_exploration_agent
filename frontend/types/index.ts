@@ -239,8 +239,10 @@ export interface StartGraphRequest {
 
 export interface ResumeGraphRequest {
     thread_id: string;
-    review_action: ApprovalStatus;
+    message_id?: string;
+    review_action?: ApprovalStatus;
     human_comment?: string;
+    tool_response?: { type: 'accept' | 'ignore' | 'edit'; args?: any };
 }
 
 export interface GraphData {
@@ -253,7 +255,7 @@ export interface GraphData {
     final_result?: any;
     total_time?: number;
     overall_confidence?: number;
-    assistant_message_id?: number;
+    assistant_message_id?: string;
     checkpoint_id?: string;
     error?: string;
     response_type?: 'answer' | 'replan' | 'cancel';

@@ -1,12 +1,13 @@
 import React, { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Message, ContentBlock, isTextBlock, isToolCallsBlock, isExplorerBlock, isVisualizationsBlock, isPlanBlock } from '@/types/chat';
+import { Message, ContentBlock, isTextBlock, isToolCallsBlock, isExplorerBlock, isVisualizationsBlock, isPlanBlock, isErrorBlock } from '@/types/chat';
 import { ExplorerMessage } from '@/components/messages/ExplorerMessage';
 import { markdownComponents } from '@/utils/markdownComponents';
 import VisualizationMessage from '@/components/messages/VisualizationMessage';
 import { ToolCallMessage } from '@/components/messages/ToolCallMessage';
 import { PlanMessage } from '@/components/messages/PlanMessage';
+import { ErrorMessage } from '@/components/messages/ErrorMessage';
 import {
   Collapsible,
   CollapsibleContent,
@@ -93,7 +94,7 @@ export const MessageRenderer: React.FC<MessageRendererProps> = ({ message, onAct
   const renderContentBlock = (block: ContentBlock) => {
     if (isTextBlock(block)) {
       return (
-        <div key={block.id} className="content-block text-block mb-2">
+        <div key={block.id} className="content-block text-block">
           <ReactMarkdown
             components={markdownComponents}
             remarkPlugins={[remarkGfm]}
@@ -118,6 +119,9 @@ export const MessageRenderer: React.FC<MessageRendererProps> = ({ message, onAct
           <ToolCallMessage
             toolCalls={mappedToolCalls}
             content={block.data.content}
+            needsApproval={block.needsApproval}
+            onApprove={onAction ? () => onAction('approveToolCall', block) : undefined}
+            onReject={onAction ? () => onAction('rejectToolCall', block) : undefined}
           />
         </div>
       );
@@ -150,7 +154,20 @@ export const MessageRenderer: React.FC<MessageRendererProps> = ({ message, onAct
     if (isPlanBlock(block)) {
       return (
         <div key={block.id} className="content-block plan-block mb-4">
-          <PlanMessage plan={block.data.plan} />
+          <PlanMessage
+            plan={block.data.plan}
+            needsApproval={block.needsApproval}
+            onApprove={onAction ? () => onAction('approvePlan', block) : undefined}
+            onReject={onAction ? () => onAction('rejectPlan', block) : undefined}
+          />
+        </div>
+      );
+    }
+
+    if (isErrorBlock(block)) {
+      return (
+        <div key={block.id} className="content-block error-block mb-4">
+          <ErrorMessage errorExplanation={block.data} />
         </div>
       );
     }
@@ -221,7 +238,7 @@ export const MessageRenderer: React.FC<MessageRendererProps> = ({ message, onAct
   };
 
   return (
-    <div className="message-content">
+    <div className="message-content min-w-0">
       {renderContent()}
     </div>
   );

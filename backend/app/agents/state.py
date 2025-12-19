@@ -38,4 +38,9 @@ class ExplainableAgentState(MessagesState):
     continue_group: Optional[bool] = False  # Flag to continue current group (for error recovery)
     execution_mode: Optional[Literal["sequential", "parallel"]] = "parallel"  # Execution strategy
     joiner_decision: Optional[Literal["finish", "replan"]] = None  # Joiner's decision
+    
+    # ===== ERROR HANDLING FIELDS =====
+    error_info: Optional[Dict[str, Any]] = None  # Error details (error_message, error_type, tool_name, tool_input)
+    error_explanation: Optional[Dict[str, Any]] = None  # User-friendly error explanation
+    require_tool_approval: Optional[bool] = False  # Whether tool-level approval is enabled
 

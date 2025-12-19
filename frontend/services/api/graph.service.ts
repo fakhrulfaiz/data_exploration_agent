@@ -126,7 +126,7 @@ export class GraphService {
                 });
             } catch (error) {
                 console.error(
-                    '❌ Error parsing content_block event:',
+                    'Error parsing content_block event:',
                     error,
                     'Raw data:',
                     event.data
@@ -140,14 +140,11 @@ export class GraphService {
             try {
                 lastHeartbeat = Date.now(); // Update heartbeat
                 const data = JSON.parse(event.data);
-                // Pass through response_type if it exists in the status event
                 onMessage({
                     status: data.status,
-                    response_type: data.response_type, // Include response_type from backend
+                    response_type: data.response_type,
                 });
 
-                // Mark that we've received a status event for this connection
-                // This helps us distinguish between normal completion and errors
                 if (!window._hasReceivedStatusEvent) {
                     window._hasReceivedStatusEvent = {};
                 }

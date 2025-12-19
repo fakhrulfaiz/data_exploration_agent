@@ -4,7 +4,7 @@ import { Copy } from 'lucide-react';
 import { Components } from 'react-markdown';
 
 export const markdownComponents: Components = {
-  p: ({ children }) => <p className="mb-2 last:mb-0 text-inherit">{children}</p>,
+  p: ({ children }) => <p className="mb-0 text-inherit">{children}</p>,
   ol: ({ children }) => <ol className="list-decimal list-outside mb-2 space-y-1 pl-6">{children}</ol>,
   ul: ({ children }) => <ul className="list-disc list-outside mb-2 space-y-1 pl-6">{children}</ul>,
   li: ({ children }) => <li className="text-inherit">{children}</li>,

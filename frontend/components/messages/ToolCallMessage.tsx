@@ -10,9 +10,11 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from '@/components/ui/accordion';
-import { Check, X, Clock } from 'lucide-react';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Button } from '@/components/ui/button';
+import { Check, X, Clock, AlertCircle, AlertTriangle, CheckCircle2, XCircle } from 'lucide-react';
 
-type ToolCallStatus = 'pending' | 'approved' | 'rejected';
+type ToolCallStatus = 'pending' | 'approved' | 'rejected' | 'error';
 
 interface ToolCallInput {
   query?: string;
@@ -43,11 +45,41 @@ interface ToolCall {
 interface ToolCallMessageProps {
   toolCalls: ToolCall[];
   content?: string;
+  // Tool approval props (optional - for hybrid HITL)
+  needsApproval?: boolean;
+  onApprove?: () => void;
+  onReject?: () => void;
+  disabled?: boolean;
 }
 
-export const ToolCallMessage: React.FC<ToolCallMessageProps> = ({ toolCalls, content }) => {
+export const ToolCallMessage: React.FC<ToolCallMessageProps> = ({
+  toolCalls,
+  content,
+  needsApproval = false,
+  onApprove,
+  onReject,
+  disabled = false
+}) => {
   // Determine effective status: enabled if has content OR output, disabled if neither
   const getEffectiveStatus = (call: ToolCall): ToolCallStatus | 'disabled' => {
+    // Check if output contains error
+    if (call.output) {
+      const outputStr = typeof call.output === 'string' ? call.output : JSON.stringify(call.output);
+      if (outputStr.startsWith('Error:')) {
+        return 'error';
+      }
+    }
+
+    // If tool is approved but no output yet, it's executing (show calling...)
+    if (call.status === 'approved' && (!call.output || call.output === null || call.output === '')) {
+      return 'disabled';
+    }
+
+    // If needsApproval is true and status is still pending, show pending status
+    if (needsApproval && call.status === 'pending' && (!call.output || call.output === null || call.output === '')) {
+      return 'pending';
+    }
+
     // Enable if there's content OR if the tool call has output/result
     if ((content && content.trim() !== '') || (call.output && call.output !== null && call.output !== '')) {
       return call.status;
@@ -62,6 +94,8 @@ export const ToolCallMessage: React.FC<ToolCallMessageProps> = ({ toolCalls, con
         return 'text-green-600 dark:text-green-400';
       case 'rejected':
         return 'text-red-600 dark:text-red-400';
+      case 'error':
+        return 'text-red-600 dark:text-red-400';
       case 'disabled':
         return 'text-muted-foreground opacity-50';
       default:
@@ -75,6 +109,8 @@ export const ToolCallMessage: React.FC<ToolCallMessageProps> = ({ toolCalls, con
         return <Check className="w-4 h-4" />;
       case 'rejected':
         return <X className="w-4 h-4" />;
+      case 'error':
+        return <AlertCircle className="w-4 h-4" />;
       case 'disabled':
         return <Clock className="w-4 h-4 opacity-50" />;
       default:
@@ -99,21 +135,35 @@ export const ToolCallMessage: React.FC<ToolCallMessageProps> = ({ toolCalls, con
         </div>
       )}
 
+      {/* Tool approval alert (only shown when needsApproval=true) */}
+      {needsApproval && (
+        <Alert className="mb-3 border-0 bg-transparent p-0">
+          <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+          <AlertTitle className="text-amber-900 dark:text-amber-100">Tool Approval Required</AlertTitle>
+          <AlertDescription className="text-amber-800 dark:text-amber-200">
+            Please review the tool call below and approve or reject execution.
+          </AlertDescription>
+        </Alert>
+      )}
+
       <Accordion type="single" collapsible className="space-y-2">
         {toolCalls.map((call) => {
           const effectiveStatus = getEffectiveStatus(call);
           const isDisabled = effectiveStatus === 'disabled';
 
+          // Allow clicking when needs approval (even if no output yet)
+          const isClickable = needsApproval || !isDisabled;
+
           return (
             <AccordionItem
               key={call.id}
               value={call.id}
-              className={`border border-border !border-b rounded-lg px-3 bg-background shadow-sm ${isDisabled ? 'opacity-60 pointer-events-none' : ''}`}
+              className={`border border-border !border-b rounded-lg px-3 bg-background shadow-sm ${isDisabled && !needsApproval ? 'opacity-60 pointer-events-none' : ''}`}
             >
               <AccordionTrigger
-                className={`hover:no-underline py-2.5 ${isDisabled ? 'cursor-not-allowed pointer-events-none' : ''}`}
+                className={`hover:no-underline py-2.5 ${!isClickable ? 'cursor-not-allowed pointer-events-none' : ''}`}
                 onClick={(e) => {
-                  if (isDisabled) {
+                  if (!isClickable) {
                     e.preventDefault();
                     e.stopPropagation();
                   }
@@ -128,7 +178,7 @@ export const ToolCallMessage: React.FC<ToolCallMessageProps> = ({ toolCalls, con
                       Call: {call.name}
                     </div>
                     <div className="text-sm text-muted-foreground capitalize">
-                      {isDisabled ? 'calling...' : effectiveStatus}
+                      {isDisabled ? 'calling...' : (needsApproval && effectiveStatus === 'pending' ? 'awaiting approval' : effectiveStatus)}
                     </div>
                   </div>
                 </div>
@@ -136,31 +186,37 @@ export const ToolCallMessage: React.FC<ToolCallMessageProps> = ({ toolCalls, con
 
               <AccordionContent className="pb-2">
                 <div className="space-y-3 pt-1.5">
-                  <div>
+                  <div className="min-w-0 w-full">
                     <h3 className="font-semibold text-sm text-muted-foreground mb-1.5">
                       Input:
                     </h3>
-                    <div className="bg-background border border-border text-foreground p-2 rounded text-sm overflow-x-auto prose prose-sm dark:prose-invert max-w-none">
-                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                        {formatContent(call.input)}
-                      </ReactMarkdown>
+                    <div className="bg-background border border-border text-foreground p-2 rounded text-sm max-h-60 w-full overflow-auto break-words min-w-0">
+                      <div className="prose prose-sm dark:prose-invert max-w-none prose-pre:overflow-x-auto">
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                          {formatContent(call.input)}
+                        </ReactMarkdown>
+                      </div>
                     </div>
                   </div>
 
                   {call.output && (
-                    <div>
+                    <div className="min-w-0 w-full">
                       <h3 className="font-semibold text-sm text-muted-foreground mb-1.5">
                         Output:
                       </h3>
-                      <div className={`p-2 rounded text-sm overflow-x-auto prose prose-sm dark:prose-invert max-w-none ${call.status === 'approved'
-                          ? 'bg-accent text-accent-foreground'
-                          : call.status === 'rejected'
-                            ? 'bg-destructive/15 text-destructive'
+                      <div className={`p-2 rounded text-sm max-h-60 w-full overflow-auto break-words min-w-0 ${call.status === 'approved'
+                        ? 'bg-accent text-accent-foreground'
+                        : call.status === 'rejected'
+                          ? 'bg-destructive/15 text-destructive'
+                          : call.status === 'error'
+                            ? 'bg-red-50 dark:bg-red-950/20 text-red-900 dark:text-red-100 border border-red-300 dark:border-red-700'
                             : 'bg-background border border-border text-foreground'
                         }`}>
-                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                          {formatContent(call.output)}
-                        </ReactMarkdown>
+                        <div className="prose prose-sm dark:prose-invert max-w-none prose-pre:overflow-x-auto">
+                          <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                            {formatContent(call.output)}
+                          </ReactMarkdown>
+                        </div>
                       </div>
                     </div>
                   )}
@@ -170,6 +226,33 @@ export const ToolCallMessage: React.FC<ToolCallMessageProps> = ({ toolCalls, con
           );
         })}
       </Accordion>
+
+      {/* Approval buttons (only shown when needsApproval=true) */}
+      {needsApproval && (onApprove || onReject) && (
+        <div className="flex gap-2 mt-3 pt-3 border-t border-border">
+          {onApprove && (
+            <Button
+              onClick={onApprove}
+              disabled={disabled}
+              className="flex-1"
+            >
+              <CheckCircle2 className="w-4 h-4 mr-2" />
+              Approve
+            </Button>
+          )}
+          {onReject && (
+            <Button
+              onClick={onReject}
+              disabled={disabled}
+              variant="outline"
+              className="flex-1"
+            >
+              <XCircle className="w-4 h-4 mr-2" />
+              Reject
+            </Button>
+          )}
+        </div>
+      )}
     </>
   );
 };

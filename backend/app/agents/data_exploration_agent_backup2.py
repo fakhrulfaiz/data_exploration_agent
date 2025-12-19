@@ -14,12 +14,10 @@ from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph.message import MessagesState
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, SystemMessage
-from langchain_core.tools import tool, InjectedToolCallId, BaseTool
-from langchain_core.runnables import RunnableConfig
+from langchain_core.tools import tool, InjectedToolCallId
 from langgraph.prebuilt import InjectedState
-from langgraph.types import Command, Send, interrupt
-from langgraph.prebuilt.interrupt import HumanInterrupt, HumanResponse, HumanInterruptConfig, ActionRequest
-from typing import TypedDict, Annotated, List, Dict, Any, Optional, Literal, Callable
+from langgraph.types import Command, Send
+from typing import TypedDict, Annotated, List, Dict, Any, Optional, Literal
 import json
 import os
 from datetime import datetime
@@ -38,25 +36,16 @@ from app.agents.nodes.joiner_node import JoinerNode
 
 logger = logging.getLogger(__name__)
 
+
 class DataExplorationAgent:
   
-    def __init__(
-        self, 
-        llm, 
-        db_path: str, 
-        logs_dir: str = None, 
-        checkpointer=None, 
-        store=None, 
-        use_postgres_checkpointer: bool = True,
-        require_tool_approval: bool | Dict[str, bool] = False,
-        risky_tools: List[str] = None
-    ):
+    def __init__(self, llm, db_path: str, logs_dir: str = None, checkpointer=None, store=None, use_postgres_checkpointer: bool = True):
         self.llm = llm
         self.db_path = db_path
         self.engine = create_engine(f'sqlite:///{db_path}')
         self.db = SQLDatabase(self.engine)
-        self.require_tool_approval = require_tool_approval
-        self.risky_tools = risky_tools or ["sql_db_query", "sql_db_to_df"]
+        
+        # Get SQL toolkit tools - only keep sql_db_query for simple execution
         self.toolkit = SQLDatabaseToolkit(db=self.db, llm=self.llm)
         all_sql_tools = self.toolkit.get_tools()
         self.sql_tools = [
@@ -69,7 +58,6 @@ class DataExplorationAgent:
             db_path=self.db_path
         )
         self.custom_tools = self.custom_toolkit.get_tools()
-        # Use tools directly - approval handled by tool_approval node
         self.tools = self.sql_tools + self.custom_tools
 
         self.store = store
@@ -181,7 +169,6 @@ class DataExplorationAgent:
             logger.error(f"Failed to generate graph visualization: {e}")
             logger.info("Note: Graph visualization requires pygraphviz. Install with: pip install pygraphviz")
     
- 
     def create_handoff_tools(self):
         @tool("transfer_to_data_exploration", description="Transfer database and SQL queries to the data exploration agent")
         def transfer_to_data_exploration(
@@ -240,111 +227,7 @@ class DataExplorationAgent:
         
         self.transfer_to_data_exploration = transfer_to_data_exploration
     
-    
-    def tool_approval_node(self, state: ExplainableAgentState) -> dict:
-        from langgraph.types import interrupt
-        
-        messages = state.get("messages", [])
-        if not messages:
-            return {"status": "approved"}
-        
-        last_message = messages[-1]
-        
-        if not hasattr(last_message, 'tool_calls') or not last_message.tool_calls:
-            return {"status": "approved"}
-        
-        if not self.require_tool_approval:
-            return {"status": "approved"}
-        
-        risky_tool_calls = []
-        for tool_call in last_message.tool_calls:
-            tool_name = tool_call.get("name")
-            if tool_name in self.risky_tools:
-                risky_tool_calls.append(tool_call)
-        
-        if not risky_tool_calls:
-            return {"status": "approved"}
-        
-        tool_call = risky_tool_calls[0]
-        
-        request = {
-            "interrupt_type": "tool_approval",  # Identify this as tool-level approval
-            "action_request": {
-                "action": tool_call.get("name"),
-                "args": tool_call.get("args", {})
-            },
-            "config": {
-                "allow_ignore": True,
-                "allow_respond": False,
-                "allow_edit": True,
-                "allow_accept": True
-            },
-            "description": f"Please review and approve the '{tool_call.get('name')}' tool call"
-        }
-        
-        logger.info(f"Tool approval requested for: {tool_call.get('name')}")
-        
-        response = interrupt(request)
-        
-        logger.info(f"Tool approval response received: {response.get('type')}")
-        
-        if response["type"] == "accept":
-            return {"status": "approved"}
-        elif response["type"] == "edit":
-            edited_action = response["args"]
-            last_message.tool_calls[0]["args"] = edited_action.args
-            return {"status": "approved", "messages": messages}
-        elif response["type"] == "ignore":
-            return {"status": "rejected"}
-        else:
-            return {"status": "rejected"}
-    
-    def route_after_agent(self, state: ExplainableAgentState) -> str:
-        
-        messages = state.get("messages", [])
-        if not messages:
-            return "end"
-        
-        last_message = messages[-1]
-        
-        if not (hasattr(last_message, 'tool_calls') and last_message.tool_calls):
-            if self._has_consecutive_errors(messages):
-                return "error_explainer"
-            else:
-                return "end"
-        
-        last_message = messages[-1]
-        
-        if not (hasattr(last_message, 'tool_calls') and last_message.tool_calls):
-            if self._has_consecutive_errors(messages):
-                logger.info("Agent gave up after error - routing to error_explainer")
-                return "error_explainer"
-            else:
-                logger.info("Agent completed successfully - routing to end")
-                return "end"
-        
-        if not self.require_tool_approval:
-            return "tools"  # Execute tools directly
-        
-        for tool_call in last_message.tool_calls:
-            if tool_call.get("name") in self.risky_tools:
-                logger.info(f"Risky tool detected: {tool_call.get('name')} - routing to tool_approval")
-                return "tool_approval"  # Route to approval node
-        
-        # No risky tools - execute directly
-        logger.info("No risky tools detected - routing to tools")
-        return "tools"
-
-    
-    def route_after_tool_approval(self, state: ExplainableAgentState) -> str:
-        status = state.get("status", "approved")
-        if status == "approved":
-            return "tools"
-        else:
-            return "agent"
-    
     def create_graph(self):
-
         graph = StateGraph(ExplainableAgentState)
         
         graph.add_node("assistant", self.assistant_agent)
@@ -360,9 +243,6 @@ class DataExplorationAgent:
         graph.add_node("agent_executor", self.agent_executor_node)
         graph.add_node("joiner", self.joiner_node)
         graph.add_node("error_explainer", self.error_explainer_node)
-        
-        # Add tool_approval node for hybrid HITL
-        graph.add_node("tool_approval", self.tool_approval_node)
         
         graph.set_entry_point("assistant")
         
@@ -413,28 +293,15 @@ class DataExplorationAgent:
             }
         )
         
-        # Updated: Route from agent to tool_approval or tools
         graph.add_conditional_edges(
             "agent",
-            self.route_after_agent,  # NEW: Check for risky tools
+            self.should_continue,
             {
-                "tool_approval": "tool_approval",  # NEW: Route to approval
                 "tools": "tool_explanation",
                 "error_explainer": "error_explainer",
                 "end": END
             }
         )
-        
-        # NEW: Route from tool_approval
-        graph.add_conditional_edges(
-            "tool_approval",
-            self.route_after_tool_approval,
-            {
-                "tools": "tool_explanation",  # Approved -> execute tools
-                "agent": "agent"  # Rejected -> back to agent
-            }
-        )
-        
         graph.add_edge("tool_explanation", "tools")
         graph.add_conditional_edges(
             "tools",

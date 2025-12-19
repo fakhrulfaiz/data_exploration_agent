@@ -277,7 +277,6 @@ async def delete_conversation(
     chat_service: ChatThreadService = Depends(get_chat_thread_service),
     agent_service: AgentService = Depends(get_agent_service)
 ) -> SuccessResponse:
-    """Delete a conversation thread and its associated checkpoints."""
     try:
         success = await chat_service.delete_thread(
             thread_id, 
@@ -312,10 +311,6 @@ async def restore_conversation(
     chat_service: ChatThreadService = Depends(get_chat_thread_service),
     agent_service: AgentService = Depends(get_agent_service)
 ) -> RestoreConversationResponse:
-    """
-    Restore a conversation thread for continuing conversation.
-    Returns the full conversation history with data context if available.
-    """
     try:
         logger.info(f"Restoring conversation {thread_id}")
         

@@ -96,8 +96,8 @@ const ChatWithApproval: React.FC = () => {
       }
 
       return {
-        id: (typeof msg.message_id === 'number' ? msg.message_id : (Date.now() + index)),
-        role: (msg.sender === 'assistant' ? 'assistant' : 'user'),
+        message_id: msg.message_id || String(msg.id || Date.now() + index),
+        sender: (msg.sender === 'assistant' ? 'assistant' : 'user'),
         content,
         timestamp: new Date(msg.timestamp),
         needsApproval,
@@ -110,19 +110,19 @@ const ChatWithApproval: React.FC = () => {
 
   const restoreDataIfNeeded = async (messages: Message[], threadId: string) => {
     // Find messages with explorer blocks (new content blocks structure)
-    const explorerBlocksInfo: Array<{ messageId: number, blockId: string, checkpointId: string }> = [];
-    const visualizationBlocksInfo: Array<{ messageId: number, blockId: string, checkpointId: string }> = [];
+    const explorerBlocksInfo: Array<{ messageId: string | number, blockId: string, checkpointId: string }> = [];
+    const visualizationBlocksInfo: Array<{ messageId: string | number, blockId: string, checkpointId: string }> = [];
 
     // Also check for legacy format
     const legacyExplorerMessages = messages.filter(msg =>
       msg.messageType === 'explorer' &&
       msg.checkpointId &&
-      msg.role === 'assistant'
+      msg.sender === 'assistant'
     );
 
     const legacyVisualizationMessages = messages.filter(msg =>
       msg.messageType === 'visualization' &&
-      msg.role === 'assistant'
+      msg.sender === 'assistant'
     );
 
     // Extract explorer and visualization blocks from content blocks
@@ -133,7 +133,7 @@ const ChatWithApproval: React.FC = () => {
             const explorerData = block.data as any;
             if (explorerData.checkpointId) {
               explorerBlocksInfo.push({
-                messageId: msg.id,
+                messageId: msg.message_id,
                 blockId: block.id,
                 checkpointId: explorerData.checkpointId
               });
@@ -142,7 +142,7 @@ const ChatWithApproval: React.FC = () => {
             const visualizationData = block.data as any;
             if (visualizationData.checkpointId) {
               visualizationBlocksInfo.push({
-                messageId: msg.id,
+                messageId: msg.message_id,
                 blockId: block.id,
                 checkpointId: visualizationData.checkpointId
               });
@@ -185,7 +185,7 @@ const ChatWithApproval: React.FC = () => {
             );
 
             if (explorerResponse?.data) {
-              explorerDataMap.set(`legacy_${explorerMessage.id}`, explorerResponse.data);
+              explorerDataMap.set(`legacy_${explorerMessage.message_id}`, explorerResponse.data);
             }
           } catch (error) {
             console.error('Failed to restore legacy explorer data for checkpoint:', explorerMessage.checkpointId, error);
@@ -215,7 +215,7 @@ const ChatWithApproval: React.FC = () => {
               visualizationMessage.checkpointId || ''
             );
             if (visualizationResponse?.data?.visualizations) {
-              visualizationDataMap.set(`legacy_${visualizationMessage.id}`, visualizationResponse.data.visualizations);
+              visualizationDataMap.set(`legacy_${visualizationMessage.message_id}`, visualizationResponse.data.visualizations);
             }
           } catch (error) {
             console.error('Failed to restore legacy visualization data for checkpoint:', visualizationMessage.checkpointId, error);
@@ -230,7 +230,7 @@ const ChatWithApproval: React.FC = () => {
           if (Array.isArray(msg.content)) {
             const updatedContentBlocks = msg.content.map(block => {
               if (block.type === 'explorer') {
-                const explorerDataKey = `${msg.id}_${block.id}`;
+                const explorerDataKey = `${msg.message_id}_${block.id}`;
                 const explorerData = explorerDataMap.get(explorerDataKey);
                 if (explorerData) {
                   return {
@@ -242,7 +242,7 @@ const ChatWithApproval: React.FC = () => {
                   };
                 }
               } else if (block.type === 'visualizations') {
-                const visualizationDataKey = `${msg.id}_${block.id}`;
+                const visualizationDataKey = `${msg.message_id}_${block.id}`;
                 const visualizations = visualizationDataMap.get(visualizationDataKey);
                 if (visualizations) {
                   return {
@@ -264,8 +264,8 @@ const ChatWithApproval: React.FC = () => {
           }
 
           // Handle legacy format
-          if (msg.messageType === 'explorer' && explorerDataMap.has(`legacy_${msg.id}`)) {
-            const explorerData = explorerDataMap.get(`legacy_${msg.id}`);
+          if (msg.messageType === 'explorer' && explorerDataMap.has(`legacy_${msg.message_id}`)) {
+            const explorerData = explorerDataMap.get(`legacy_${msg.message_id}`);
             updatedMsg = {
               ...updatedMsg,
               metadata: {
@@ -275,8 +275,8 @@ const ChatWithApproval: React.FC = () => {
             };
           }
 
-          if (msg.messageType === 'visualization' && visualizationDataMap.has(`legacy_${msg.id}`)) {
-            const visualizations = visualizationDataMap.get(`legacy_${msg.id}`);
+          if (msg.messageType === 'visualization' && visualizationDataMap.has(`legacy_${msg.message_id}`)) {
+            const visualizations = visualizationDataMap.get(`legacy_${msg.message_id}`);
             updatedMsg = {
               ...updatedMsg,
               metadata: {
@@ -303,7 +303,7 @@ const ChatWithApproval: React.FC = () => {
           latestExplorerData = explorerDataMap.get(`${lastBlockInfo.messageId}_${lastBlockInfo.blockId}`);
         } else if (legacyExplorerMessages.length > 0) {
           const lastExplorerMessage = legacyExplorerMessages[legacyExplorerMessages.length - 1];
-          latestExplorerData = explorerDataMap.get(`legacy_${lastExplorerMessage.id}`);
+          latestExplorerData = explorerDataMap.get(`legacy_${lastExplorerMessage.message_id}`);
         }
 
         if (latestExplorerData) {
@@ -317,7 +317,7 @@ const ChatWithApproval: React.FC = () => {
           latestVisualizationData = visualizationDataMap.get(`${lastBlockInfo.messageId}_${lastBlockInfo.blockId}`);
         } else if (legacyVisualizationMessages.length > 0) {
           const lastVisualizationMessage = legacyVisualizationMessages[legacyVisualizationMessages.length - 1];
-          latestVisualizationData = visualizationDataMap.get(`legacy_${lastVisualizationMessage.id}`);
+          latestVisualizationData = visualizationDataMap.get(`legacy_${lastVisualizationMessage.message_id}`);
         }
 
         if (latestVisualizationData) {
@@ -366,7 +366,6 @@ const ChatWithApproval: React.FC = () => {
             explorerData = explorerResponse?.data;
           } catch (error) {
             console.error('Error fetching explorer data for checkpoint:', checkpointId, error);
-            // Continue with whatever data we have (might be empty)
             explorerData = explorerData || null;
           }
         } else {
@@ -380,6 +379,18 @@ const ChatWithApproval: React.FC = () => {
 
       setExplorerData(explorerData);
       setExplorerOpen(true);
+    }
+  };
+
+  const handleDataFrameDetected = async (dfId: string) => {
+    try {
+      console.log('Fetching DataFrame preview for:', dfId);
+      const previewResponse = await DataService.getDataFramePreview(dfId);
+      setDataFrameData(previewResponse.data || null);
+      console.log('DataFrame preview loaded successfully');
+    } catch (err: any) {
+      console.error('Failed to load DataFrame preview:', err);
+
     }
   };
 
@@ -414,7 +425,7 @@ const ChatWithApproval: React.FC = () => {
             if (Object.keys(blockUpdates).length > 0) {
               try {
                 // Use message_id (UUID) instead of id (numeric timestamp)
-                const messageId = msg.message_id || String(msg.id); // Fallback to string id if UUID not available
+                const messageId = msg.message_id || String(msg.message_id); // Fallback to string id if UUID not available
                 await ConversationService.updateBlockApproval(threadId, messageId, block.id, blockUpdates);
               } catch (blockError) {
                 console.error(`Failed to update block ${block.id} flags:`, blockError);
@@ -426,7 +437,7 @@ const ChatWithApproval: React.FC = () => {
         // Fallback: if message doesn't have content blocks, use legacy message-level update
         // This handles backward compatibility with old messages
         const legacyFields: any = {
-          message_id: msg.id,
+          message_id: msg.message_id,
           needs_approval: msg.needsApproval
         };
 
@@ -436,7 +447,7 @@ const ChatWithApproval: React.FC = () => {
           legacyFields.has_timed_out = true;
         }
 
-        const messageId = msg.message_id || String(msg.id); // Use UUID or fallback to string id
+        const messageId = msg.message_id || String(msg.message_id); // Use UUID or fallback to string id
         await ConversationService.updateMessageStatus(threadId, messageId, legacyFields);
       }
 
@@ -519,9 +530,9 @@ const ChatWithApproval: React.FC = () => {
   // Enhanced streaming message handler
   const startStreamingForMessage = async (
     messageContent: string,
-    streamingMessageId: number,
+    streamingMessageId: string,
     chatThreadId: string,
-    updateContentCallback: (id: number, contentBlocks: any[]) => void,
+    updateContentCallback: (id: string, contentBlocks: any[]) => void,
     onStatus?: (status: 'user_feedback' | 'finished' | 'running' | 'error' | 'tool_call' | 'tool_result' | 'completed_payload' | 'visualizations_ready' | 'content_block', eventData?: string, responseType?: 'answer' | 'replan' | 'cancel') => void,
     usePlanning: boolean = true,
     useExplainer: boolean = true,
@@ -577,7 +588,7 @@ const ChatWithApproval: React.FC = () => {
                       needsApproval: false,
                       data: { text: JSON.stringify(explorerMessage) }
                     }];
-                    updateContentCallback(explorerMessageId, contentBlocks);
+                    updateContentCallback(String(explorerMessageId), contentBlocks);
                   }
                 }
               } else if (data.status === 'visualizations_ready') {
@@ -604,7 +615,7 @@ const ChatWithApproval: React.FC = () => {
                       needsApproval: false,
                       data: { text: JSON.stringify(vizMessage) }
                     }];
-                    updateContentCallback(vizMessageId, contentBlocks);
+                    updateContentCallback(String(vizMessageId), contentBlocks);
                   }
                 }
 
@@ -640,8 +651,8 @@ const ChatWithApproval: React.FC = () => {
     threadId: string,
     reviewAction: ApprovalStatus,
     humanComment?: string,
-    streamingMessageId?: number,
-    updateContentCallback?: (id: number, contentBlocks: any[]) => void,
+    streamingMessageId?: string,
+    updateContentCallback?: (id: string, contentBlocks: any[]) => void,
     onStatus?: (status: 'user_feedback' | 'finished' | 'running' | 'error' | 'tool_call' | 'tool_result' | 'completed_payload' | 'visualizations_ready' | 'content_block', eventData?: string, responseType?: 'answer' | 'replan' | 'cancel') => void,
     preResumeResponse?: GraphResponse
   ): Promise<void> => {
@@ -649,7 +660,7 @@ const ChatWithApproval: React.FC = () => {
       const resumeResponse = preResumeResponse ?? await GraphService.resumeStreamingGraph({
         thread_id: threadId,
         review_action: reviewAction,
-        human_comment: humanComment
+        human_comment: humanComment,
       });
 
 
@@ -674,12 +685,12 @@ const ChatWithApproval: React.FC = () => {
             } else if (data.status) {
               if (data.status === 'completed_payload') {
                 // Handle explorer data from completed payload
-                const graphData = data.graph;
+                const graphData = data.data;
                 if (graphData && graphData.steps && graphData.steps.length > 0) {
                   // Create a new message with its own ID for explorer data
-                  const explorerMessageId = Date.now() + Math.floor(Math.random() * 1000);
+                  const explorerMessageId = String(Date.now() + Math.floor(Math.random() * 1000));
                   const explorerMessage = {
-                    id: explorerMessageId,
+                    message_id: explorerMessageId,
                     role: 'assistant',
                     content: 'Explorer data available',
                     timestamp: new Date(),
@@ -699,22 +710,15 @@ const ChatWithApproval: React.FC = () => {
                     }];
                     updateContentCallback(explorerMessageId, contentBlocks);
                   }
-
-                  // Use the global window functions to open explorer
-                  if ((window as any).openExplorer) {
-                    (window as any).openExplorer(graphData);
-                  }
                 }
-                // Don't append graph data to the streaming message content
-                // The graph data is handled separately above for explorer messages
               } else if (data.status === 'visualizations_ready') {
                 // Handle visualization data
                 const visualizations = data.visualizations || [];
                 if (visualizations.length > 0) {
                   // Create a new message with its own ID for visualization data
-                  const vizMessageId = Date.now() + Math.floor(Math.random() * 1000) + 10000;
+                  const vizMessageId = String(Date.now() + Math.floor(Math.random() * 1000) + 10000);
                   const vizMessage = {
-                    id: vizMessageId,
+                    message_id: vizMessageId,
                     role: 'assistant',
                     content: 'Visualizations available',
                     timestamp: new Date(),
@@ -825,6 +829,7 @@ const ChatWithApproval: React.FC = () => {
 
           return {
             message: assistantResponse,
+            backendMessageId: response.data?.assistant_message_id,
             needsApproval: false,
             checkpoint_id: response.data?.checkpoint_id, // Add checkpoint ID for both explorer and visualization messages
             ...(response.data?.steps && response.data.steps.length > 0 ? { explorerData: response.data } : {}),
@@ -838,7 +843,8 @@ const ChatWithApproval: React.FC = () => {
         // Message will be stored automatically by ChatComponent via onMessageCreated
         return {
           message: assistantResponse,
-          needsApproval: false
+          needsApproval: false,
+          backendMessageId: response.data?.assistant_message_id // Pass backend message ID
         };
       } else {
         // Streaming API call - return a promise that will be handled by the streaming logic
@@ -854,10 +860,10 @@ const ChatWithApproval: React.FC = () => {
           message: '', // This will be filled by streaming
           needsApproval: false, // This will be determined by streaming status
           isStreaming: true,
-          backendMessageId: startResponse.data?.assistant_message_id as string | undefined,
+          backendMessageId: startResponse.data?.assistant_message_id as string,
           streamingHandler: async (
-            streamingMessageId: number,
-            updateContentCallback: (id: number, contentBlocks: any[]) => void,
+            streamingMessageId: string,
+            updateContentCallback: (id: string, contentBlocks: any[]) => void,
             onStatus?: (status: 'user_feedback' | 'finished' | 'running' | 'error' | 'tool_call' | 'tool_result' | 'completed_payload' | 'visualizations_ready' | 'content_block', eventData?: string, responseType?: 'answer' | 'replan' | 'cancel') => void
           ) => {
             await startStreamingForMessage(message, streamingMessageId, chatThreadId, updateContentCallback, onStatus, usePlanning, useExplainer, startResponse);
@@ -871,12 +877,16 @@ const ChatWithApproval: React.FC = () => {
     }
   };
 
-  const handleApprove = async (_content: string, message: Message): Promise<HandlerResponse> => {
+  const handleApprove = async (messageId: string | undefined, _content: string, message: Message): Promise<HandlerResponse> => {
     const threadId = currentThreadIdRef.current || currentThreadId || selectedChatThreadId || message.threadId;
 
     if (!threadId) {
       throw new Error('No active thread to approve');
     }
+
+    // Check if this is a tool approval by looking at message content
+    const isToolApproval = Array.isArray(message.content) &&
+      message.content.some(block => block.type === 'tool_calls');
 
     try {
       setLoading(true);
@@ -905,6 +915,7 @@ const ChatWithApproval: React.FC = () => {
 
           return {
             message: detailedResponse,
+            backendMessageId: response.data?.assistant_message_id,
             needsApproval: false,
             checkpoint_id: response.data?.checkpoint_id, // Add checkpoint ID for both explorer and visualization messages
             ...(response.data?.steps && response.data.steps.length > 0 ? { explorerData: response.data } : {}),
@@ -922,12 +933,21 @@ const ChatWithApproval: React.FC = () => {
           };
         }
       } else {
-        // Streaming approach
-        const resumeResponse = await GraphService.resumeStreamingGraph({
-          thread_id: threadId,
-          review_action: ApprovalStatus.APPROVED,
-          human_comment: undefined
-        });
+        // Streaming approach - differentiate between tool and plan approvals
+        const resumeRequest = isToolApproval
+          ? {
+            thread_id: threadId,
+            message_id: messageId,
+            tool_response: { type: 'accept' as const }  // Tool approval
+          }
+          : {
+            thread_id: threadId,
+            message_id: messageId,
+            review_action: ApprovalStatus.APPROVED,  // Plan approval
+            human_comment: undefined
+          };
+
+        const resumeResponse = await GraphService.resumeStreamingGraph(resumeRequest);
         setCurrentThreadId(resumeResponse.data?.thread_id || '');
 
         return {
@@ -936,8 +956,8 @@ const ChatWithApproval: React.FC = () => {
           isStreaming: true,
           backendMessageId: resumeResponse.data?.assistant_message_id as string | undefined,
           streamingHandler: async (
-            streamingMessageId: number,
-            updateContentCallback: (id: number, contentBlocks: any[]) => void,
+            streamingMessageId: string,
+            updateContentCallback: (id: string, contentBlocks: any[]) => void,
             onStatus?: (status: 'user_feedback' | 'finished' | 'running' | 'error' | 'tool_call' | 'tool_result' | 'completed_payload' | 'visualizations_ready' | 'content_block', eventData?: string, responseType?: 'answer' | 'replan' | 'cancel') => void
           ) => {
             await resumeStreamingForMessage(threadId, ApprovalStatus.APPROVED, undefined, streamingMessageId, updateContentCallback, onStatus, resumeResponse);
@@ -946,13 +966,13 @@ const ChatWithApproval: React.FC = () => {
       }
 
     } catch (error) {
-      console.error('Error approving plan:', error);
+      console.error('Error approving:', error);
       setLoading(false);
       throw error;
     }
   };
 
-  const handleFeedback = async (content: string, _message: Message): Promise<HandlerResponse> => {
+  const handleFeedback = async (messageId: string | undefined, content: string, _message: Message): Promise<HandlerResponse> => {
 
     const threadId = currentThreadIdRef.current || currentThreadId || selectedChatThreadId;
 
@@ -1027,8 +1047,8 @@ const ChatWithApproval: React.FC = () => {
           isStreaming: true,
           backendMessageId: resumeResponse.data?.assistant_message_id as string | undefined,
           streamingHandler: async (
-            streamingMessageId: number,
-            updateContentCallback: (id: number, contentBlocks: any[]) => void,
+            streamingMessageId: string,
+            updateContentCallback: (id: string, contentBlocks: any[]) => void,
             onStatus?: (status: 'user_feedback' | 'finished' | 'running' | 'error' | 'tool_call' | 'tool_result' | 'completed_payload' | 'visualizations_ready' | 'content_block', eventData?: string, responseType?: 'answer' | 'replan' | 'cancel') => void
           ) => {
             await resumeStreamingForMessage(threadId, ApprovalStatus.FEEDBACK, content, streamingMessageId, updateContentCallback, onStatus, resumeResponse);
@@ -1042,7 +1062,7 @@ const ChatWithApproval: React.FC = () => {
     }
   };
 
-  const handleCancel = async (_content: string, message: Message): Promise<string> => {
+  const handleCancel = async (messageId: string | undefined, _content: string, message: Message): Promise<string> => {
 
     const threadId = currentThreadIdRef.current || currentThreadId || selectedChatThreadId || message.threadId;
 
@@ -1307,6 +1327,7 @@ const ChatWithApproval: React.FC = () => {
                   sidebarExpanded={sidebarExpanded}
                   hasDataContext={!!dataFrameData}
                   onOpenDataContext={() => setDataFrameOpen(true)}
+                  onDataFrameDetected={handleDataFrameDetected}
                 />
               )}
             </div>

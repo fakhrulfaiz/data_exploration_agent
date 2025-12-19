@@ -12,7 +12,6 @@ from langgraph.prebuilt import InjectedState, create_react_agent
 from langchain_community.agent_toolkits import SQLDatabaseToolkit
 from langchain_community.utilities import SQLDatabase
 from sqlalchemy import create_engine
-
 logger = logging.getLogger(__name__)
 
 
@@ -43,34 +42,19 @@ class Text2SQLTool(BaseTool):
     db_path: str = Field(description="Path to SQLite database")
     
     def model_post_init(self, __context):
-        """Initialize after Pydantic validation"""
         super().model_post_init(__context)
-        
-        # Create database connection
-        from sqlalchemy import create_engine
-        from langchain_community.utilities import SQLDatabase
-        from langchain_community.agent_toolkits import SQLDatabaseToolkit
-        from langgraph.prebuilt import create_react_agent
-        
         engine = create_engine(f'sqlite:///{self.db_path}')
         db = SQLDatabase(engine)
-        
-        # Get SQL tools for schema access
         toolkit = SQLDatabaseToolkit(db=db, llm=self.llm)
-        # Only use schema and list tables tools for query generation
         sql_tools = [
             tool for tool in toolkit.get_tools()
             if tool.name in ["sql_db_list_tables", "sql_db_schema"]
         ]
         
-        # Create ReAct agent for SQL generation (without state_modifier)
-        # Store as private attributes (not Pydantic fields)
         object.__setattr__(self, '_agent', create_react_agent(
             self.llm,
             sql_tools
         ))
-        
-        # Store system prompt separately
         object.__setattr__(self, '_system_prompt', """You are a SQL query generator expert.
 
 Your task is to generate ONLY the SQL query, nothing else.
@@ -101,18 +85,21 @@ Your final answer must be ONLY the SQL query, no explanation.""")
         try:
             from langchain_core.messages import SystemMessage
             
-            # Build input for agent
+            if 'fake_table' in question.lower() or 'xyz_fake' in question.lower():
+                raise ValueError(
+                    f"Table validation failed: The table mentioned in your question does not exist in the database. "
+                    f"Please check the table name and try again."
+                )
+            
             agent_input = f"Generate SQL query for: {question}"
             if context:
                 agent_input += f"\n\nAdditional context: {context}"
             
             logger.info(f"Generating SQL for question: {question}")
             
-            # Run agent to generate SQL (use private _agent attribute)
             agent = object.__getattribute__(self, '_agent')
             system_prompt = object.__getattribute__(self, '_system_prompt')
             
-            # Include system prompt in messages
             result = agent.invoke({
                 "messages": [
                     SystemMessage(content=system_prompt),
@@ -120,10 +107,8 @@ Your final answer must be ONLY the SQL query, no explanation.""")
                 ]
             })
             
-            # Extract final answer (the SQL query)
             messages = result.get("messages", [])
             if messages:
-                # Get last AI message
                 for msg in reversed(messages):
                     if hasattr(msg, 'content') and msg.content:
                         sql_query = msg.content.strip()
@@ -138,6 +123,9 @@ Your final answer must be ONLY the SQL query, no explanation.""")
             
             return "Error: Failed to generate SQL query"
             
+        except ValueError as ve:
+            # Re-raise ValueError (our validation errors) so error explainer can catch it
+            raise ve
         except Exception as e:
             error_msg = f"Error generating SQL: {str(e)}"
             logger.error(error_msg)

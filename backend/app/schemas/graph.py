@@ -40,8 +40,10 @@ class StartGraphRequest(BaseModel):
 class ResumeGraphRequest(BaseModel):
     """Request to resume graph execution with user feedback"""
     thread_id: str = Field(..., description="Thread ID to resume")
-    review_action: ApprovalStatus = Field(..., description="User's approval decision")
+    message_id: Optional[str] = Field(None, description="Message ID to resume")
+    review_action: Optional[ApprovalStatus] = Field(None, description="User's approval decision (for plan approval)")
     human_comment: Optional[str] = Field(None, description="Optional user feedback comment")
+    tool_response: Optional[Dict[str, Any]] = Field(None, description="Tool approval response (for tool-level approval)")
 
 
 class StepData(BaseModel):

@@ -109,14 +109,24 @@ async def resume_graph_streaming(
     
     logger.info(f"Streaming graph /resume - thread_id: {thread_id}, user_id: {user_id}")
     
-    assistant_message_id = str(uuid4())
-    run_configs[thread_id] = {
-        "type": "resume",
-        "review_action": request.review_action,
-        "human_comment": request.human_comment,
-        "assistant_message_id": assistant_message_id,
-        "user_id": user_id  # Store user_id for streaming
-    }
+    assistant_message_id = request.message_id or str(uuid4())
+    
+    if request.tool_response:
+        logger.info(f"Tool approval response received - type: {request.tool_response.get('type')}")
+        run_configs[thread_id] = {
+            "type": "tool_resume",
+            "tool_response": request.tool_response,
+            "assistant_message_id": assistant_message_id,
+            "user_id": user_id
+        }
+    else:
+        run_configs[thread_id] = {
+            "type": "resume",
+            "review_action": request.review_action,
+            "human_comment": request.human_comment,
+            "assistant_message_id": assistant_message_id,
+            "user_id": user_id
+        }
     
     return GraphResponse(
         data={
@@ -202,6 +212,19 @@ async def stream_graph(
             visualizations=[]
         )
         input_state = initial_state
+    elif run_data["type"] == "tool_resume":
+        # Tool-level approval resume (hybrid HITL)
+        event_type = "tool_resume"
+        
+        # Use LangGraph Command API to resume from interrupt
+        from langgraph.types import Command
+        
+        tool_response = run_data.get("tool_response", {})
+        logger.info(f"Resuming from tool interrupt with response: {tool_response}")
+        
+        # Command API will resume execution with the tool response
+        input_state = Command(resume=tool_response)
+        
     else:
         event_type = "resume"
         
@@ -240,13 +263,64 @@ async def stream_graph(
         pending_tool_calls = {}
         tool_calls_content_blocks = {}
         
+        # If resuming from tool approval, load existing content blocks to preserve completed tools
+        if event_type == "tool_resume" and assistant_message_id and message_service:
+            try:
+                logger.info(f"Resuming from tool approval - loading existing content blocks for message {assistant_message_id}")
+                existing_message = await message_service._get_message_by_id(thread_id, assistant_message_id)
+                if existing_message and existing_message.content:
+                    logger.info(f"Found existing message with {len(existing_message.content)} content blocks")
+                    for idx, block in enumerate(existing_message.content):
+                        block_type = block.get('type')
+                        block_id = block.get('id', '')
+                        needs_approval = block.get('needsApproval', False)
+                        logger.info(f"  Block {idx}: type={block_type}, id={block_id}, needsApproval={needs_approval}")
+                        
+                        if block_type == 'tool_calls':
+                            # Check if this tool call has output (completed)
+                            tool_calls_data = block.get('data', {}).get('toolCalls', [])
+                            has_output = any(tc.get('output') is not None for tc in tool_calls_data)
+                            
+                            logger.info(f"    Tool calls count: {len(tool_calls_data)}, has_output: {has_output}")
+                            
+                            if has_output:
+                                # This tool call has output - it's completed, preserve it
+                                tool_call_id = block_id.replace('tool_', '')
+                                if tool_call_id:
+                                    tool_calls_content_blocks[tool_call_id] = block
+                                    logger.info(f"    ✓ Loaded existing completed tool block: {tool_call_id}")
+                            elif needs_approval:
+                                tool_call_id = block_id.replace('tool_', '')
+                                if tool_call_id and tool_calls_data:
+                                    for tc in tool_calls_data:
+                                        tool_name = tc.get('name')
+                                        tool_input = tc.get('input', {})
+                                        args_str = json.dumps(tool_input) if tool_input else ''
+                                        pending_tool_calls[tool_call_id] = {
+                                            'tool_call_id': tool_call_id,
+                                            'tool_name': tool_name,
+                                            'args': args_str,
+                                            'sequence': block.get('sequence', 0)
+                                        }
+                                        logger.info(f"    ✓ Loaded pending tool input for {tool_call_id}: {tool_name}")
+                            else:
+                                logger.info(f"    ✗ Skipping tool block without output (pending but not approved)")
+                        else:
+                            logger.info(f"    ✗ Skipping non-tool block")
+                    logger.info(f"Loaded {len(tool_calls_content_blocks)} existing completed tool blocks")
+                    logger.info(f"Loaded {len(pending_tool_calls)} pending tool inputs")
+                else:
+                    logger.warning(f"No existing message found or message has no content")
+            except Exception as e:
+                logger.error(f"Failed to load existing content blocks: {e}", exc_info=True)
+        
         initial_data = json.dumps({"thread_id": thread_id})
         yield {"event": event_type, "data": initial_data}
         
         try:
             last_started_tool_id = None
             last_started_tool_name = None
-            tool_call_sequence = 0  # Track order of tool calls
+            tool_call_sequence = len(tool_calls_content_blocks)  # Start sequence after existing tools
             
             # No need to track block IDs - just use stream_id directly as block_id
             
@@ -255,6 +329,11 @@ async def stream_graph(
                     break
                 
                 node_name = metadata.get('langgraph_node', 'unknown')
+                
+                # Skip streaming from error_explainer node - we only want the final error explanation
+                if node_name == 'error_explainer':
+                    continue
+                
                 checkpoint_ns = metadata.get('langgraph_checkpoint_ns')
                 if isinstance(checkpoint_ns, str):
                     normalized_checkpoint_ns = checkpoint_ns.replace(" ", "_")
@@ -345,7 +424,11 @@ async def stream_graph(
                                 break
                     
                     if not tool_info:
-                        tool_info = {'tool_name': 'unknown'}
+                        tool_name_from_msg = getattr(msg, 'name', None)
+                        if tool_name_from_msg:
+                            tool_info = {'tool_name': tool_name_from_msg}
+                        else:
+                            tool_info = {'tool_name': 'unknown'}
                     
                     tool_name = tool_info.get('tool_name', 'unknown')
                     
@@ -368,7 +451,14 @@ async def stream_graph(
                     if tool_key_for_output:
                         pending_tool_calls[tool_key_for_output]['output'] = msg.content
                     
-                    args_str = tool_info.get('args', '')
+                    # Get args from the actual pending_tool_calls entry to ensure we have accumulated args
+                    args_str = ''
+                    if tool_key_for_output and tool_key_for_output in pending_tool_calls:
+                        args_str = pending_tool_calls[tool_key_for_output].get('args', '')
+                    else:
+                        # Fallback to tool_info if tool_key_for_output not found
+                        args_str = tool_info.get('args', '')
+                    
                     parsed_args = {}
                     if args_str:
                         try:
@@ -546,6 +636,21 @@ async def stream_graph(
             steps = values.get("steps", [])
             plan = values.get("plan", "")
             query = values.get("query", "")
+            
+            # Check if there's an error explanation to emit
+            error_explanation = values.get("error_explanation")
+            if error_explanation:
+                logger.info(f"Emitting error explanation: {error_explanation}")
+                error_block_id = f"error_{assistant_message_id or str(uuid4())}"
+                error_event_data = json.dumps({
+                    "block_type": "error",
+                    "block_id": error_block_id,
+                    "error_explanation": error_explanation,
+                    "message_id": assistant_message_id,
+                    "action": "add_error"
+                })
+                yield {"event": "content_block", "data": error_event_data}
+            
             # Determine assistant final response and its message_id
             assistant_response = ""
             assistant_message_id_from_state: int | None = None
@@ -600,7 +705,145 @@ async def stream_graph(
                     "extra_explanation": f"Plan: {plan}"
                 }
 
-            if state.next and 'human_feedback' in state.next:
+            # Check for tool-level interrupts (hybrid HITL)
+            interrupt_data = None
+            try:
+                if hasattr(state, 'tasks') and state.tasks:
+                    logger.info(f"Checking {len(state.tasks)} tasks for interrupts")
+                    # LangGraph stores interrupts in state.tasks
+                    for idx, task in enumerate(state.tasks):
+                        logger.debug(f"Task {idx}: has interrupts attr = {hasattr(task, 'interrupts')}")
+                        if hasattr(task, 'interrupts') and task.interrupts:
+                            interrupt_data = task.interrupts[0]
+                            logger.info(f"Tool interrupt found in task {idx}: {type(interrupt_data)}")
+                            break
+                else:
+                    logger.debug(f"No tasks in state (hasattr={hasattr(state, 'tasks')}, tasks={getattr(state, 'tasks', None)})")
+            except Exception as e:
+                logger.error(f"Error checking for interrupts: {e}", exc_info=True)
+            
+            # If tool interrupt detected, save message and send to frontend
+            if interrupt_data:
+                logger.info(f"Tool interrupt detected in streaming - thread_id: {thread_id}, interrupt_type: {type(interrupt_data)}")
+                
+                # Convert Interrupt object to dict for JSON serialization
+                try:
+                    # LangGraph wraps our dict in an Interrupt object with a 'value' attribute
+                    if hasattr(interrupt_data, 'value'):
+                        # Extract the actual interrupt data from the Interrupt wrapper
+                        interrupt_dict = interrupt_data.value
+                        logger.info(f"Extracted interrupt value: {interrupt_dict}")
+                    elif hasattr(interrupt_data, '__dict__'):
+                        interrupt_dict = interrupt_data.__dict__
+                    elif isinstance(interrupt_data, dict):
+                        interrupt_dict = interrupt_data
+                    else:
+                        interrupt_dict = {"raw": str(interrupt_data)}
+                    
+                    logger.info(f"Serialized interrupt data: {interrupt_dict}")
+                except Exception as e:
+                    logger.error(f"Failed to serialize interrupt: {e}")
+                    interrupt_dict = {"error": "Failed to serialize interrupt"}
+                
+                # Save assistant message with tool call content blocks
+                if message_service:
+                    try:
+                        content_blocks = []
+                        
+                        # Debug logging to understand state before building content blocks
+                        logger.info(f"=== INTERRUPT DETECTED - Building content blocks ===")
+                        logger.info(f"tool_calls_content_blocks keys: {list(tool_calls_content_blocks.keys())}")
+                        logger.info(f"pending_tool_calls keys: {list(pending_tool_calls.keys())}")
+                        
+                        for tcid, tcblock in tool_calls_content_blocks.items():
+                            logger.info(f"  Completed tool {tcid}: sequence={tcblock.get('sequence')}, toolCalls count={len(tcblock['data']['toolCalls'])}, has_content={tcblock['data'].get('content') is not None}")
+                        
+                        for tkey, tinfo in pending_tool_calls.items():
+                            logger.info(f"  Pending tool {tkey}: name={tinfo.get('tool_name')}, sequence={tinfo.get('sequence')}, has_output={tinfo.get('output') is not None}")
+                        
+                        # First, add all completed tools from tool_calls_content_blocks
+                        sorted_completed_tools = sorted(
+                            tool_calls_content_blocks.items(),
+                            key=lambda x: x[1].get('sequence', 0)
+                        )
+                        for tool_call_id, content_block in sorted_completed_tools:
+                            if len(content_block["data"]["toolCalls"]) > 0:
+                                # Mark as not needing approval since they're already completed
+                                content_block["needsApproval"] = False
+                                logger.info(f"  Adding completed tool {tool_call_id}: needsApproval={content_block['needsApproval']}, toolCalls={content_block['data']['toolCalls']}")
+                                content_blocks.append(content_block)
+                                logger.info(f"  Added completed tool {tool_call_id} to content_blocks")
+                        
+                        # Then, add pending tools that are awaiting approval
+                        sorted_pending_calls = sorted(
+                            pending_tool_calls.items(),
+                            key=lambda x: x[1].get('sequence', 0)
+                        )
+                        
+                        for tool_key, tool_info in sorted_pending_calls:
+                            tool_call_id = tool_info.get('tool_call_id')
+                            tool_name = tool_info.get('tool_name')
+                            args_str = tool_info.get('args', '')
+                            
+                            # Skip if this tool already has output (shouldn't happen, but safety check)
+                            if tool_info.get('output'):
+                                logger.info(f"  Skipping pending tool {tool_call_id} because it has output: {tool_info.get('output')[:50]}...")
+                                continue
+                            
+                            parsed_args = {}
+                            if args_str:
+                                try:
+                                    parsed_args = json.loads(args_str)
+                                except json.JSONDecodeError:
+                                    parsed_args = {}
+                    
+                            tool_call_object = {
+                                "name": tool_name,
+                                "input": parsed_args,
+                                "status": "pending" 
+                            }
+                            
+                            content_block = {
+                                "id": f"tool_{tool_call_id}",
+                                "type": "tool_calls",
+                                "needsApproval": True,
+                                "data": {
+                                    "toolCalls": [tool_call_object]
+                                }
+                            }
+                            content_blocks.append(content_block)
+                            logger.info(f"  Added pending tool {tool_call_id} ({tool_name}) to content_blocks")
+                        
+                        logger.info(f"=== Total content_blocks to save: {len(content_blocks)} ===")
+                        for idx, cb in enumerate(content_blocks):
+                            logger.info(f"  Block {idx}: type={cb['type']}, id={cb['id']}, needsApproval={cb.get('needsApproval')}, toolCalls={len(cb.get('data', {}).get('toolCalls', []))}")
+                        
+                        logger.info(f"Calling save_assistant_message for tool approval with thread_id: {thread_id}, user_id: {user_id}, message_id: {assistant_message_id}, content_blocks count: {len(content_blocks)}")
+                        saved_message = await message_service.save_assistant_message(
+                            thread_id=thread_id,
+                            content=content_blocks,
+                            message_type="structured",
+                            checkpoint_id=checkpoint_id,
+                            message_id=assistant_message_id,
+                            user_id=user_id
+                        )
+                        logger.info(f"Successfully saved assistant message {saved_message.id if saved_message else 'None'} (UUID: {saved_message.message_id if saved_message else 'None'}) for tool approval in thread {thread_id}")
+                    except Exception as e:
+                        logger.error(f"Failed to save assistant message for tool approval in thread {thread_id}: {e}")
+                
+                # Send status event with interrupt data
+                interrupt_status_data = json.dumps({
+                    "status": "user_feedback",
+                    "thread_id": thread_id,
+                    "__interrupt__": [{"value": interrupt_dict}]
+                })
+                yield {"event": "status", "data": interrupt_status_data}
+                
+                # Don't continue to plan approval logic
+                # Frontend will handle the tool approval
+                
+            elif state.next and 'human_feedback' in state.next:
+                # Plan approval (existing logic)
                 response_type = values.get("response_type")
                 if assistant_response and message_service:
                     try:
@@ -727,6 +970,18 @@ async def stream_graph(
                             "needsApproval": False,
                                 "data": {"checkpointId": checkpoint_id}
                         })
+                    
+                    # Add error explanation block if present
+                    error_explanation = values.get("error_explanation")
+                    if error_explanation:
+                        error_block_id = f"error_{assistant_message_id or str(uuid4())}"
+                        content_blocks.append({
+                            "id": error_block_id,
+                            "type": "error",
+                            "needsApproval": False,
+                            "data": error_explanation
+                        })
+                        logger.info(f"Added error explanation block to content_blocks: {error_block_id}")
                     
                     logger.info(f"Calling save_assistant_message for completion with thread_id: {thread_id}, user_id: {user_id}, message_id: {assistant_message_id}, checkpoint_id: {checkpoint_id}, content_blocks count: {len(content_blocks)}")
                     saved_completion_message = await message_service.save_assistant_message(

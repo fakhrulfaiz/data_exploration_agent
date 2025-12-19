@@ -38,8 +38,10 @@ interface InputFormProps {
   isLoading?: boolean;
   usePlanning?: boolean;
   useExplainer?: boolean;
+  useStreaming?: boolean;
   onPlanningToggle?: (enabled: boolean) => void;
   onExplainerToggle?: (enabled: boolean) => void;
+  onStreamingToggle?: (enabled: boolean) => void;
   onFilesChange?: (files: File[]) => void;
   attachedFiles?: File[];
   onAttachmentsUploaded?: (files: UploadedAttachment[]) => void;
@@ -59,8 +61,10 @@ const InputForm: React.FC<InputFormProps> = ({
   isLoading = false,
   usePlanning = false,
   useExplainer = false,
+  useStreaming: useStreamingProp,
   onPlanningToggle,
   onExplainerToggle,
+  onStreamingToggle,
   onFilesChange,
   attachedFiles = [],
   onAttachmentsUploaded,
@@ -69,7 +73,7 @@ const InputForm: React.FC<InputFormProps> = ({
   hasDataContext,
   onOpenDataContext,
 }) => {
-  const [useStreaming, setUseStreaming] = useState(false);
+  const useStreaming = useStreamingProp ?? true;
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [isTextareaExpanded, setIsTextareaExpanded] = useState<boolean>(false);
@@ -362,7 +366,7 @@ const InputForm: React.FC<InputFormProps> = ({
               </DropdownMenuItem>
               <DropdownMenuItem onClick={(e: React.MouseEvent<HTMLDivElement>) => {
                 e.preventDefault();
-                setUseStreaming(!useStreaming);
+                onStreamingToggle?.(!useStreaming);
               }}>
                 <Zap className={`w-4 h-4 mr-2 ${useStreaming ? 'text-purple-600' : ''}`} />
                 Streaming

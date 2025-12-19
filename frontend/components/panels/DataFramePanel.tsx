@@ -28,15 +28,16 @@ const DataFramePanel: React.FC<DataFramePanelProps> = ({
 }) => {
     const pageSize = 20;
 
-    // Guard
-    if (!open || !data) return null;
 
     const [page, setPage] = React.useState(0);
 
     // Reset page when df_id changes
     React.useEffect(() => {
         setPage(0);
-    }, [data.df_id]);
+    }, [data?.df_id]);
+
+    // Guard - return early after all hooks are called
+    if (!open || !data) return null;
 
     const totalPreviewRows = data.preview_rows;
     const totalPages = Math.max(1, Math.ceil(totalPreviewRows / pageSize));

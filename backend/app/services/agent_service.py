@@ -39,7 +39,8 @@ class AgentService:
             self._agent = DataExplorationAgent(
                 llm=llm, 
                 db_path=db_path, 
-                use_postgres_checkpointer=use_postgres_checkpointer
+                use_postgres_checkpointer=use_postgres_checkpointer,
+                require_tool_approval=True 
             )
             logger.info("Agent service initialized successfully")
         except Exception as e:
