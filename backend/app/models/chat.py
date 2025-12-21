@@ -20,15 +20,17 @@ class SenderEnum(str, enum.Enum):
 
 
 class MessageTypeEnum(str, enum.Enum):
-    """Message types."""
-    MESSAGE = "message"
+    """Message types (used at content/block level, not on ChatMessage)."""
+    TEXT = "text"
+    TOOL_CALLS = "tool_calls"
     EXPLORER = "explorer"
-    VISUALIZATION = "visualization"
-    STRUCTURED = "structured"
+    VISUALIZATIONS = "visualizations"
+    PLAN = "plan"
+    ERROR = "error"
 
 
 class MessageStatusEnum(str, enum.Enum):
-    """Message status types."""
+    """Message status types (used by MessageContent for block-level status)."""
     PENDING = "pending"
     APPROVED = "approved"
     REJECTED = "rejected"
@@ -80,15 +82,7 @@ class ChatMessage(Base):
         SQLEnum(SenderEnum, name="sender_enum"),
         nullable=False
     )
-    message_type: Mapped[MessageTypeEnum] = mapped_column(
-        SQLEnum(MessageTypeEnum, name="message_type_enum"),
-        nullable=False,
-        default=MessageTypeEnum.STRUCTURED
-    )
-    message_status: Mapped[Optional[MessageStatusEnum]] = mapped_column(
-        SQLEnum(MessageStatusEnum, name="message_status_enum"),
-        nullable=True
-    )
+    # message_type and message_status removed - approval is purely block-level
     checkpoint_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, index=True)
     user_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, index=True)
     timestamp: Mapped[datetime] = mapped_column(
@@ -109,8 +103,6 @@ class ChatMessage(Base):
     __table_args__ = (
         Index('idx_chat_messages_thread_timestamp', 'thread_id', 'timestamp'),
         Index('idx_chat_messages_thread_sender', 'thread_id', 'sender', 'timestamp'),
-        Index('idx_chat_messages_thread_status', 'thread_id', 'message_status'),
-        Index('idx_chat_messages_thread_type', 'thread_id', 'message_type'),
         Index('idx_chat_messages_user_timestamp', 'user_id', 'timestamp'),
         Index('idx_chat_messages_user_checkpoint', 'user_id', 'checkpoint_id'),
     )

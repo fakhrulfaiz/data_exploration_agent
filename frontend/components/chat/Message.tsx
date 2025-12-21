@@ -10,8 +10,33 @@ const Message: React.FC<MessageComponentProps> = ({
   onApproveBlock,
   onRejectBlock
 }) => {
-  // Check if message contains tool calls
   const hasToolCalls = message.content?.some(block => block.type === 'tool_calls') || false;
+
+  const getMessageStatus = (): 'approved' | 'rejected' | 'error' | 'timeout' | undefined => {
+    if (!message.content || message.content.length === 0) return undefined;
+
+    if (message.content.some(block => block.messageStatus === 'error')) {
+      return 'error';
+    }
+
+    if (message.content.some(block => block.messageStatus === 'timeout')) {
+      return 'timeout';
+    }
+
+    const blocksWithStatus = message.content.filter(block => block.messageStatus);
+    if (blocksWithStatus.length > 0 && blocksWithStatus.every(block => block.messageStatus === 'approved')) {
+      return 'approved';
+    }
+
+    if (message.content.some(block => block.messageStatus === 'rejected')) {
+      return 'rejected';
+    }
+
+    return undefined;
+  };
+
+  const messageStatus = getMessageStatus();
+
   const handleAction = (action: string, data?: any) => {
     switch (action) {
       case 'approveToolCall':
@@ -40,16 +65,13 @@ const Message: React.FC<MessageComponentProps> = ({
   };
 
 
-  // Check if message has content (always an array of content blocks)
   const hasContent = message.content && message.content.length > 0;
 
   if (!hasContent) {
     return null;
   }
-  // Regular message layout
   return (
-    <div className={`flex ${message.sender === 'user' ? 'justify-end' : 'justify-start'}`}>
-      {/* Assistant icon - always reserve space for alignment */}
+    <div className={`flex mb-2 ${message.sender === 'user' ? 'justify-end' : 'justify-start'}`}>
       {message.sender === 'assistant' && (
         <div className="flex-shrink-0 mr-2 mt-1">
           {showIcon ? (
@@ -57,14 +79,12 @@ const Message: React.FC<MessageComponentProps> = ({
               <Bot className="w-5 h-5 text-white" />
             </div>
           ) : (
-            // Empty space to maintain alignment
             <div className="w-8 h-8" />
           )}
         </div>
       )}
 
       <div className={`${message.sender === 'user' ? 'max-w-[80%] order-2' : 'flex-1 min-w-0 overflow-hidden order-1'}`}>
-        {/* Message content */}
         {message.sender === 'user' ? (
           <div className="px-4 py-3 rounded-lg bg-primary text-primary-foreground">
             <div className="break-words">
@@ -72,14 +92,14 @@ const Message: React.FC<MessageComponentProps> = ({
             </div>
           </div>
         ) : (
-          <div className={`px-4 py-3 ${message.messageStatus === 'error'
-            ? 'bg-destructive/15 text-destructive border border-destructive/30'
-            : message.messageStatus === 'timeout'
-              ? 'bg-accent text-accent-foreground border border-border'
-              : message.messageStatus === 'approved' && !hasToolCalls
-                ? 'bg-accent text-accent-foreground border border-border'
-                : message.messageStatus === 'rejected'
-                  ? 'bg-muted text-muted-foreground border border-border'
+          <div className={`px-4 py-3 ${messageStatus === 'error'
+            ? 'rounded-lg border border-destructive/50 text-foreground'
+            : messageStatus === 'timeout'
+              ? 'rounded-lg border border-orange-500/50 text-foreground'
+              : messageStatus === 'approved' && !hasToolCalls
+                ? 'rounded-lg border border-green-500/50 text-foreground'
+                : messageStatus === 'rejected'
+                  ? 'rounded-lg border border-red-500/50 text-foreground'
                   : 'bg-background text-foreground'
             }`}>
             <div className="break-words">
@@ -88,19 +108,18 @@ const Message: React.FC<MessageComponentProps> = ({
           </div>
         )}
 
-        {/* Timestamp and status */}
         <div className={`text-xs text-muted-foreground mt-0.5 mb-2 ${message.sender === 'user' ? 'text-right' : 'text-left'
           }`}>
-          {message.messageStatus === 'approved' && !hasToolCalls && (
+          {messageStatus === 'approved' && !hasToolCalls && (
             <span className="ml-2 text-green-600 font-medium">✓ Approved</span>
           )}
-          {message.messageStatus === 'rejected' && (
+          {messageStatus === 'rejected' && (
             <span className="ml-2 text-red-600 font-medium">Cancelled</span>
           )}
-          {message.messageStatus === 'timeout' && (
+          {messageStatus === 'timeout' && (
             <span className="ml-2 text-orange-600 font-medium">Timed out</span>
           )}
-          {message.messageStatus === 'error' && (
+          {messageStatus === 'error' && (
             <span className="ml-2 text-red-600 font-medium">Error</span>
           )}
         </div>

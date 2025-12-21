@@ -83,6 +83,7 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   // Streaming UI state
   const [streamingActive, setStreamingActive] = useState<boolean>(false);
+  const [hasReceivedContent, setHasReceivedContent] = useState<boolean>(false);
 
   // Enhanced input state
   const [usePlanning, setUsePlanning] = useState<boolean>(false);
@@ -109,6 +110,17 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
   // Mapping between backend assistant_message_id and frontend message IDs
   // This allows content_block events with backend message_id to update the correct frontend message
   const backendToFrontendMessageIdMap = useRef<Map<string, string>>(new Map());
+
+
+  const getLatestAssistantMessageId = (): string | null => {
+    // Iterate through messages in reverse to find the most recent assistant message
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].sender === 'assistant') {
+        return messages[i].message_id;
+      }
+    }
+    return null;
+  };
 
 
 
@@ -253,7 +265,7 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
     if (!blockExists) {
       setPendingApproval(null);
       for (const msg of messages) {
-        if (msg.needsApproval) {
+        if (Array.isArray(msg.content) && msg.content.some(block => block.needsApproval)) {
           setPendingApprovalFromMessage(msg);
           break;
         }
@@ -284,7 +296,6 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
       sender: 'assistant',
       content: response.message ? [createTextBlock(`text_${explorerMessageId}`, response.message, false)] : [],
       timestamp: new Date(),
-      messageType: 'explorer',
       checkpointId: response.explorerData.checkpoint_id,
       metadata: { explorerData: response.explorerData },
       threadId: contextThreadId || currentThreadId || undefined
@@ -307,7 +318,6 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
         sender: 'assistant',
         content: response.message ? [createTextBlock(`text_${vizMessageId}`, response.message, false)] : [],
         timestamp: new Date(),
-        messageType: 'visualization',
         checkpointId: response.checkpoint_id, // Add checkpoint ID for visualization messages
         metadata: { visualizations: response.visualizations },
         threadId: contextThreadId || currentThreadId || undefined
@@ -327,7 +337,7 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
   ) => {
     setMessages(prev => prev.map(m =>
       m.message_id === streamingMsgId
-        ? { ...m, content: [createTextBlock(`error_${streamingMsgId}`, `Error: ${streamErr.message || 'Streaming failed'}`, false)], messageStatus: 'error' as const, isStreaming: false }
+        ? { ...m, content: [createTextBlock(`error_${streamingMsgId}`, `Error: ${streamErr.message || 'Streaming failed'}`, false)], isStreaming: false }
         : m
     ));
   }, []);
@@ -472,7 +482,22 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
       setMessages(prev =>
         prev.map(m => {
           if (m.message_id === messageId) {
-            return { ...m, content: contentBlocks || [] };
+            if (!contentBlocks || contentBlocks.length === 0) {
+              return { ...m, content: [] };
+            }
+
+            // Merge blocks: update existing by ID, append new ones
+            const existingBlocks = Array.isArray(m.content) ? m.content : [];
+            const existingBlockIds = new Set(existingBlocks.map(b => b.id));
+            const newBlockIds = new Set(contentBlocks.map(b => b.id));
+
+            // Keep existing blocks that aren't being updated
+            const preservedBlocks = existingBlocks.filter(b => !newBlockIds.has(b.id));
+
+            // Add all new/updated blocks
+            const mergedBlocks = [...preservedBlocks, ...contentBlocks];
+
+            return { ...m, content: mergedBlocks };
           }
           return m;
         })
@@ -488,11 +513,16 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
     currentContentBlocks: ContentBlock[]
   ): ContentBlock[] => {
     try {
+      // Mark that we've received content from the stream
+      setHasReceivedContent(true);
+      setIsLoading(false);
+
       const blockData = JSON.parse(eventData);
       const blockType = blockData.block_type;
       const blockId = blockData.block_id;
       const action = blockData.action;
-      const backendMessageId = blockData.message_id || streamingMsgId;
+      // Always use streamingMsgId for this message, ignore backend message_id
+      // This ensures all blocks go to the same frontend message
 
       let updatedBlocks = [...currentContentBlocks];
 
@@ -540,6 +570,31 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
           } else {
             // Update existing plan block
             (planBlock.data as any).plan = blockData.content;
+          }
+        } else if (action === 'replan') {
+          setMessages(prev => prev.map(msg => ({
+            ...msg,
+            content: Array.isArray(msg.content)
+              ? msg.content.map(block =>
+                block.type === 'plan'
+                  ? { ...block, needsApproval: false }
+                  : block
+              )
+              : msg.content
+          })));
+          updatedBlocks = updatedBlocks.map(block =>
+            block.type === 'plan'
+              ? { ...block, needsApproval: false }
+              : block
+          );
+
+          let planBlock = updatedBlocks.find(b => b.id === blockId);
+          if (!planBlock) {
+            planBlock = createPlanBlock(blockId, blockData.content, true);
+            updatedBlocks = [...updatedBlocks, planBlock];
+          } else {
+            (planBlock.data as any).plan = blockData.content;
+            planBlock.needsApproval = true;
           }
         }
       } else if (blockType === 'tool_calls') {
@@ -595,7 +650,7 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
                 : block
             );
 
-            updateContentBlocksCallback(backendMessageId, updatedBlocks);
+            updateContentBlocksCallback(streamingMsgId, updatedBlocks);
           } catch (e) {
           }
         } else if (action === 'update_tool_calls_explanation') {
@@ -685,7 +740,7 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
                   : block
               );
 
-              updateContentBlocksCallback(backendMessageId, updatedBlocks);
+              updateContentBlocksCallback(streamingMsgId, updatedBlocks);
 
               // Detect DataFrame context in tool output
               if (onDataFrameDetected && blockData.output) {
@@ -707,7 +762,7 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
             }
           }
 
-          handleToolEvents('tool_result', eventData, backendMessageId);
+          handleToolEvents('tool_result', eventData, streamingMsgId);
         }
       } else if (blockType === 'explorer' && action === 'add_explorer') {
         const explorerData = {
@@ -733,10 +788,10 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
       }
 
       // Update the message with current content blocks
-      updateContentBlocksCallback(backendMessageId, updatedBlocks);
+      updateContentBlocksCallback(streamingMsgId, updatedBlocks);
 
       if (blockType === 'tool_calls') {
-        handleToolEvents('tool_call', eventData, backendMessageId);
+        handleToolEvents('tool_call', eventData, streamingMsgId);
       }
 
       return updatedBlocks;
@@ -785,8 +840,6 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
               ? backendStreamId
               : Date.now().toString();
 
-            // CRITICAL FIX: Check if a message with this ID already exists
-            // If it does, reuse it instead of creating a duplicate
             const existingMessageIndex = messages.findIndex(m => m.message_id === streamingMsgId);
 
             if (existingMessageIndex !== -1) {
@@ -795,8 +848,7 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
                   ? {
                     ...m,
                     isStreaming: true,
-                    needsApproval: false,
-                    messageStatus: undefined
+                    needsApproval: false
                   }
                   : m
               ));
@@ -814,8 +866,21 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
 
             setStreamingActive(true);
             setPendingApproval(null);
+
+            let currentContentBlocks: ContentBlock[] = [];
+
             await (result as HandlerResponse).streamingHandler!(streamingMsgId, updateContentBlocksCallback, (status, eventData, responseType) => {
               if (!status) return;
+
+              // Handle content_block events (for replan, answer, etc.)
+              if (status === 'content_block' && eventData) {
+                currentContentBlocks = handleContentBlockEvent(
+                  eventData,
+                  streamingMsgId,
+                  currentContentBlocks
+                );
+                return;
+              }
 
               // Handle tool events
               handleToolEvents(status, eventData, streamingMsgId);
@@ -889,6 +954,7 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
     };
 
     setMessages(prev => [...prev, newUserMessage]);
+    setIsLoading(true);
 
 
     try {
@@ -906,6 +972,7 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
         } as any;
         setMessages(prev => [...prev, streamingMessage]);
         setStreamingActive(true);
+        setHasReceivedContent(false);
         setExecutionStatus('running');
 
         try {
@@ -947,7 +1014,6 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
                 m.message_id === streamingMsgId
                   ? {
                     ...m,
-                    messageStatus: 'error' as const,
                     isStreaming: false
                   }
                   : m
@@ -972,6 +1038,8 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
                         if (!hasOutput) {
                           return { ...block, needsApproval: true };
                         }
+                      } else if (block.type === 'plan') {
+                        return { ...block, needsApproval: true };
                       }
                       return block;
                     });
@@ -1042,8 +1110,7 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
         message_id: String(errorMessageId),
         sender: 'assistant',
         content: [createTextBlock(`error_${errorMessageId}`, `Error: ${(error as Error).message || 'Something went wrong'}`, false)],
-        timestamp: new Date(),
-        messageStatus: 'error' as const
+        timestamp: new Date()
       };
 
       setMessages(prev => [...prev, errorMessage]);
@@ -1071,53 +1138,43 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
     setExecutionStatus('running');
     setIsLoading(true);
 
-    // Immediately persist approval status to backend before processing approval
-    // This ensures the approval state is saved even if the approval process fails
     try {
       if (Array.isArray(message.content)) {
-        // Update the specific block to approved status
         const updatedContent = message.content.map(b =>
           b.id === blockId
             ? { ...b, messageStatus: 'approved' as const, needsApproval: false }
             : b
         );
-
-        // Check if message still needs approval after updating this block
-        const stillNeedsApproval = updatedContent.some(b => b.needsApproval === true);
-
         await updateMessageFlags(message.message_id, {
-          content: updatedContent,
-          needsApproval: stillNeedsApproval,
-          messageStatus: stillNeedsApproval ? message.messageStatus : 'approved' as const
+          content: updatedContent
         });
       } else {
         await updateMessageFlags(message.message_id, {
-          messageStatus: 'approved' as const,
-          needsApproval: false
+          content: message.content
         });
       }
     } catch (updateError) {
-      console.error('Failed to persist approval status:', updateError);
-      // Continue with approval process even if persistence fails
+      console.error('Failed to persist approval status:', updateError)
     }
 
     try {
 
       if (onApprove) {
-        // Extract text content from content blocks for onApprove
         const textContent = Array.isArray(message.content)
           ? message.content
             .filter(block => block.type === 'text')
             .map(block => (block.data as any).text)
             .join('\n')
           : message.content;
-        const result = await onApprove(message.message_id, textContent, message);
+
+        const latestAssistantMsgId = getLatestAssistantMessageId();
+        const streamingMsgId = latestAssistantMsgId || message.message_id;
+        const result = await onApprove(streamingMsgId, textContent, message);
         if (result) {
           if ((result as HandlerResponse).isStreaming && (result as HandlerResponse).streamingHandler) {
-            const backendStreamId = (result as HandlerResponse).backendMessageId;
-            const streamingMsgId = (backendStreamId && typeof backendStreamId === 'string')
-              ? backendStreamId
-              : String(Date.now() + 1);
+
+            const latestAssistantMsgId = getLatestAssistantMessageId();
+            const streamingMsgId = latestAssistantMsgId || message.message_id;
 
             const existingMessageIndex = messages.findIndex(m => m.message_id === streamingMsgId);
 
@@ -1127,8 +1184,7 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
                   ? {
                     ...m,
                     isStreaming: true,
-                    needsApproval: false,
-                    messageStatus: undefined
+                    needsApproval: false
                   }
                   : m
               ));
@@ -1145,6 +1201,7 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
             }
 
             setStreamingActive(true);
+            setHasReceivedContent(false);
 
             if (message.message_id && typeof message.message_id === 'string') {
               backendToFrontendMessageIdMap.current.set(streamingMsgId, message.message_id);
@@ -1213,7 +1270,6 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
                       return {
                         ...m,
                         content: existingText ? [createTextBlock(`text_${streamingMsgId}`, existingText, false), errorBlock] : [errorBlock],
-                        messageStatus: 'error' as const,
                         isStreaming: false
                       };
                     }
@@ -1293,7 +1349,7 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
             } catch (streamErr) {
               setMessages(prev => prev.map(m =>
                 m.message_id === streamingMsgId
-                  ? { ...m, content: [createTextBlock(`error_${streamingMsgId}`, `Error: ${(streamErr as Error).message || 'Streaming failed'}`, false)], messageStatus: 'error' as const, isStreaming: false }
+                  ? { ...m, content: [createTextBlock(`error_${streamingMsgId}`, `Error: ${(streamErr as Error).message || 'Streaming failed'}`, false)], isStreaming: false }
                   : m
               ));
 
@@ -1310,7 +1366,6 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
               sender: 'assistant',
               content: messageText ? [createTextBlock(`text_${tempId}`, messageText, false)] : [],
               timestamp: new Date(),
-              needsApproval: needsApproval,
               threadId: contextThreadId || currentThreadId || undefined
             };
             setMessages(prev => [...prev, resultMessage]);
@@ -1331,15 +1386,12 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
               : b
           );
           await updateMessageFlags(message.message_id, {
-            content: updatedContent,
-            needsApproval: true,
-            messageStatus: 'timeout' as const
+            content: updatedContent
           });
         } else {
-          // For legacy messages without content blocks, use messageStatus
+          // For legacy messages without content blocks, update content
           await updateMessageFlags(message.message_id, {
-            messageStatus: 'timeout' as const,
-            needsApproval: true
+            content: message.content
           });
         }
       } else {
@@ -1351,15 +1403,12 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
               : b
           );
           await updateMessageFlags(message.message_id, {
-            content: updatedContent,
-            needsApproval: true,
-            messageStatus: 'pending' as const
+            content: updatedContent
           });
         } else {
-          // For legacy messages without content blocks, use messageStatus
+          // For legacy messages without content blocks, update content
           await updateMessageFlags(message.message_id, {
-            messageStatus: 'pending' as const,
-            needsApproval: true
+            content: message.content
           });
         }
 
@@ -1368,8 +1417,7 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
           message_id: errorMessageId,
           sender: 'assistant',
           content: [createTextBlock(`error_${errorMessageId}`, `Error during approval: ${(error as Error).message || 'Something went wrong'}`, false)],
-          timestamp: new Date(),
-          messageStatus: 'error'
+          timestamp: new Date()
         };
 
         setMessages(prev => [...prev, errorMessage]);
@@ -1412,15 +1460,12 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
       const stillNeedsApproval = updatedContent.some(b => b.needsApproval === true);
 
       await updateMessageFlags(message.message_id, {
-        content: updatedContent,
-        needsApproval: stillNeedsApproval,
-        messageStatus: 'rejected' as const
+        content: updatedContent
       });
     } else {
-      // For legacy messages without content blocks, use messageStatus
+      // For legacy messages without content blocks, update content
       await updateMessageFlags(message.message_id, {
-        messageStatus: 'rejected' as const,
-        needsApproval: false
+        content: message.content
       });
     }
 
@@ -1444,8 +1489,7 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
             message_id: resultMessageId,
             sender: 'assistant',
             content: resultText ? [createTextBlock(`text_${resultMessageId}`, resultText, false)] : [],
-            timestamp: new Date(),
-            needsApproval: false // Cancellation messages don't need approval
+            timestamp: new Date()
           };
 
           setMessages(prev => [...prev, resultMessage]);
@@ -1458,8 +1502,7 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
         message_id: errorMessageId,
         sender: 'assistant',
         content: [createTextBlock(`text_${errorMessageId}`, `Error during cancellation: ${(error as Error).message || 'Something went wrong'}`, false)],
-        timestamp: new Date(),
-        messageStatus: 'error' as const
+        timestamp: new Date()
       };
 
       setMessages(prev => [...prev, errorMessage]);
@@ -1470,15 +1513,24 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
 
   const handleRetry = async (messageId: string): Promise<void> => {
     const message = messages.find(m => m.message_id === messageId);
-    // Check if message has timeout status (can be retried)
-    if (!message || message.messageStatus !== 'timeout') {
+    // Check if message has timeout status in any block (can be retried)
+    const hasTimeoutBlock = message && Array.isArray(message.content) &&
+      message.content.some(block => block.messageStatus === 'timeout');
+    if (!message || !hasTimeoutBlock) {
       return;
     }
 
-    // Clear the timeout state and restore the message to pending status
-    await updateMessageFlags(messageId, {
-      messageStatus: 'pending' as const
-    });
+    // Clear the timeout state on blocks and restore to pending status
+    if (Array.isArray(message.content)) {
+      const updatedContent = message.content.map(block =>
+        block.messageStatus === 'timeout'
+          ? { ...block, messageStatus: 'pending' as const }
+          : block
+      );
+      await updateMessageFlags(messageId, {
+        content: updatedContent
+      });
+    }
 
     try {
       // Call the parent's retry handler if available
@@ -1504,7 +1556,9 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
       } else {
         // Fallback to local retry logic if no parent handler
         // For timeout retries, find the first block that needs approval and approve it
-        if (message.needsApproval && Array.isArray(message.content)) {
+        const hasApprovalNeeded = Array.isArray(message.content) &&
+          message.content.some(block => block.needsApproval === true);
+        if (hasApprovalNeeded && Array.isArray(message.content)) {
           const blockNeedingApproval = message.content.find(block => block.needsApproval === true);
           if (blockNeedingApproval) {
             await handleApprove(blockNeedingApproval.id);
@@ -1514,10 +1568,17 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
     } catch (error) {
       const isTimeout = isTimeoutError(error as Error);
 
-      // If retry fails, mark the message as having a timeout error again
-      await updateMessageFlags(messageId, {
-        messageStatus: 'timeout' as const
-      });
+      // If retry fails, mark blocks as having a timeout error again
+      if (Array.isArray(message.content)) {
+        const updatedContent = message.content.map(block =>
+          block.messageStatus === 'pending'
+            ? { ...block, messageStatus: 'timeout' as const }
+            : block
+        );
+        await updateMessageFlags(messageId, {
+          content: updatedContent
+        });
+      }
       console.error('Retry failed:', error);
 
       // Also show the error message if it's not a timeout
@@ -1527,8 +1588,7 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
           message_id: errorMessageId,
           sender: 'assistant',
           content: [createTextBlock(`error_${errorMessageId}`, `Retry failed: ${(error as Error).message || 'Something went wrong'}`, false)],
-          timestamp: new Date(),
-          messageStatus: 'error' as const
+          timestamp: new Date()
         };
         setMessages(prev => [...prev, errorMessage]);
       }
@@ -1625,8 +1685,8 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
             </React.Fragment>
           ))}
 
-          {/* Loading indicator */}
-          {((!useStreaming && isLoading) || (useStreaming && streamingActive)) && (
+          {/* Loading indicator - shows when waiting for content */}
+          {(isLoading || (useStreaming && streamingActive && !hasReceivedContent)) && (
             <GeneratingIndicator
               activeTools={toolStepHistory?.steps.filter(s => s.status === 'calling').map(s => s.name)}
             />

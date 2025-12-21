@@ -261,11 +261,10 @@ class MessagesRepository(BaseRepository[ChatMessage]):
             # Convert to checkpoint format
             checkpoints = []
             for msg in messages:
-                checkpoints.append({
+                checkpoints.append(                {
                     "checkpoint_id": msg.checkpoint_id,
                     "thread_id": msg.thread_id,
                     "timestamp": msg.timestamp,
-                    "message_type": msg.message_type.value if msg.message_type else None,
                     "message_id": msg.message_id
                 })
             

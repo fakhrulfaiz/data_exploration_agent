@@ -51,12 +51,8 @@ export interface Message {
   // Content is always an array of content blocks
   content: ContentBlock[];
   timestamp: Date;
-  needsApproval?: boolean;
-  messageStatus?: 'pending' | 'approved' | 'rejected' | 'error' | 'timeout';
   isStreaming?: boolean;
   threadId?: string;
-  // Deprecated: keeping for backward compatibility during transition
-  messageType?: 'message' | 'explorer' | 'visualization' | 'tool_call';
   checkpointId?: string;
   metadata?: {
     explorerData?: any;

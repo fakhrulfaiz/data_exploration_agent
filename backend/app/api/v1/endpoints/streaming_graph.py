@@ -17,6 +17,20 @@ from app.services.message_management_service import MessageManagementService
 from app.services.agent_service import AgentService
 from app.models.supabase_user import SupabaseUser
 from app.core.auth import get_current_user
+from app.api.v1.endpoints.streaming.handlers import (
+    StreamContext,
+    ToolCallHandler,
+    TextContentHandler,
+    PlanContentHandler
+)
+from app.api.v1.endpoints.streaming.streaming_persistence import StreamingMessagePersistence
+from app.api.v1.endpoints.streaming.streaming_utils import (
+    handle_tool_interrupt,
+    handle_plan_approval,
+    handle_completion,
+    handle_error,
+    check_for_interrupts
+)
 
 logger = logging.getLogger(__name__)
 
@@ -36,8 +50,6 @@ router = APIRouter(
 run_configs = {}
 
 def _extract_stream_or_message_id(msg: Any, preferred_key: str = 'message_id') -> Any:
-    """Robustly extracts a stream ID (string) or message ID (int) from a chunk,
-    falling back to a dynamic timestamp if needed."""
     tool_call_id = getattr(msg, 'tool_call_id', None)
     if tool_call_id is not None and tool_call_id != "":
         if isinstance(tool_call_id, str) and tool_call_id.isdigit():
@@ -213,7 +225,6 @@ async def stream_graph(
         )
         input_state = initial_state
     elif run_data["type"] == "tool_resume":
-        # Tool-level approval resume (hybrid HITL)
         event_type = "tool_resume"
         
         # Use LangGraph Command API to resume from interrupt
@@ -222,7 +233,6 @@ async def stream_graph(
         tool_response = run_data.get("tool_response", {})
         logger.info(f"Resuming from tool interrupt with response: {tool_response}")
         
-        # Command API will resume execution with the tool response
         input_state = Command(resume=tool_response)
         
     else:
@@ -254,84 +264,45 @@ async def stream_graph(
     
     async def event_generator():
         nonlocal assistant_message_id
-        buffer = ""
         
-        # Log config details before streaming starts
-        config_user_id = config.get('configurable', {}).get('user_id', 'NOT SET')
-        logger.info(f"Starting stream event_generator - thread_id: {thread_id}, user_id in config: {config_user_id}")
+        context = StreamContext(
+            thread_id=thread_id,
+            assistant_message_id=assistant_message_id,
+            text_block_id=text_block_id,
+            node_name="",
+            message_service=message_service,
+            config=config
+        )
         
-        pending_tool_calls = {}
-        tool_calls_content_blocks = {}
+        tool_handler = ToolCallHandler(context)
+        text_handler = TextContentHandler(context)  # Uses default: ['agent', 'tool_explanation', 'joiner']
+        plan_handler = PlanContentHandler(context, agent)
+        persistence = StreamingMessagePersistence(message_service)
         
-        # If resuming from tool approval, load existing content blocks to preserve completed tools
-        if event_type == "tool_resume" and assistant_message_id and message_service:
+        # Load existing blocks for BOTH tool approval and plan approval
+        if event_type in ["tool_resume", "resume"] and assistant_message_id and message_service:
             try:
-                logger.info(f"Resuming from tool approval - loading existing content blocks for message {assistant_message_id}")
-                existing_message = await message_service._get_message_by_id(thread_id, assistant_message_id)
-                if existing_message and existing_message.content:
-                    logger.info(f"Found existing message with {len(existing_message.content)} content blocks")
-                    for idx, block in enumerate(existing_message.content):
-                        block_type = block.get('type')
-                        block_id = block.get('id', '')
-                        needs_approval = block.get('needsApproval', False)
-                        logger.info(f"  Block {idx}: type={block_type}, id={block_id}, needsApproval={needs_approval}")
-                        
-                        if block_type == 'tool_calls':
-                            # Check if this tool call has output (completed)
-                            tool_calls_data = block.get('data', {}).get('toolCalls', [])
-                            has_output = any(tc.get('output') is not None for tc in tool_calls_data)
-                            
-                            logger.info(f"    Tool calls count: {len(tool_calls_data)}, has_output: {has_output}")
-                            
-                            if has_output:
-                                # This tool call has output - it's completed, preserve it
-                                tool_call_id = block_id.replace('tool_', '')
-                                if tool_call_id:
-                                    tool_calls_content_blocks[tool_call_id] = block
-                                    logger.info(f"    ✓ Loaded existing completed tool block: {tool_call_id}")
-                            elif needs_approval:
-                                tool_call_id = block_id.replace('tool_', '')
-                                if tool_call_id and tool_calls_data:
-                                    for tc in tool_calls_data:
-                                        tool_name = tc.get('name')
-                                        tool_input = tc.get('input', {})
-                                        args_str = json.dumps(tool_input) if tool_input else ''
-                                        pending_tool_calls[tool_call_id] = {
-                                            'tool_call_id': tool_call_id,
-                                            'tool_name': tool_name,
-                                            'args': args_str,
-                                            'sequence': block.get('sequence', 0)
-                                        }
-                                        logger.info(f"    ✓ Loaded pending tool input for {tool_call_id}: {tool_name}")
-                            else:
-                                logger.info(f"    ✗ Skipping tool block without output (pending but not approved)")
-                        else:
-                            logger.info(f"    ✗ Skipping non-tool block")
-                    logger.info(f"Loaded {len(tool_calls_content_blocks)} existing completed tool blocks")
-                    logger.info(f"Loaded {len(pending_tool_calls)} pending tool inputs")
-                else:
-                    logger.warning(f"No existing message found or message has no content")
+                logger.info(f"Resuming from approval - loading existing content blocks for message {assistant_message_id}")
+                completed, pending, other_blocks = await persistence.load_existing_blocks(
+                    thread_id, assistant_message_id
+                )
+                tool_handler.load_existing_state(completed, pending)
+                # Store other_blocks (plan, text) in context for later use
+                context.existing_blocks = other_blocks
             except Exception as e:
-                logger.error(f"Failed to load existing content blocks: {e}", exc_info=True)
+                logger.error(f"Failed to load existing state: {e}", exc_info=True)
         
         initial_data = json.dumps({"thread_id": thread_id})
         yield {"event": event_type, "data": initial_data}
         
         try:
-            last_started_tool_id = None
-            last_started_tool_name = None
-            tool_call_sequence = len(tool_calls_content_blocks)  # Start sequence after existing tools
-            
-            # No need to track block IDs - just use stream_id directly as block_id
-            
             for msg, metadata in agent.graph.stream(input_state, config, stream_mode="messages"):
                 if await request.is_disconnected():
                     break
                 
-                node_name = metadata.get('langgraph_node', 'unknown')
+                context.node_name = metadata.get('langgraph_node', 'unknown')
                 
-                # Skip streaming from error_explainer node - we only want the final error explanation
-                if node_name == 'error_explainer':
+                if context.node_name == 'error_explainer':
                     continue
                 
                 checkpoint_ns = metadata.get('langgraph_checkpoint_ns')
@@ -340,304 +311,35 @@ async def stream_graph(
                     if normalized_checkpoint_ns.startswith("assistant"):
                         logger.debug(f"Skipping chunk from assistant_keep_agent namespace: {checkpoint_ns}")
                         continue
-         
                 
-                if hasattr(msg, 'tool_call_chunks') and msg.tool_call_chunks:
-                    if node_name in ['agent']:
-                        chunk = msg.tool_call_chunks[0]
-                        chunk_dict = chunk if isinstance(chunk, dict) else chunk.dict() if hasattr(chunk, 'dict') else {}
-                        chunk_id = chunk_dict.get('id')
-                        chunk_index = chunk_dict.get('index', 0)
-                        chunk_name = chunk_dict.get('name')
-                        chunk_args_str = chunk_dict.get('args', '')
-                        
-                        if chunk_name == 'transfer_to_data_exploration':
-                            continue
-                        
-                        tool_key = chunk_id if chunk_id else f"index_{chunk_index}"
-                        
-                        if chunk_id and chunk_name and tool_key not in pending_tool_calls:
-                            tool_call_sequence += 1  # Increment for each new tool call
-                            pending_tool_calls[tool_key] = {
-                                'tool_name': chunk_name,
-                                'node': node_name,
-                                'tool_call_id': chunk_id,
-                                'index': chunk_index,
-                                'sequence': tool_call_sequence,  # Track order
-                                'args': '',  # Accumulated args string
-                                'output': None,  # Tool result content
-                                'content': None,  # Tool explanation content
-                                'saved': False
-                            }
-                            
-                            tool_start_data = json.dumps({
-                                "block_type": "tool_calls",
-                                "block_id": f"tool_{chunk_id}",
-                                "tool_call_id": chunk_id,
-                                "tool_name": chunk_name,
-                                "args": "",
-                                "node": node_name,
-                                "action": "start_tool_call"
-                            })
-                            yield {"event": "content_block", "data": tool_start_data}
-                            
-                            tool_add_block = json.dumps({
-                                "block_type": "tool_calls",
-                                "block_id": f"tool_{chunk_id}",
-                                "tool_call_id": chunk_id,
-                                "tool_name": chunk_name,
-                                "node": node_name,
-                                "action": "add_tool_call"
-                            })
-                            yield {"event": "content_block", "data": tool_add_block}
-                            
-                            last_started_tool_id = chunk_id
-                            last_started_tool_name = chunk_name
-                            
-                            continue
-                    
-                        if chunk_args_str and last_started_tool_id in pending_tool_calls:
-                            tool_info = pending_tool_calls.get(last_started_tool_id, {})
-                            
-                            pending_tool_calls[last_started_tool_id].setdefault('args', '')
-                            pending_tool_calls[last_started_tool_id]['args'] += chunk_args_str
-                            
-                            tool_args_data = json.dumps({
-                                "block_type": "tool_calls",
-                                "block_id": f"tool_{tool_info['tool_call_id']}",
-                                "tool_call_id": tool_info['tool_call_id'],
-                                "tool_name": tool_info['tool_name'],
-                                "args_chunk": chunk_args_str,
-                                "node": node_name,
-                                "action": "stream_args"
-                            })
-                            yield {"event": "content_block", "data": tool_args_data}
-                
-                elif hasattr(msg, 'tool_call_id') and hasattr(msg, 'content'):
-                    tool_call_id = msg.tool_call_id
-                    
-                    tool_info = pending_tool_calls.get(tool_call_id)
-                    if not tool_info:
-                        for key, info in pending_tool_calls.items():
-                            if info.get('tool_call_id') == tool_call_id:
-                                tool_info = info
-                                break
-                    
-                    if not tool_info:
-                        tool_name_from_msg = getattr(msg, 'name', None)
-                        if tool_name_from_msg:
-                            tool_info = {'tool_name': tool_name_from_msg}
-                        else:
-                            tool_info = {'tool_name': 'unknown'}
-                    
-                    tool_name = tool_info.get('tool_name', 'unknown')
-                    
-                    if tool_name == 'transfer_to_data_exploration':
-                        for key in list(pending_tool_calls.keys()):
-                            if pending_tool_calls[key].get('tool_call_id') == tool_call_id:
-                                del pending_tool_calls[key]
-                                break
-                        continue
-                    
-                    tool_key_for_output = None
-                    if tool_call_id in pending_tool_calls:
-                        tool_key_for_output = tool_call_id
+                if await tool_handler.can_handle(msg, metadata):
+                    async for event in tool_handler.handle(msg, metadata):
+                        yield event
+                elif await plan_handler.can_handle(msg, metadata):
+                    async for event in plan_handler.handle(msg, metadata):
+                        yield event
+                elif await text_handler.can_handle(msg, metadata):
+                    # Check if this is tool explanation content (from ANY node)
+                    # Tool explanations can come from 'agent' or 'tool_explanation' nodes
+                    if (type(msg).__name__ == 'AIMessageChunk' and tool_handler.active_tool_id):
+                        async for event in tool_handler.handle_explanation(msg, metadata):
+                            yield event
+                    elif (type(msg).__name__ == 'AIMessage' and
+                          context.node_name == 'tool_explanation' and
+                          tool_handler.active_tool_id):
+                        # Final tool explanation from tool_explanation node
+                        async for event in tool_handler.handle_explanation(msg, metadata):
+                            yield event
                     else:
-                        for key, info in pending_tool_calls.items():
-                            if info.get('tool_call_id') == tool_call_id:
-                                tool_key_for_output = key
-                                break
-                    
-                    if tool_key_for_output:
-                        pending_tool_calls[tool_key_for_output]['output'] = msg.content
-                    
-                    # Get args from the actual pending_tool_calls entry to ensure we have accumulated args
-                    args_str = ''
-                    if tool_key_for_output and tool_key_for_output in pending_tool_calls:
-                        args_str = pending_tool_calls[tool_key_for_output].get('args', '')
-                    else:
-                        # Fallback to tool_info if tool_key_for_output not found
-                        args_str = tool_info.get('args', '')
-                    
-                    parsed_args = {}
-                    if args_str:
-                        try:
-                            parsed_args = json.loads(args_str)
-                        except json.JSONDecodeError:
-                            parsed_args = {}
-                    
-                    tool_call_object = {
-                        "name": tool_name,
-                        "input": parsed_args,
-                        "output": msg.content,
-                        "status": "approved"
-                    }
-                    
-                    if tool_call_id not in tool_calls_content_blocks:
-                        tool_calls_content_blocks[tool_call_id] = {
-                            "id": f"tool_{tool_call_id}",
-                            "type": "tool_calls",
-                            "sequence": tool_info.get('sequence', 0),  # Store sequence for sorting
-                            "needsApproval": False,
-                            "data": {
-                                "toolCalls": [tool_call_object],
-                                "content": tool_info.get('content') or None
-                            }
-                        }
-                    else:
-                        tool_calls_content_blocks[tool_call_id]["data"]["toolCalls"].append(tool_call_object)
-                    
-                    if tool_key_for_output:
-                        pending_tool_calls[tool_key_for_output]['saved'] = True
-                    
-                    tool_result_data = json.dumps({
-                        "block_type": "tool_calls",
-                        "block_id": f"tool_{tool_call_id}",
-                        "tool_call_id": tool_call_id,
-                        "tool_name": tool_name,
-                        "node": node_name,
-                        "input": parsed_args, 
-                        "output": msg.content,
-                        "action": "update_tool_result"
-                    })
-                    yield {"event": "content_block", "data": tool_result_data}
-                    
-                    # Tool finished - clean up tracking entry
-                    if tool_key_for_output and tool_key_for_output in pending_tool_calls:
-                        del pending_tool_calls[tool_key_for_output]
-                        if last_started_tool_id == tool_key_for_output:
-                            last_started_tool_id = None
-                            last_started_tool_name = None
-                
-                elif hasattr(msg, 'content') and msg.content:
-                    if type(msg).__name__ in ['AIMessageChunk']:
-                        active_tool_id = None
-                        if last_started_tool_id and last_started_tool_id in pending_tool_calls:
-                            active_tool_id = last_started_tool_id
-                        
-                        if active_tool_id:
-                            if active_tool_id in pending_tool_calls:
-                                if pending_tool_calls[active_tool_id].get('content') is None:
-                                    pending_tool_calls[active_tool_id]['content'] = ''
-                                pending_tool_calls[active_tool_id]['content'] += msg.content
-                            
-                            if active_tool_id in tool_calls_content_blocks:
-                                if tool_calls_content_blocks[active_tool_id]["data"].get("content") is None:
-                                    tool_calls_content_blocks[active_tool_id]["data"]["content"] = ''
-                                tool_calls_content_blocks[active_tool_id]["data"]["content"] += msg.content
-                            
-                            tool_expl_chunk = json.dumps({
-                                "block_type": "tool_calls",
-                                "block_id": f"tool_{active_tool_id}",
-                                "tool_call_id": active_tool_id,
-                                "tool_name": last_started_tool_name,
-                                "content": msg.content,
-                                "node": node_name,
-                                "action": "update_tool_calls_explanation"
-                            })
-                            yield {"event": "content_block", "data": tool_expl_chunk}
+                        # Regular text content
+                        if context.node_name == 'planner':
                             continue
-                        
-                        if node_name not in ['planner', 'agent']:
-                            continue
-                        
-                        # Skip token-by-token streaming for planner - send full message in finalize_text
-                        if node_name == 'planner':
-                            continue
-                        
-                        chunk_text = msg.content
-                        msg_id = _extract_stream_or_message_id(msg, preferred_key='message_id')
-                        if chunk_text.startswith("{") or buffer:
-                            buffer += chunk_text
-                            try:
-                                parsed = json.loads(buffer)
-                                yield {
-                                    "event": "message",
-                                    "data": json.dumps({
-                                        "content": parsed.get("content", ""),
-                                        "node": node_name,
-                                        "type": "feedback_answer",
-                                        "stream_id": msg_id
-                                    })
-                                }
-                                buffer = ""
-                                
-                            except json.JSONDecodeError:
-                                continue
-                        else:
-                            # Use text_block_id to ensure consistency with DB
-                            token_data = json.dumps({
-                                "block_type": "text",
-                                "block_id": text_block_id, # Use consistent ID
-                                "content": msg.content,
-                                "node": node_name,
-                                "stream_id": msg_id,
-                                "message_id": assistant_message_id,
-                                "action": "append_text"
-                            })
-                            yield {"event": "content_block", "data": token_data}
-
-                    elif type(msg).__name__ in ['AIMessage']:
-                        msg_id_final = _extract_stream_or_message_id(msg, preferred_key='stream_id')
-                        
-                        if node_name == 'tool_explanation' and last_started_tool_id:
-                            if last_started_tool_id in pending_tool_calls:
-                                if pending_tool_calls[last_started_tool_id].get('content') is None:
-                                    pending_tool_calls[last_started_tool_id]['content'] = ''
-                                pending_tool_calls[last_started_tool_id]['content'] += msg.content
-                            
-                            if last_started_tool_id in tool_calls_content_blocks:
-                                if tool_calls_content_blocks[last_started_tool_id]["data"].get("content") is None:
-                                    tool_calls_content_blocks[last_started_tool_id]["data"]["content"] = ''
-                                tool_calls_content_blocks[last_started_tool_id]["data"]["content"] += msg.content
-                            
-                            tool_expl_final = json.dumps({
-                                "block_type": "tool_calls",
-                                "block_id": f"tool_{last_started_tool_id}",
-                                "tool_id": last_started_tool_id,
-                                "tool_name": last_started_tool_name,
-                                "content": msg.content,
-                                "node": node_name,
-                                "action": "update_tool_calls_explanation"
-                            })
-                            yield {"event": "content_block", "data": tool_expl_final}
-                            continue
-                        
-                        
-                        # Determine block type and ID based on node and response_type
-                        # For planner node, check response_type to decide block type
-                        block_type = "text"
-                        block_id = text_block_id
-                        
-                        if node_name == 'planner':
-                            # Get response_type from state to determine if this is a plan
-                            state_snapshot = agent.graph.get_state(config)
-                            values_snapshot = getattr(state_snapshot, 'values', {}) or {}
-                            response_type = values_snapshot.get("response_type")
-                            
-                            if response_type in ["plan", "replan"]:
-                                block_type = "plan"
-                                block_id = f"plan_{assistant_message_id or str(uuid4())}"
-                        
-                        # Use determined block type and ID
-                        yield {"event": "content_block", "data": json.dumps({
-                            "block_type": block_type,
-                            "block_id": block_id,
-                            "content": msg.content,
-                            "node": node_name,
-                            "message_id": assistant_message_id,
-                            "action": "add_planner" if block_type == "plan" else "finalize_text"
-                        })}
+                        async for event in text_handler.handle(msg, metadata):
+                            yield event
             
-            # After streaming completes, emit final payloads
             state = agent.graph.get_state(config)
             values = getattr(state, 'values', {}) or {}
-            messages = values.get("messages", [])
-            steps = values.get("steps", [])
-            plan = values.get("plan", "")
-            query = values.get("query", "")
             
-            # Check if there's an error explanation to emit
             error_explanation = values.get("error_explanation")
             if error_explanation:
                 logger.info(f"Emitting error explanation: {error_explanation}")
@@ -651,573 +353,30 @@ async def stream_graph(
                 })
                 yield {"event": "content_block", "data": error_event_data}
             
-            # Determine assistant final response and its message_id
-            assistant_response = ""
-            assistant_message_id_from_state: int | None = None
-            for m in reversed(messages):
-                if (hasattr(m, 'content') and m.content and type(m).__name__ == 'AIMessage' and (not hasattr(m, 'tool_calls') or not m.tool_calls)):
-                    assistant_response = m.content
-                    # Extract a numeric message id if present
-                    try:
-                        extracted = _extract_stream_or_message_id(m, preferred_key='message_id')
-                        assistant_message_id_from_state = int(extracted) if isinstance(extracted, (int, str)) and str(extracted).isdigit() else None
-                    except Exception:
-                        assistant_message_id_from_state = None
-                    break
+            interrupt_data = await check_for_interrupts(state)
             
-            if assistant_message_id is None:
-                assistant_message_id = assistant_message_id_from_state or run_data.get("assistant_message_id")
-            run_data["assistant_message_id"] = assistant_message_id
-
-            # Compute checkpoint_id if present
-            checkpoint_id = None
-            try:
-                if hasattr(state, 'config') and state.config and 'configurable' in state.config:
-                    configurable = state.config['configurable']
-                    if 'checkpoint_id' in configurable:
-                        checkpoint_id = str(configurable['checkpoint_id'])
-            except Exception:
-                checkpoint_id = None
-
-            # Overall confidence
-            overall_confidence = None
-            if steps:
-                confidences = [s.get("confidence", 0.8) for s in steps if isinstance(s, dict) and "confidence" in s]
-                overall_confidence = (sum(confidences) / len(confidences)) if confidences else 0.8
-
-            # Build final_result summary
-            try:
-                from src.models.schemas import FinalResult
-                final_result_summary = FinalResult(
-                    summary=assistant_response,
-                    details=f"Executed {len(steps)} steps successfully",
-                    source="Database query execution",
-                    inference="Based on database analysis and tool execution",
-                    extra_explanation=f"Plan: {plan}"
-                )
-                final_result_dict = final_result_summary.model_dump()
-            except Exception:
-                final_result_dict = {
-                    "summary": (assistant_response[:200] + "...") if isinstance(assistant_response, str) and len(assistant_response) > 200 else assistant_response,
-                    "details": f"Executed {len(steps)} steps successfully",
-                    "source": "Database query execution",
-                    "inference": "Based on database analysis and tool execution",
-                    "extra_explanation": f"Plan: {plan}"
-                }
-
-            # Check for tool-level interrupts (hybrid HITL)
-            interrupt_data = None
-            try:
-                if hasattr(state, 'tasks') and state.tasks:
-                    logger.info(f"Checking {len(state.tasks)} tasks for interrupts")
-                    # LangGraph stores interrupts in state.tasks
-                    for idx, task in enumerate(state.tasks):
-                        logger.debug(f"Task {idx}: has interrupts attr = {hasattr(task, 'interrupts')}")
-                        if hasattr(task, 'interrupts') and task.interrupts:
-                            interrupt_data = task.interrupts[0]
-                            logger.info(f"Tool interrupt found in task {idx}: {type(interrupt_data)}")
-                            break
-                else:
-                    logger.debug(f"No tasks in state (hasattr={hasattr(state, 'tasks')}, tasks={getattr(state, 'tasks', None)})")
-            except Exception as e:
-                logger.error(f"Error checking for interrupts: {e}", exc_info=True)
-            
-            # If tool interrupt detected, save message and send to frontend
             if interrupt_data:
-                logger.info(f"Tool interrupt detected in streaming - thread_id: {thread_id}, interrupt_type: {type(interrupt_data)}")
-                
-                # Convert Interrupt object to dict for JSON serialization
-                try:
-                    # LangGraph wraps our dict in an Interrupt object with a 'value' attribute
-                    if hasattr(interrupt_data, 'value'):
-                        # Extract the actual interrupt data from the Interrupt wrapper
-                        interrupt_dict = interrupt_data.value
-                        logger.info(f"Extracted interrupt value: {interrupt_dict}")
-                    elif hasattr(interrupt_data, '__dict__'):
-                        interrupt_dict = interrupt_data.__dict__
-                    elif isinstance(interrupt_data, dict):
-                        interrupt_dict = interrupt_data
-                    else:
-                        interrupt_dict = {"raw": str(interrupt_data)}
-                    
-                    logger.info(f"Serialized interrupt data: {interrupt_dict}")
-                except Exception as e:
-                    logger.error(f"Failed to serialize interrupt: {e}")
-                    interrupt_dict = {"error": "Failed to serialize interrupt"}
-                
-                # Save assistant message with tool call content blocks
-                if message_service:
-                    try:
-                        content_blocks = []
-                        
-                        # Debug logging to understand state before building content blocks
-                        logger.info(f"=== INTERRUPT DETECTED - Building content blocks ===")
-                        logger.info(f"tool_calls_content_blocks keys: {list(tool_calls_content_blocks.keys())}")
-                        logger.info(f"pending_tool_calls keys: {list(pending_tool_calls.keys())}")
-                        
-                        for tcid, tcblock in tool_calls_content_blocks.items():
-                            logger.info(f"  Completed tool {tcid}: sequence={tcblock.get('sequence')}, toolCalls count={len(tcblock['data']['toolCalls'])}, has_content={tcblock['data'].get('content') is not None}")
-                        
-                        for tkey, tinfo in pending_tool_calls.items():
-                            logger.info(f"  Pending tool {tkey}: name={tinfo.get('tool_name')}, sequence={tinfo.get('sequence')}, has_output={tinfo.get('output') is not None}")
-                        
-                        # First, add all completed tools from tool_calls_content_blocks
-                        sorted_completed_tools = sorted(
-                            tool_calls_content_blocks.items(),
-                            key=lambda x: x[1].get('sequence', 0)
-                        )
-                        for tool_call_id, content_block in sorted_completed_tools:
-                            if len(content_block["data"]["toolCalls"]) > 0:
-                                # Mark as not needing approval since they're already completed
-                                content_block["needsApproval"] = False
-                                logger.info(f"  Adding completed tool {tool_call_id}: needsApproval={content_block['needsApproval']}, toolCalls={content_block['data']['toolCalls']}")
-                                content_blocks.append(content_block)
-                                logger.info(f"  Added completed tool {tool_call_id} to content_blocks")
-                        
-                        # Then, add pending tools that are awaiting approval
-                        sorted_pending_calls = sorted(
-                            pending_tool_calls.items(),
-                            key=lambda x: x[1].get('sequence', 0)
-                        )
-                        
-                        for tool_key, tool_info in sorted_pending_calls:
-                            tool_call_id = tool_info.get('tool_call_id')
-                            tool_name = tool_info.get('tool_name')
-                            args_str = tool_info.get('args', '')
-                            
-                            # Skip if this tool already has output (shouldn't happen, but safety check)
-                            if tool_info.get('output'):
-                                logger.info(f"  Skipping pending tool {tool_call_id} because it has output: {tool_info.get('output')[:50]}...")
-                                continue
-                            
-                            parsed_args = {}
-                            if args_str:
-                                try:
-                                    parsed_args = json.loads(args_str)
-                                except json.JSONDecodeError:
-                                    parsed_args = {}
-                    
-                            tool_call_object = {
-                                "name": tool_name,
-                                "input": parsed_args,
-                                "status": "pending" 
-                            }
-                            
-                            content_block = {
-                                "id": f"tool_{tool_call_id}",
-                                "type": "tool_calls",
-                                "needsApproval": True,
-                                "data": {
-                                    "toolCalls": [tool_call_object]
-                                }
-                            }
-                            content_blocks.append(content_block)
-                            logger.info(f"  Added pending tool {tool_call_id} ({tool_name}) to content_blocks")
-                        
-                        logger.info(f"=== Total content_blocks to save: {len(content_blocks)} ===")
-                        for idx, cb in enumerate(content_blocks):
-                            logger.info(f"  Block {idx}: type={cb['type']}, id={cb['id']}, needsApproval={cb.get('needsApproval')}, toolCalls={len(cb.get('data', {}).get('toolCalls', []))}")
-                        
-                        logger.info(f"Calling save_assistant_message for tool approval with thread_id: {thread_id}, user_id: {user_id}, message_id: {assistant_message_id}, content_blocks count: {len(content_blocks)}")
-                        saved_message = await message_service.save_assistant_message(
-                            thread_id=thread_id,
-                            content=content_blocks,
-                            message_type="structured",
-                            checkpoint_id=checkpoint_id,
-                            message_id=assistant_message_id,
-                            user_id=user_id
-                        )
-                        logger.info(f"Successfully saved assistant message {saved_message.id if saved_message else 'None'} (UUID: {saved_message.message_id if saved_message else 'None'}) for tool approval in thread {thread_id}")
-                    except Exception as e:
-                        logger.error(f"Failed to save assistant message for tool approval in thread {thread_id}: {e}")
-                
-                # Send status event with interrupt data
-                interrupt_status_data = json.dumps({
-                    "status": "user_feedback",
-                    "thread_id": thread_id,
-                    "__interrupt__": [{"value": interrupt_dict}]
-                })
-                yield {"event": "status", "data": interrupt_status_data}
-                
-                # Don't continue to plan approval logic
-                # Frontend will handle the tool approval
-                
+                async for event in handle_tool_interrupt(
+                    interrupt_data, tool_handler, persistence, context, state, config
+                ):
+                    yield event
             elif state.next and 'human_feedback' in state.next:
-                # Plan approval (existing logic)
-                response_type = values.get("response_type")
-                if assistant_response and message_service:
-                    try:
-                        if response_type == "replan":
-                            logger.info(f"Replan detected in streaming - clearing needs_approval from previous messages in thread {thread_id}")
-                            await message_service.clear_previous_approvals(thread_id)
-                        
-                        content_blocks = []
-
-                        # Sort by sequence to preserve tool call order
-                        sorted_tool_calls = sorted(
-                            tool_calls_content_blocks.items(), 
-                            key=lambda x: x[1].get('sequence', 0)
-                        )
-                        for tool_call_id, content_block in sorted_tool_calls:
-                            if len(content_block["data"]["toolCalls"]) > 0:
-                                content_blocks.append(content_block)
-
-                        # Determine block type based on response_type for planner content
-                        # response_type is set by planner_node when generating plans
-                        if assistant_response:
-                            block_type = "text"
-                            block_id = text_block_id or f"text_{assistant_message_id or str(uuid4())}"
-                            
-                            # If response_type is "plan" or "replan", use plan block type
-                            if response_type in ["plan", "replan"]:
-                                block_type = "plan"
-                                block_id = f"plan_{assistant_message_id or str(uuid4())}"
-                                content_blocks.append({
-                                    "id": block_id,
-                                    "type": "plan",
-                                    "needsApproval": True,
-                                    "data": {"plan": assistant_response}
-                                })
-                            else:
-                                # Regular text block for answers
-                                content_blocks.append({
-                                    "id": block_id,
-                                    "type": "text",
-                                    "needsApproval": True,
-                                    "data": {"text": assistant_response}
-                                })
-                        
-                        if steps and len(steps) > 0 and checkpoint_id:
-                            content_blocks.append({
-                                "id": f"explorer_{checkpoint_id}",
-                                "type": "explorer",
-                                "needsApproval": True,
-                                "data": {"checkpointId": checkpoint_id}
-                            })
-                        
-                        logger.info(f"Calling save_assistant_message for approval with thread_id: {thread_id}, user_id: {user_id}, message_id: {assistant_message_id}, checkpoint_id: {checkpoint_id}, content_blocks count: {len(content_blocks)}")
-                        saved_message = await message_service.save_assistant_message(
-                            thread_id=thread_id,
-                            content=content_blocks,
-                            message_type="structured",
-                            checkpoint_id=checkpoint_id,
-                            needs_approval=True,
-                            message_id=assistant_message_id,
-                            user_id=user_id
-                        )
-                        logger.info(f"Successfully saved assistant message {saved_message.id if saved_message else 'None'} (UUID: {saved_message.message_id if saved_message else 'None'}) for approval in thread {thread_id}")
-                    except Exception as e:
-                        logger.error(f"Failed to save assistant message for approval in thread {thread_id}: {e}")
-                
-                status_data = json.dumps({"status": "user_feedback"})
-                yield {"event": "status", "data": status_data}
+                async for event in handle_plan_approval(
+                    tool_handler, text_handler, plan_handler, persistence, context, state, config
+                ):
+                    yield event
             else:
-                status_data = json.dumps({"status": "finished"})
-                yield {"event": "status", "data": status_data}
-
-                try:
-                    content_blocks = []
-                    
-                    # Sort by sequence to preserve tool call order
-                    sorted_tool_calls = sorted(
-                        tool_calls_content_blocks.items(), 
-                        key=lambda x: x[1].get('sequence', 0)
-                    )
-                    for tool_call_id, content_block in sorted_tool_calls:
-                        if len(content_block["data"]["toolCalls"]) > 0:
-                            content_blocks.append(content_block)
-
-
-                    if assistant_response:
-                            # Determine block type based on response_type
-                            response_type = values.get("response_type")
-                            block_type = "text"
-                            block_id = text_block_id or f"text_{assistant_message_id or str(uuid4())}"
-                            
-                            # If response_type is "plan" or "replan", use plan block type
-                            if response_type in ["plan", "replan"]:
-                                block_type = "plan"
-                                block_id = f"plan_{assistant_message_id or str(uuid4())}"
-                                content_blocks.append({
-                                    "id": block_id,
-                                    "type": "plan",
-                                    "needsApproval": False,
-                                    "data": {"plan": assistant_response}
-                                })
-                            else:
-                                # Regular text block
-                                content_blocks.append({
-                                    "id": block_id,
-                                    "type": "text",
-                                    "needsApproval": False,
-                                    "data": {"text": assistant_response}
-                        })
-
-                    
-                    if steps and len(steps) > 0 and checkpoint_id:
-                        content_blocks.append({
-                            "id": f"explorer_{checkpoint_id}",
-                            "type": "explorer", 
-                            "needsApproval": False,
-                                "data": {"checkpointId": checkpoint_id}
-                        })
-                    
-                    visualizations = values.get("visualizations", [])
-                    if visualizations and len(visualizations) > 0 and checkpoint_id:
-                        content_blocks.append({
-                            "id": f"viz_{checkpoint_id}",
-                            "type": "visualizations",
-                            "needsApproval": False,
-                                "data": {"checkpointId": checkpoint_id}
-                        })
-                    
-                    # Add error explanation block if present
-                    error_explanation = values.get("error_explanation")
-                    if error_explanation:
-                        error_block_id = f"error_{assistant_message_id or str(uuid4())}"
-                        content_blocks.append({
-                            "id": error_block_id,
-                            "type": "error",
-                            "needsApproval": False,
-                            "data": error_explanation
-                        })
-                        logger.info(f"Added error explanation block to content_blocks: {error_block_id}")
-                    
-                    logger.info(f"Calling save_assistant_message for completion with thread_id: {thread_id}, user_id: {user_id}, message_id: {assistant_message_id}, checkpoint_id: {checkpoint_id}, content_blocks count: {len(content_blocks)}")
-                    saved_completion_message = await message_service.save_assistant_message(
-                        thread_id=thread_id,
-                        content=content_blocks,
-                        message_type="structured",
-                        checkpoint_id=checkpoint_id,
-                        needs_approval=False,
-                        message_id=assistant_message_id,
-                        user_id=user_id
-                    )
-                    logger.info(f"Successfully saved assistant completion message {saved_completion_message.id if saved_completion_message else 'None'} (UUID: {saved_completion_message.message_id if saved_completion_message else 'None'}) in thread {thread_id}")
-                        
-                except Exception as e:
-                    logger.error(f"Failed to save completion messages for thread {thread_id}: {e}", exc_info=True)
-
-                # Emit enriched completed payload
-                completed_payload = {
-                    "success": True,
-                    "data": {
-                        "thread_id": thread_id,
-                        "checkpoint_id": checkpoint_id,
-                        "run_status": "finished",
-                        "assistant_response": assistant_response,
-                        "query": query,
-                        "plan": plan,
-                        "error": None,
-                        "steps": steps,
-                        "final_result": final_result_dict,
-                        "total_time": None,
-                        "overall_confidence": overall_confidence
-                    },
-                    "message": f"Explorer data retrieved successfully for checkpoint {checkpoint_id}" if checkpoint_id else "Explorer data retrieved successfully"
-                }
-                yield {"event": "completed", "data": json.dumps(completed_payload)}
-
-                # Visualizations follow-up
-                try:
-                    from .graph import _normalize_visualizations  # reuse normalization helper
-                except Exception:
-                    _normalize_visualizations = lambda v: v if isinstance(v, list) else []
-                visualizations = _normalize_visualizations(values.get("visualizations", []))
-                
-                # Emit visualization content block if visualizations exist
-                if visualizations and len(visualizations) > 0 and checkpoint_id:
-                    viz_block_data = json.dumps({
-                        "block_type": "visualizations",
-                        "block_id": f"viz_{checkpoint_id}",
-                        "checkpoint_id": checkpoint_id,
-                        "visualizations": visualizations,
-                        "count": len(visualizations),
-                        "types": list({v.get("type") for v in visualizations if isinstance(v, dict) and v.get("type")}),
-                        "action": "add_visualizations"
-                    })
-                    yield {"event": "content_block", "data": viz_block_data}
-                
-                try:
-                    visualization_types = list({v.get("type") for v in visualizations if isinstance(v, dict) and v.get("type")})
-                    visualizations_payload = {
-                        "success": True,
-                        "data": {
-                            "thread_id": thread_id,
-                            "checkpoint_id": checkpoint_id,
-                            "visualizations": visualizations,
-                            "count": len(visualizations),
-                            "types": visualization_types
-                        },
-                        "message": f"Visualization data retrieved successfully for checkpoint {checkpoint_id}" if checkpoint_id else "Visualization data retrieved successfully"
-                    }
-                    yield {"event": "visualizations_ready", "data": json.dumps(visualizations_payload)}
-                except Exception:
-                    pass
-                
-            pending_tool_calls.clear()
-            tool_calls_content_blocks.clear()
-                
-            if thread_id in run_configs:
-                del run_configs[thread_id]
-                
+                async for event in handle_completion(
+                    tool_handler, text_handler, plan_handler, persistence, context, state, config
+                ):
+                    yield event
+        
         except Exception as e:
-            error_message = str(e) if e else "Unknown error occurred"
-            logger.error(f"Streaming graph error for thread {thread_id}: {error_message}", exc_info=True)
-            
-            # Ensure assistant_message_id exists for error tracking
-            if not assistant_message_id:
-                assistant_message_id = str(uuid4())
-                run_data["assistant_message_id"] = assistant_message_id
-            
-            # Flush any pending tool calls with error state
-            def _parse_args(args_str: str) -> Dict[str, Any]:
-                if not args_str:
-                    return {}
-                try:
-                    return json.loads(args_str)
-                except json.JSONDecodeError:
-                    return {}
-            
-            for pending_id, tool_info in list(pending_tool_calls.items()):
-                tool_call_id = tool_info.get('tool_call_id') or pending_id
-                tool_name = tool_info.get('tool_name', 'unknown')
-                parsed_args = _parse_args(tool_info.get('args', ''))
-                
-                if tool_call_id not in tool_calls_content_blocks:
-                    tool_calls_content_blocks[tool_call_id] = {
-                        "id": f"tool_{tool_call_id}",
-                        "type": "tool_calls",
-                        "sequence": tool_info.get('sequence', 0),
-                        "needsApproval": False,
-                        "data": {
-                            "toolCalls": [],
-                            "content": tool_info.get('content') or None
-                        }
-                    }
-                
-                tool_calls_content_blocks[tool_call_id]["data"]["toolCalls"].append({
-                    "name": tool_name,
-                    "input": parsed_args,
-                    "output": f"Error: {error_message}",
-                    "status": "error",
-                    "error": error_message
-                })
-                
-                tool_error_event = json.dumps({
-                    "block_type": "tool_calls",
-                    "block_id": f"tool_{tool_call_id}",
-                    "tool_call_id": tool_call_id,
-                    "tool_name": tool_name,
-                    "node": "agent",
-                    "input": parsed_args,
-                    "error": error_message,
-                    "action": "update_tool_error"
-                })
-                yield {"event": "content_block", "data": tool_error_event}
-            
-            pending_tool_calls.clear()
-            last_started_tool_id = None
-            last_started_tool_name = None
-            
-            # Emit error text block for frontend visibility
-            error_block_id = f"error_{assistant_message_id or str(uuid4())}"
-            error_block_event = json.dumps({
-                "block_type": "text",
-                "block_id": error_block_id,
-                "content": f"Error: {error_message}",
-                "node": "agent",
-                "message_id": assistant_message_id,
-                "action": "append_error"
-            })
-            yield {"event": "content_block", "data": error_block_event}
-            
-            # Gather current graph state for context (best-effort)
-            steps = []
-            plan = ""
-            query = run_data.get("human_request", "")
-            checkpoint_id = None
-            try:
-                state = agent.graph.get_state(config)
-                if state:
-                    values = getattr(state, "values", {}) or {}
-                    steps = values.get("steps", []) or []
-                    plan = values.get("plan", "") or ""
-                    query = values.get("query", query)
-                    
-                    if hasattr(state, 'config') and state.config and 'configurable' in state.config:
-                        configurable = state.config['configurable']
-                        if 'checkpoint_id' in configurable:
-                            checkpoint_id = str(configurable['checkpoint_id'])
-            except Exception:
-                pass
-            
-            # Persist error message for backend history
-            if message_service:
-                try:
-                    content_blocks = []
-                    
-                    sorted_tool_calls = sorted(
-                        tool_calls_content_blocks.items(),
-                        key=lambda x: x[1].get('sequence', 0)
-                    )
-                    for _, content_block in sorted_tool_calls:
-                        if len(content_block["data"]["toolCalls"]) > 0:
-                            content_blocks.append(content_block)
-                    
-                    content_blocks.append({
-                        "id": error_block_id,
-                        "type": "text",
-                        "needsApproval": False,
-                        "data": {"text": f"Error: {error_message}"}
-                    })
-                    
-                    logger.info(f"Calling save_assistant_message for error with thread_id: {thread_id}, user_id: {user_id}, message_id: {assistant_message_id}, checkpoint_id: {checkpoint_id}, content_blocks count: {len(content_blocks)}")
-                    saved_error_message = await message_service.save_assistant_message(
-                        thread_id=thread_id,
-                        content=content_blocks,
-                        message_type="structured",
-                        checkpoint_id=checkpoint_id,
-                        needs_approval=False,
-                        message_id=assistant_message_id,
-                        user_id=user_id
-                    )
-                    logger.info(f"Successfully saved assistant error message {saved_error_message.id if saved_error_message else 'None'} (UUID: {saved_error_message.message_id if saved_error_message else 'None'}) in thread {thread_id}")
-                    
-                    await message_service.update_message_status(
-                        thread_id=thread_id,
-                        message_id=saved_error_message.id if saved_error_message else None,
-                        message_status="error"
-                    )
-                except Exception as save_error:
-                    logger.error(f"Failed to persist error message for thread {thread_id}: {save_error}")
-            
-            # Notify frontend about error status
-            status_data = json.dumps({
-                "status": "error",
-                "error": error_message
-            })
-            yield {"event": "status", "data": status_data}
-            
-            error_payload = {
-                "success": False,
-                "data": {
-                    "thread_id": thread_id,
-                    "checkpoint_id": checkpoint_id,
-                    "run_status": "error",
-                    "assistant_response": None,
-                    "query": query,
-                    "plan": plan,
-                    "error": error_message,
-                    "steps": steps,
-                    "final_result": None,
-                    "total_time": None,
-                    "overall_confidence": None
-                },
-                "message": f"Execution failed: {error_message}"
-            }
-            yield {"event": "completed", "data": json.dumps(error_payload)}
-            
+            async for event in handle_error(
+                e, tool_handler, persistence, context, agent, config, run_data
+            ):
+                yield event
+        finally:
             if thread_id in run_configs:
                 del run_configs[thread_id]
     

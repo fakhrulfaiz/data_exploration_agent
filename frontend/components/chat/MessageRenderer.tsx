@@ -51,31 +51,24 @@ const ToolHistoryCollapsible: React.FC<ToolHistoryCollapsibleProps> = ({
       <Collapsible open={isExpanded} onOpenChange={setIsExpanded}>
         <CollapsibleTrigger asChild>
           <button
-            className="w-full flex items-center gap-2 p-2 mb-2 rounded-lg border border-border bg-background hover:bg-accent hover:text-accent-foreground transition-colors text-left"
+            className="mb-2 flex items-center gap-2 hover:opacity-80 transition-opacity"
             type="button"
           >
             {isExpanded ? (
-              <ChevronDown className="w-4 h-4 flex-shrink-0 transition-transform duration-200" />
+              <ChevronDown className="w-4 h-4 text-muted-foreground" />
             ) : (
-              <ChevronRight className="w-4 h-4 flex-shrink-0 transition-transform duration-200" />
+              <ChevronRight className="w-4 h-4 text-muted-foreground" />
             )}
             <span className="font-semibold text-foreground">
-              Previous steps ({toolNames.length} tools)
+              Previous steps
             </span>
+            {!isExpanded && (
+              <span className="text-sm text-muted-foreground">
+                ({toolNames.length} {toolNames.length === 1 ? 'tool' : 'tools'})
+              </span>
+            )}
           </button>
         </CollapsibleTrigger>
-
-        {!isExpanded && (
-          <div className="mb-2 ml-6 space-y-1 animate-in fade-in-0 duration-200">
-            <ul className="list-disc list-inside space-y-0.5">
-              {toolNames.map((name, index) => (
-                <li key={index} className="text-sm text-muted-foreground">
-                  {name}
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
 
         <CollapsibleContent className="data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:slide-out-to-top-2 data-[state=open]:slide-in-from-top-2 duration-200">
           <div className="pt-2">
@@ -94,7 +87,7 @@ export const MessageRenderer: React.FC<MessageRendererProps> = ({ message, onAct
   const renderContentBlock = (block: ContentBlock) => {
     if (isTextBlock(block)) {
       return (
-        <div key={block.id} className="content-block text-block">
+        <div key={block.id} className="content-block text-block mb-4 last:mb-0">
           <ReactMarkdown
             components={markdownComponents}
             remarkPlugins={[remarkGfm]}
@@ -213,20 +206,38 @@ export const MessageRenderer: React.FC<MessageRendererProps> = ({ message, onAct
       })
       : contentBlocks;
 
-    // Collapse everything before the latest tool call block (if any exists)
+
     const latestToolCallIndex = filteredBlocks.reduce((acc, block, index) => (
       isToolCallsBlock(block) ? index : acc
     ), -1);
 
-    const hasHistoryBeforeLatestToolCall = latestToolCallIndex > 0;
 
-    if (hasHistoryBeforeLatestToolCall) {
+    const hasToolCallHistory = latestToolCallIndex > 0 &&
+      filteredBlocks.slice(0, latestToolCallIndex).some(b => isToolCallsBlock(b));
+
+    if (hasToolCallHistory) {
+      const beforeLatest = filteredBlocks.slice(0, latestToolCallIndex);
+      const fromLatest = filteredBlocks.slice(latestToolCallIndex);
+      const visibleBeforeLatest = beforeLatest.filter(b => !isToolCallsBlock(b));
+      const collapsibleToolBlocks = beforeLatest.filter(b => isToolCallsBlock(b));
+
       return (
-        <ToolHistoryCollapsible
-          blocks={filteredBlocks}
-          collapseUntilIndex={latestToolCallIndex}
-          renderContentBlock={renderContentBlock}
-        />
+        <div className="content-blocks">
+          {/* Always visible blocks (plan, text, etc.) */}
+          {visibleBeforeLatest.map((block) => renderContentBlock(block))}
+
+          {/* Collapsible tool history */}
+          {collapsibleToolBlocks.length > 0 && (
+            <ToolHistoryCollapsible
+              blocks={collapsibleToolBlocks}
+              collapseUntilIndex={collapsibleToolBlocks.length}
+              renderContentBlock={renderContentBlock}
+            />
+          )}
+
+          {/* Latest tool call and everything after */}
+          {fromLatest.map((block) => renderContentBlock(block))}
+        </div>
       );
     }
 

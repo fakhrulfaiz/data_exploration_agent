@@ -181,7 +181,6 @@ async def list_checkpoints(
                 checkpoint_id=item["checkpoint_id"],
                 thread_id=item["thread_id"],
                 timestamp=item["timestamp"],
-                message_type=item.get("message_type"),
                 message_id=item["message_id"],
                 query=None  # Query can be added later if needed
             )
@@ -348,10 +347,8 @@ async def restore_conversation(
                     "sender": message.sender,
                     "content": message.content,
                     "timestamp": message.timestamp.isoformat() if message.timestamp else None,
-                    "message_type": message.message_type,
                     "message_id": message.message_id,
                     "user_id": message.user_id,
-                    "message_status": message.message_status,
                     "checkpoint_id": message.checkpoint_id
                 })
 
@@ -393,8 +390,6 @@ async def get_messages_status(
                 message_id=message.id,
                 sender=message.sender,
                 timestamp=message.timestamp,
-                message_status=message.message_status,
-                message_type=message.message_type,
                 checkpoint_id=message.checkpoint_id,
                 has_content_blocks=bool(message.content and len(message.content) > 0)
             )

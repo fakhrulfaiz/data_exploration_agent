@@ -25,6 +25,7 @@ class ApprovalStatus(str, Enum):
     REJECTED = "rejected"
     PENDING = "pending"
     UNKNOWN = "unknown"
+    FEEDBACK = "feedback"
 
 
 # ==================== Graph Execution Schemas ====================

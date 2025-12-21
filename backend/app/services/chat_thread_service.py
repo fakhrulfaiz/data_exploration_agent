@@ -120,12 +120,9 @@ class ChatThreadService:
                             sender=message.sender,
                             content=content_blocks,
                             timestamp=message.timestamp,
-                            message_type=message.message_type,
                             message_id=message.message_id,
                             user_id=message.user_id,
-                            message_status=message.message_status,
-                            checkpoint_id=message.checkpoint_id,
-                            metadata=message.metadata
+                            checkpoint_id=message.checkpoint_id
                         )
                         result_messages.append(message_schema)
                     except Exception as e:

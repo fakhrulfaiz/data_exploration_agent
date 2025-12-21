@@ -94,8 +94,6 @@ class MessageStatusInfo(BaseModel):
     message_id: str
     sender: str
     timestamp: datetime
-    message_status: MessageStatus
-    message_type: MessageType
     checkpoint_id: Optional[str] = None
     has_content_blocks: bool = False
 
@@ -119,7 +117,6 @@ class CheckpointSummary(BaseModel):
     checkpoint_id: str
     thread_id: str
     timestamp: datetime
-    message_type: Optional[str] = None
     message_id: str
     query: Optional[str] = None
 

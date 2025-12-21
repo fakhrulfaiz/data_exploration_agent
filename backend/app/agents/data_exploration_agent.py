@@ -664,13 +664,24 @@ RESPONSE STYLE:
 1. **SQL QUERY GENERATION**:
    - Use `text2SQL` tool to generate SQL queries from natural language questions
    - The text2SQL tool has access to database schema and will generate correct queries
+   - **IMPORTANT**: text2SQL now returns JSON with `sql` and `row_count` fields:
+     ```json
+     {
+       "sql": "SELECT * FROM ...",
+       "row_count": 150
+     }
+     ```
+   - Parse this JSON to extract the SQL query and row count
    - You can provide context from previous tasks to help generate better queries
 
-2. **QUERY EXECUTION**:
-   - Use `sql_db_query` for simple, quick queries that return small results
-   - Use `sql_db_to_df` for queries that need further analysis or visualization
+2. **QUERY EXECUTION** (CRITICAL - Choose based on row_count):
+   - **ALWAYS** parse the text2SQL output first to get `row_count`
+   - **If row_count <= 20**: Use `sql_db_query` for quick results (safe for small datasets)
+   - **If row_count > 20**: Use `sql_db_to_df` to avoid token overflow (required for large datasets)
+   - **If row_count == -1**: Count query failed, use `sql_db_to_df` as safe default
+   - Extract the `sql` field from text2SQL output and pass it to the execution tool
+   - **NEVER** execute queries with >100 rows using sql_db_query - this will cause token overflow
    - Write syntactically correct SQLite queries
-   - **LIMIT RESULTS**: Always use `LIMIT` when appropriate to avoid large datasets
    - **SELECTIVE**: Select only necessary columns
    - **READ-ONLY**: SELECT statements ONLY. No INSERT/UPDATE/DELETE
 
@@ -705,10 +716,14 @@ RESPONSE STYLE:
    - **smart_transform_for_viz**: For simple, interactive frontend charts (bar, line, pie) with small datasets (≤100 rows). Requires DataFrame from `sql_db_to_df`
 
 4. **WORKFLOWS**:
-   - **Query Generation**: `text2SQL` -> `sql_db_query` or `sql_db_to_df`
-   - **Analysis**: `text2SQL` -> `sql_db_to_df` -> `dataframe_info` -> `python_repl`
-   - **Plotting (Matplotlib)**: `text2SQL` -> `sql_db_to_df` -> `large_plotting_tool` 
-   - **Plotting (Frontend)**: `text2SQL` -> `sql_db_to_df` -> `smart_transform_for_viz`
+   - **Query Generation**: 
+     1. Call `text2SQL` to get JSON with `sql` and `row_count`
+     2. Parse the JSON output
+     3. If `row_count <= 100`: use `sql_db_query` with the `sql` field
+     4. If `row_count > 100`: use `sql_db_to_df` with the `sql` field
+   - **Analysis**: `text2SQL` -> parse JSON -> `sql_db_to_df` -> `dataframe_info` -> `python_repl`
+   - **Plotting (Matplotlib)**: `text2SQL` -> parse JSON -> `sql_db_to_df` -> `large_plotting_tool` 
+   - **Plotting (Frontend)**: `text2SQL` -> parse JSON -> `sql_db_to_df` -> `smart_transform_for_viz`
 
 5. **DATAFRAME MANAGEMENT**:
    - Always run `sql_db_to_df` first to execute SQL queries and create DataFrame

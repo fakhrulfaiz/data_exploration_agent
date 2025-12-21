@@ -117,7 +117,6 @@ async def start_graph_execution(
                     saved_message = await message_service.save_assistant_message(
                         thread_id=thread_id,
                         content=assistant_response,
-                        message_type="message",
                         checkpoint_id=checkpoint_id,
                         needs_approval=True
                     )
@@ -163,7 +162,6 @@ async def start_graph_execution(
                     saved_message = await message_service.save_assistant_message(
                         thread_id=thread_id,
                         content=assistant_response,
-                        message_type="message",
                         checkpoint_id=checkpoint_id,
                         needs_approval=False
                     )

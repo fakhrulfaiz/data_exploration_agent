@@ -51,10 +51,11 @@ export class GraphService {
     /**
      * Approve and continue execution
      */
-    static async approveAndContinue(threadId: string): Promise<GraphResponse> {
+    static async approveAndContinue(threadId: string, messageId?: string): Promise<GraphResponse> {
         return this.resumeStreamingGraph({
             thread_id: threadId,
             review_action: 'approved' as ApprovalStatus,
+            message_id: messageId,
         });
     }
 

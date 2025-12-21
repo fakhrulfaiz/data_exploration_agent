@@ -49,7 +49,7 @@ class Settings(BaseSettings):
     supabase_service_role_key: str = ""
     supabase_jwt_secret: str = ""
     # Database Configuration
-    database_path: str = "app/resource/chinook.db"
+    database_path: str = "app/resource/northwind.db"
     
     # PostgreSQL Configuration
     postgres_host: str = "agent-postgres"

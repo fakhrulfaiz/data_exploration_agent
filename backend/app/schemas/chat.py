@@ -49,30 +49,11 @@ class ChatMessageSchema(BaseModel):
         description="Message content blocks"
     )
     timestamp: datetime = Field(default_factory=datetime.now, description="Message timestamp")
-    message_type: Optional[Literal["message", "explorer", "visualization", "structured"]] = Field(
-        default="structured", 
-        description="Message type"
-    )
     checkpoint_id: Optional[str] = Field(None, description="Checkpoint ID for explorer messages")
     user_id: Optional[str] = Field(None, description="User ID who owns this message")
     message_id: str = Field(..., description="Message ID (UUID)")
-    message_status: Optional[Literal["pending", "approved", "rejected", "error", "timeout"]] = Field(
-        None, 
-        description="Message status"
-    )
 
-    @field_validator('message_type')
-    @classmethod
-    def validate_message_type(cls, v, info):
-        """Validate and auto-determine message_type based on content."""
-        content = info.data.get('content', [])
-        
-        # If content exists and has blocks, determine type from blocks
-        if content and isinstance(content, list) and len(content) > 0:
-            return "structured"
-        
-        # Fallback to provided value or default
-        return v or "structured"
+
     
     class Config:
         json_encoders = {
@@ -128,30 +109,11 @@ class AddMessageRequest(BaseModel):
         default_factory=list, 
         description="Message content blocks"
     )
-    message_type: Optional[Literal["message", "explorer", "visualization", "structured"]] = Field(
-        default="structured", 
-        description="Message type"
-    )
     checkpoint_id: Optional[str] = Field(None, description="Checkpoint ID for explorer messages")
     message_id: str = Field(..., description="Message ID (UUID)")
-    message_status: Optional[Literal["pending", "approved", "rejected", "error", "timeout"]] = Field(
-        None, 
-        description="Message status"
-    )
     metadata: Optional[dict] = Field(None, description="Additional metadata")
 
-    @field_validator('message_type')
-    @classmethod
-    def validate_message_type(cls, v, info):
-        """Validate and auto-determine message_type based on content."""
-        content = info.data.get('content', [])
-        
-        # If content exists and has blocks, determine type from blocks
-        if content and isinstance(content, list) and len(content) > 0:
-            return "structured"
-        
-        # Fallback to provided value or default
-        return v or "structured"
+
 
 
 class ChatHistoryResponse(BaseModel):

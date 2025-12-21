@@ -30,18 +30,13 @@ class MessageManagementService:
         self,
         thread_id: str,
         content: Optional[Any] = None,  # Can be string or List[Dict]
-        message_id: Optional[int] = None,
-        message_type: Literal["message", "explorer", "visualization", "structured"] = "message",
+        message_id: Optional[int] = None, 
         content_blocks: Optional[List[Dict[str, Any]]] = None,
         metadata: Optional[dict] = None,
         user_id: Optional[str] = None,
         is_feedback: bool = False
     ) -> ChatMessage:
-        """
-        Save a user message with proper validation and security checks.
-        This is called when the backend receives a user message.
-        Content can be passed as array of blocks, or content_blocks parameter (for backward compatibility).
-        """
+
         try:
             thread = await self.chat_thread_repo.find_by_id(thread_id, "thread_id")
             
@@ -77,19 +72,13 @@ class MessageManagementService:
             else:
                 blocks = []
             
-            # If blocks exist, determine message type
-            if blocks and message_type == "message":
-                message_type = "structured"
-            
             # Create message object with empty content array (blocks stored separately)
             # Create message object
             message = ChatMessage(
                 thread_id=thread_id,
                 sender="user",
-                message_type=message_type,
                 message_id=message_id,
                 user_id=user_id,
-                message_status=None,
                 checkpoint_id=None
             )
             
@@ -137,7 +126,6 @@ class MessageManagementService:
         self,
         thread_id: str,
         content: Optional[Any] = None,  # Can be string or List[Dict]
-        message_type: Literal["message", "explorer", "visualization", "structured"] = "message",
         checkpoint_id: Optional[str] = None,
         needs_approval: bool = False,
         content_blocks: Optional[List[Dict[str, Any]]] = None,
@@ -185,21 +173,12 @@ class MessageManagementService:
             else:
                 blocks = []
             
-            # Determine message type based on content blocks
-            if blocks and message_type == "message":
-                message_type = "structured"
-            
-            # Create message object with empty content array (blocks stored separately)
-            # Create message object
             message = ChatMessage(
                 thread_id=thread_id,
                 sender="assistant",
-                message_type=message_type,
                 message_id=message_id,
                 user_id=user_id,
-                checkpoint_id=checkpoint_id,
-                # Only set status if needs_approval, otherwise leave as None
-                message_status="pending" if needs_approval else None
+                checkpoint_id=checkpoint_id
             )
             
             if user_id:
@@ -212,7 +191,6 @@ class MessageManagementService:
             existing_message = await self.messages_repo.get_message_by_id(thread_id, message_id)
             
             if existing_message:
-                # Message exists - just use it for content blocks
                 logger.info(f"Message {message_id} already exists, will update content blocks")
                 message = existing_message
             else:
@@ -224,11 +202,9 @@ class MessageManagementService:
                     logger.error(f"Failed to save message: {e}")
                     raise
             
-            # Now save/update content blocks using the message's message_id (UUID string)
             if blocks:
                 try:
                     await self.message_content_repo.delete_blocks_by_message_id(message_id)
-
                     await self.message_content_repo.add_content_blocks(message.message_id, blocks)
                 except Exception as e:
                     logger.error(f"Failed to save content blocks for message {message.message_id}: {e}")
@@ -251,77 +227,9 @@ class MessageManagementService:
             logger.error(f"Error saving assistant message to thread {thread_id}: {e}")
             raise
     
-    async def update_message_status(
-        self,
-        thread_id: str,
-        message_id: str,
-        **status_updates
-    ) -> bool:
-        """
-        Update message status flags. Only backend should control these for security.
-        """
-        try:
-            # Validate the message exists and belongs to the thread
-            message = await self._get_message_by_id(thread_id, message_id)
-            if not message:
-                raise ValueError(f"Message {message_id} not found in thread {thread_id}")
-            
-            # Filter valid status fields - only message_status is supported now
-            valid_fields = {'message_status'}
-            
-            filtered_updates = {k: v for k, v in status_updates.items() if k in valid_fields}
-            
-            if not filtered_updates:
-                logger.warning(f"No valid status updates provided for message {message_id}")
-                return False
-            
-            # Update in database
-            success = await self.messages_repo.update_message_by_message_id(
-                message_id, filtered_updates
-            )
-            
-            if success:
-                logger.info(f"Updated message {message_id} status: {filtered_updates}")
-            else:
-                logger.error(f"Failed to update message {message_id} status")
-            
-            return success
-            
-        except Exception as e:
-            logger.error(f"Error updating message {message_id} status: {e}")
-            raise
+
     
-    async def mark_message_error(
-        self,
-        thread_id: str,
-        message_id: str,
-        error_message: str = None
-    ) -> bool:
-        """
-        Mark a message as having an error and optionally add error block.
-        """
-        try:
-            # Update message status to error
-            updates = {'message_status': 'error'}
-            
-            # If error message provided, add error block to content
-            if error_message:
-                # Get current message to preserve original content
-                message = await self._get_message_by_id(thread_id, message_id)
-                if message:
-                    error_block = {
-                        "id": f"error_{message_id}_{int(time.time() * 1000)}",
-                        "type": "text",
-                        "needsApproval": False,
-                        "data": {"text": f"Error: {error_message}"}
-                    }
-                    await self.message_content_repo.add_content_blocks(message_id, [error_block])
-            
-            return await self.update_message_status(thread_id, message_id, **updates)
-            
-        except Exception as e:
-            logger.error(f"Error marking message {message_id} as error: {e}")
-            return False
+
     
     async def get_thread_messages(
         self,
@@ -329,7 +237,6 @@ class MessageManagementService:
         limit: Optional[int] = None,
         skip: Optional[int] = None,
         sender_filter: Optional[str] = None,
-        message_type_filter: Optional[str] = None,
         status_filter: Optional[Dict[str, bool]] = None
     ) -> List[ChatMessage]:
         """
@@ -339,9 +246,9 @@ class MessageManagementService:
         """
         try:
             # Use optimized repository method with filtering
-            if sender_filter or message_type_filter or status_filter:
+            if sender_filter or status_filter:
                 messages = await self._get_filtered_messages(
-                    thread_id, limit, skip, sender_filter, message_type_filter, status_filter
+                    thread_id, limit, skip, sender_filter, status_filter
                 )
             else:
                 messages = await self.messages_repo.get_all_messages_by_thread(
@@ -365,7 +272,6 @@ class MessageManagementService:
         limit: Optional[int],
         skip: Optional[int],
         sender_filter: Optional[str],
-        message_type_filter: Optional[str],
         status_filter: Optional[Dict[str, bool]]
     ) -> List[ChatMessage]:
         """
@@ -378,9 +284,7 @@ class MessageManagementService:
         if sender_filter:
             filter_criteria["sender"] = sender_filter
         
-        if message_type_filter:
-            filter_criteria["message_type"] = message_type_filter
-        
+        # Apply status filters if provided
         if status_filter:
             for status_key, status_value in status_filter.items():
                 if status_key in ['message_status']:
@@ -519,36 +423,35 @@ class MessageManagementService:
             raise
     
     async def clear_previous_approvals(self, thread_id: str) -> None:
-        """
-        Clear needs_approval from previous assistant messages efficiently using targeted query.
-        
-        This function uses a targeted database query to only fetch messages that actually
-        need approval, rather than fetching all messages and filtering in memory.
-        
-        Args:
-            thread_id: The thread ID to clear approvals for
-        """
         try:
-            # Use targeted query to get only messages that need approval (status = pending)
+         
             filter_criteria = {
                 "thread_id": thread_id,
-                "sender": "assistant", 
-                "message_status": "pending"
+                "sender": "assistant"
             }
             
-            # Get only messages that need approval (much more efficient)
-            approval_messages = await self.messages_repo.find_many(
+            # Get assistant messages
+            assistant_messages = await self.messages_repo.find_many(
                 filter_criteria=filter_criteria
             )
             
-            # Clear approval status from previous messages by setting to approved
-            for msg in approval_messages:
-                await self.update_message_status(
-                    thread_id=thread_id,
-                    message_id=msg.message_id,
-                    message_status="approved"
+            # For each message, clear plan block approval flags
+            for msg in assistant_messages:
+                # Get content blocks for this message
+                blocks = await self.message_content_repo.get_blocks_by_message_id(
+                    msg.message_id
                 )
-                logger.info(f"Cleared pending status from message {msg.message_id}")
+                
+                # Find plan blocks that need approval and clear them
+                for block in blocks:
+                    if block.get('type') == 'plan' and block.get('needsApproval'):
+                        block_id = block.get('id')
+                        if block_id:
+                            await self.message_content_repo.update_block(
+                                block_id, 
+                                {'needs_approval': False}
+                            )
+                            logger.info(f"Cleared needs_approval from plan block {block_id}")
                 
         except Exception as e:
             logger.warning(f"Failed to clear previous approval flags: {e}")
