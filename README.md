@@ -12,12 +12,14 @@ An intelligent data exploration agent built with LangGraph, FastAPI, and Next.js
 ## Tech Stack
 
 ### Backend
+
 - FastAPI
 - LangGraph
 - PostgreSQL
 - Redis
 
 ### Frontend
+
 - Next.js
 - TypeScript
 - React
@@ -25,17 +27,24 @@ An intelligent data exploration agent built with LangGraph, FastAPI, and Next.js
 ## Getting Started
 
 ### Prerequisites
+
 - Docker and Docker Compose
 - Node.js (for local development)
 - Python 3.11+ (for local development)
 
 ### Running with Docker
 
+1. Clone the repository
+2. Navigate to the project directory
+3. Update .env file with your keys
+4. Run the following command to start the application
+
 ```bash
 docker compose up
 ```
 
 The application will be available at:
+
 - Frontend: http://localhost:3000
 - Backend API: http://localhost:8000
 - API Documentation: http://localhost:8000/docs

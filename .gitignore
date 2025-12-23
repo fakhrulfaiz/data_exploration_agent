@@ -60,6 +60,9 @@ dist/
 *.sqlite
 *.sqlite3
 
+# Image dir
+images/
+
 # Environment variables
 .env
 .env.local
