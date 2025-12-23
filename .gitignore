@@ -32,11 +32,6 @@ venv/
 ENV/
 env.bak/
 venv.bak/
-tests/
-*.md 
-docs/
-plans/
-friends_code/
 # Node.js
 node_modules/
 npm-debug.log*
@@ -75,7 +70,11 @@ dist/
 # Project specific
 friends_code/
 plans/
-logs/
+backend/logs/
+backend/tests/
+backend/htmlcov/
+backend/.coverage
+backend/.pytest_cache/
 
 # Temporary files
 *.tmp
