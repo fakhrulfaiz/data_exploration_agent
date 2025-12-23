@@ -6,6 +6,7 @@ Generates execution plans and handles user feedback for plan revisions.
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 from pydantic import BaseModel, Field
 from typing import Optional, Literal, List, Dict, Any
+from app.agents.schemas.tool_selection import DynamicPlan, PlanStep, ToolOption
 import json
 import logging
 
@@ -13,7 +14,6 @@ logger = logging.getLogger(__name__)
 
 
 class FeedbackResponse(BaseModel):
-    """Model for handling user feedback responses"""
     response_type: Literal["answer", "replan", "cancel"] = Field(
         description="Type of response: answer for direct answers, replan for creating new plans, cancel for cancellation"
     )
@@ -33,39 +33,13 @@ class PlannerNode:
         self.tools = tools
     
     @staticmethod
-    def _get_core_planner_prompt(user_query: str) -> str:
-        return f"""You are a database query planner. Analyze the request and create a step-by-step plan.
-Query: {user_query}
-
-Create a concise plan that outlines the specific steps needed to answer this query.
-
-CRITICAL FORMAT REQUIREMENTS:
-- Each step MUST follow this exact format: "N. tool_name: description"
-- N is the step number (1, 2, 3, etc.)
-- tool_name is the exact tool name (no backticks, no "the", no "tool" word)
-- After the colon, describe ONLY what THIS SPECIFIC TOOL does, not the entire workflow
-- Be clear about the INPUT and OUTPUT of each tool
-- Avoid vague phrases like "find", "get", "compute" - be specific about the tool's action
-
-WRITING CLEAR DESCRIPTIONS:
- BAD: "text2SQL: Find the total track time of top 5 playlists" (too vague, sounds like it does everything)
- GOOD: "text2SQL: Convert the question into a SQL query that retrieves playlist names and their total track times, ordered by duration, limited to 5 rows"
-
- BAD: "python_repl: Compute the total" (unclear what to compute)
- GOOD: "python_repl: Sum the track times from the DataFrame to get the final total"
-
-Each tool description should answer:
-- What does THIS tool receive as input?
-- What action does THIS tool perform?
-- What does THIS tool output?
-
-
-TOOL SELECTION GUIDELINES:
+    def _get_tool_selection_guidelines() -> str:
+        """Shared tool selection guidelines for planning and replanning"""
+        return """**TOOL SELECTION GUIDELINES**:
 
 1. **SQL Query Generation**:
    - ALWAYS use text2SQL first to generate SQL queries from natural language
    - text2SQL has access to database schema and will generate correct queries
-   - Provide context about what data you need
 
 2. **SQL Query Execution** - Choose based on output size and next steps:
    
@@ -73,13 +47,11 @@ TOOL SELECTION GUIDELINES:
    - Query returns small results (≤20 rows)
    - Results will be shown directly to user (no further processing needed)
    - Simple SELECT queries
-   - Example: "Show me 5 customer names" → text2SQL + sql_db_query
    
    **Use sql_db_to_df when**:
    - Query returns large results (>20 rows)
    - Results need further processing (calculations, transformations, visualizations)
    - Data will be used by python_repl or visualization tools
-   - Example: "Show top 100 albums" → text2SQL + sql_db_to_df + visualization tool
    
    Key difference:
    - sql_db_query: Returns results directly to agent (not stored)
@@ -88,14 +60,12 @@ TOOL SELECTION GUIDELINES:
 3. **DataFrame Management**:
    - ALWAYS run sql_db_to_df BEFORE using python_repl, smart_transform_for_viz, or large_plotting_tool
    - These tools require a DataFrame to be available in Redis
-   - The DataFrame is automatically loaded by these tools using data_context
 
 4. **Visualizations** (when charts/graphs are requested):
    
    **Use smart_transform_for_viz when**:
    - Small datasets (≤100 rows)
    - Interactive frontend charts (bar, line, pie)
-   - User wants to explore data interactively
    - Requires DataFrame from sql_db_to_df
    
    **Use large_plotting_tool when**:
@@ -105,35 +75,15 @@ TOOL SELECTION GUIDELINES:
    - Requires DataFrame from sql_db_to_df
 
 5. **Data Analysis**:
-   - You can use use simple sql query with count, sum, avg, min, max, group by, order by, limit clauses for simple calculations
-   - Use python_repl for calculations, statistics, transformations
+   - Use simple SQL queries with COUNT, SUM, AVG, MIN, MAX, GROUP BY, ORDER BY, LIMIT for simple calculations
+   - Use python_repl for complex calculations, statistics, transformations
    - Use dataframe_info to check what data is available
    - python_repl requires DataFrame from sql_db_to_df
 
 6. **Error Prevention**:
    - Use LIMIT clauses in SQL queries to avoid large datasets
    - Select only necessary columns
-   - Be specific about what each tool does to avoid confusion
- 
-1. [tool_name]: [What this tool receives as input]. Input: [specific input]. Action: [What this tool does]. Output: [What this tool produces].
-
-2. [next_tool]: [What this tool receives]. Input: [from previous step]. Action: [specific action]. Output: [result type and description].
-
-3. [final_tool]: [What this tool does with the data]. Input: [data from previous step]. Action: [final processing]. Output: [final deliverable].
-
-HANDLING UNCERTAINTY:
-If you're not sure about the exact approach or need to explore the data first, you can indicate this in your plan.
-After listing the numbered steps, add a note like:
-- "We'll run these steps first to explore the data, then decide on the best visualization approach."
-- "This initial exploration will help determine if additional analysis is needed."
-- "After seeing the results, we may need to adjust our approach for optimal presentation."
-
-After listing all numbered steps, add a final paragraph (NOT numbered) explaining what the result will be.
-For example: "The visualization will be displayed in the interface, allowing for interactive exploration of the data."
-
-DO NOT use phrases like "Use the", "Execute the", or wrap tool names in backticks.
-Write naturally as an agent explaining its plan.
-Each step should be on its own line."""
+   - Be specific about what each tool does"""
     
     def execute(self, state):
         messages = state["messages"]
@@ -149,7 +99,7 @@ Each step should be on its own line."""
         if status == "feedback" and state.get("human_comment"):
             return self._handle_feedback(state, messages, user_query)
         else:
-            return self._handle_initial_planning(state, messages, user_query)
+            return self._handle_dynamic_planning(state, messages, user_query)
     
     def _handle_feedback(self, state, messages, user_query):
         human_feedback = state.get('human_comment', '')
@@ -277,33 +227,108 @@ When response_type is "replan", follow these comprehensive planning guidelines:
                 "response_type": "answer"  # Treat errors as answers/clarifications
             }
     
-    def _handle_initial_planning(self, state, messages, user_query):       
-        planning_prompt = self._get_core_planner_prompt(user_query)
+    def _handle_dynamic_planning(self, state, messages, user_query):
 
+        tool_descriptions = "\n".join([f"- {tool.name}: {tool.description}" for tool in self.tools])
+        tool_guidelines = self._get_tool_selection_guidelines()
+        
+        planning_prompt = f"""You are a data exploration query planner. Create a CONCISE, FOCUSED execution plan.
+
+**Query**: {user_query}
+
+**CRITICAL INSTRUCTIONS**:
+1. **Be MINIMAL** - Only create steps that are ABSOLUTELY NECESSARY to answer the query
+2. **One tool per step when possible** - Only list multiple tool options if there's genuine uncertainty about data size or format
+3. **Focus on the goal** - Don't add extra steps for "potential" analysis unless explicitly requested
+4. **Simple queries = Simple plans** - If the query is straightforward, keep it to 1-2 steps maximum
+5. **Write CLEAR step goals** - Each goal will be used as a prompt for the execution agent, so be specific and actionable
+
+**Step Goal Writing Guidelines**:
+- GOOD: "Generate SQL query to retrieve all table names from the database"
+- GOOD: "Execute the SQL query and return the list of tables"
+- GOOD: "Create an interactive bar chart showing album sales by artist"
+- BAD: "Retrieve data" (too vague)
+- BAD: "Prepare data for visualization" (unclear what to do)
+- BAD: "Analyze results" (not actionable)
+
+{tool_guidelines}
+
+**When to provide MULTIPLE tool options**:
+- Query execution when result size is unknown (sql_db_query vs sql_db_to_df)
+- Visualization when data size affects tool choice (smart_transform_for_viz vs large_plotting_tool)
+- Do NOT for simple queries with obvious single tool
+- Do NOT for "potential" future steps that aren't requested
+
+**When to provide SINGLE tool option**:
+- Query asks for simple information (e.g., "what tables exist", "show schema")
+- Visualization type is clear and data size is known
+- Analysis step is straightforward
+
+**Plan Template**:
+
+Step 1:
+- Goal: [Clear, specific description of what this step accomplishes]
+- Tool Options:
+  * [tool_name] (Priority 1): [When to use this tool for this specific step]
+  * [alternative_tool] (Priority 2): [When to use this alternative] (only if genuinely needed)
+
+Step 2:
+- Goal: [Clear, specific description of what this step accomplishes]
+- Tool Options:
+  * [tool_name] (Priority 1): [When to use this tool for this specific step]
+
+**Available Tools**:
+{tool_descriptions}
+
+**Your task**: Generate ONLY the steps needed to answer the query. Each step goal should be clear, specific, and actionable - it will be used to instruct the execution agent. Don't over-plan. Be direct and efficient.
+"""
+        
         try:
-
-            tool_descriptions = "\n".join([f"- {tool.name}: {tool.description}" for tool in self.tools])
-
+            # Use structured output for reliable parsing
+            structured_llm = self.llm.with_structured_output(DynamicPlan)
+            
             conversation_messages = [msg for msg in messages 
                                    if not isinstance(msg, SystemMessage)]
             
             all_messages = [
-                SystemMessage(content=f"Available tools for planning:\n{tool_descriptions}"),
                 SystemMessage(content=planning_prompt)
             ] + conversation_messages
             
-            response = self.llm.invoke(all_messages)
-            plan = response.content
+            response = structured_llm.invoke(all_messages)
+            
+            # Convert structured plan to readable format for display
+            plan_text = self._format_dynamic_plan(response)
+            
+            logger.info(f"Generated dynamic plan with {len(response.steps)} steps")
+            
+            return {
+                "messages": messages + [AIMessage(content=plan_text)],
+                "query": user_query,
+                "plan": plan_text,
+                "dynamic_plan": response,  # Store structured plan
+                "current_step_index": 0,  # Initialize step counter
+                "steps": [],
+                "step_counter": 0,
+                "response_type": "plan"
+            }
             
         except Exception as e:
-            logger.error(f"Error in initial planning: {e}")
-            plan = f"Simple plan: Analyze the query '{user_query}' using available database tools like sql_db_list_tables, sql_db_schema, and sql_db_to_df."
+            logger.error(f"Error in dynamic planning: {e}", exc_info=True)
+            # Fallback to simple plan
+            return self._handle_initial_planning(state, messages, user_query)
+    
+    def _format_dynamic_plan(self, plan: DynamicPlan) -> str:
+        """Format structured plan for display."""
+        lines = [f"**Strategy**: {plan.overall_strategy}\n"]
         
-        return {
-            "messages": messages + [AIMessage(content=plan)],
-            "query": user_query,
-            "plan": plan,
-            "steps": state.get("steps", []),
-            "step_counter": state.get("step_counter", 0),
-            "response_type": "plan" 
-        }
+        for step in plan.steps:
+            lines.append(f"\n**Step {step.step_number}**: {step.goal}")
+            lines.append("Tool Options:")
+            
+            for option in sorted(step.tool_options, key=lambda x: x.priority):
+                lines.append(f"  {option.priority}. {option.tool_name}: {option.use_case}")
+            
+            if step.context_requirements:
+                lines.append(f"  Requires: {step.context_requirements}")
+        
+        return "\n".join(lines)

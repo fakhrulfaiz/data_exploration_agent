@@ -31,7 +31,6 @@ from app.agents.state import ExplainableAgentState
 from app.agents.nodes.planner_node import PlannerNode
 from app.agents.nodes.explainer_node import ExplainerNode
 from app.agents.nodes.error_explainer_node import ErrorExplainerNode
-from app.agents.nodes.task_parser_node import TaskParserNode
 from app.agents.nodes.agent_executor_node import AgentExecutorNode
 from app.agents.nodes.task_scheduler_node import TaskSchedulerNode
 from app.agents.nodes.joiner_node import JoinerNode
@@ -76,7 +75,6 @@ class DataExplorationAgent:
         self.explainer = ExplainerNode(llm)
         self.error_explainer = ErrorExplainerNode(llm)
         self.planner = PlannerNode(llm, self.tools)
-        self.task_parser = TaskParserNode(llm, self.tools)
         self.agent_executor = AgentExecutorNode(llm, self.tools)
         self.task_scheduler = TaskSchedulerNode(self.tools)
         self.joiner = JoinerNode(llm)
@@ -323,18 +321,34 @@ class DataExplorationAgent:
                 logger.info("Agent completed successfully - routing to end")
                 return "end"
         
+        # Always go to tool_explanation first to generate reasoning
+        logger.info("Routing to tool_explanation to generate tool reasoning")
+        return "tool_explanation"
+
+    
+    def route_after_tool_explanation(self, state: ExplainableAgentState) -> str:
+        """Route after tool_explanation: check if approval is needed for risky tools"""
         if not self.require_tool_approval:
-            return "tools"  # Execute tools directly
+            logger.info("Tool approval disabled - routing directly to tools")
+            return "tools"
         
+        messages = state.get("messages", [])
+        if not messages:
+            return "tools"
+        
+        last_message = messages[-1]
+        if not (hasattr(last_message, 'tool_calls') and last_message.tool_calls):
+            return "tools"
+        
+        # Check if any tool calls are risky
         for tool_call in last_message.tool_calls:
             if tool_call.get("name") in self.risky_tools:
-                logger.info(f"Risky tool detected: {tool_call.get('name')} - routing to tool_approval")
-                return "tool_approval"  # Route to approval node
+                logger.info(f"Risky tool detected after explanation: {tool_call.get('name')} - routing to tool_approval")
+                return "tool_approval"
         
         # No risky tools - execute directly
-        logger.info("No risky tools detected - routing to tools")
+        logger.info("No risky tools detected - routing directly to tools")
         return "tools"
-
     
     def route_after_tool_approval(self, state: ExplainableAgentState) -> str:
         status = state.get("status", "approved")
@@ -350,13 +364,13 @@ class DataExplorationAgent:
         graph.add_node("assistant", self.assistant_agent)
         graph.add_node("data_exploration_flow", self.data_exploration_entry)
         graph.add_node("planner", self.planner_node)
+        graph.add_node("task_scheduler", self.task_scheduler.execute)
         graph.add_node("agent", self.agent_node)
         graph.add_node("tools", self.tools_node)
         graph.add_node("tool_explanation", self.tool_explanation_node)
         graph.add_node("explain", self.explainer_node)
         graph.add_node("human_feedback", self.human_feedback)
         
-        graph.add_node("task_parser", self.task_parser_node)
         graph.add_node("agent_executor", self.agent_executor_node)
         graph.add_node("joiner", self.joiner_node)
         graph.add_node("error_explainer", self.error_explainer_node)
@@ -374,32 +388,40 @@ class DataExplorationAgent:
                 "agent": "agent"
             }
         )
-
+        
         graph.add_edge("planner", "human_feedback")
         
         graph.add_conditional_edges(
             "human_feedback",
             self.route_after_approval,
             {
-                "task_parser": "task_parser",
+                "task_scheduler": "task_scheduler",
                 "agent": "agent",
                 "planner": "planner",
                 "end": END
             }
         )
         
-        graph.add_conditional_edges(
-            "task_parser",
-            self.route_tasks,
-            ["agent_executor", "joiner"]
-        )
+        graph.add_edge("task_scheduler", "agent_executor")
         
         graph.add_conditional_edges(
             "agent_executor",
-            self.should_continue_group,
+            self.route_agent_executor,
             {
+                "tools": "tools",
                 "agent_executor": "agent_executor",
                 "joiner": "joiner"
+            }
+        )
+        
+        # Tools route back based on execution mode
+        graph.add_conditional_edges(
+            "tools",
+            self.route_after_tools,
+            {
+                "agent_executor": "agent_executor",  
+                "explain": "explain",                
+                "agent": "agent"                     
             }
         )
         
@@ -413,34 +435,32 @@ class DataExplorationAgent:
             }
         )
         
-        # Updated: Route from agent to tool_approval or tools
         graph.add_conditional_edges(
             "agent",
-            self.route_after_agent,  # NEW: Check for risky tools
+            self.route_after_agent,
             {
-                "tool_approval": "tool_approval",  # NEW: Route to approval
-                "tools": "tool_explanation",
+                "tool_explanation": "tool_explanation",
                 "error_explainer": "error_explainer",
                 "end": END
             }
         )
         
-        # NEW: Route from tool_approval
+        # After tool_explanation, check if approval is needed
+        graph.add_conditional_edges(
+            "tool_explanation",
+            self.route_after_tool_explanation,
+            {
+                "tool_approval": "tool_approval",
+                "tools": "tools"
+            }
+        )
+        
+        # After tool_approval, go directly to tools
         graph.add_conditional_edges(
             "tool_approval",
             self.route_after_tool_approval,
             {
-                "tools": "tool_explanation",  # Approved -> execute tools
-                "agent": "agent"  # Rejected -> back to agent
-            }
-        )
-        
-        graph.add_edge("tool_explanation", "tools")
-        graph.add_conditional_edges(
-            "tools",
-            self.should_explain,
-            {
-                "explain": "explain",
+                "tools": "tools",
                 "agent": "agent"
             }
         )
@@ -463,12 +483,29 @@ class DataExplorationAgent:
         elif status == "feedback":
             return "planner"
         
-        execution_mode = state.get("execution_mode", "sequential")
+        # Always use dynamic planning with task_scheduler
+        return "task_scheduler"
+    
+    def route_agent_executor(self, state: ExplainableAgentState) -> str:
+        messages = state.get("messages", [])
         
-        if execution_mode == "parallel":
-            return "task_parser"
+        if messages and hasattr(messages[-1], 'tool_calls') and messages[-1].tool_calls:
+            return "tools"
+        
+        continue_execution = state.get("continue_execution", False)
+        
+        if continue_execution:
+            return "agent_executor"
         else:
-            return "agent"
+            return "joiner"
+    
+    def route_after_tools(self, state: ExplainableAgentState) -> str:
+        dynamic_plan = state.get("dynamic_plan")
+        
+        if dynamic_plan:
+            return "agent_executor"
+        else:
+            return self.should_explain(state)
     
     def route_tasks(self, state: ExplainableAgentState):
         return self.task_scheduler.route_tasks(state)
@@ -482,20 +519,20 @@ class DataExplorationAgent:
             return "end"
         elif decision == "replan":
             return "planner"
+        else:
+            logger.warning(f"Unexpected joiner decision: {decision}, defaulting to end")
+            return "end"
+    
     
     def should_continue_group(self, state: ExplainableAgentState) -> str:
-        continue_group = state.get("continue_group", False)
+        continue_execution = state.get("continue_execution", False)
         
-        if continue_group:
-            logger.info("Continuing group execution for error recovery")
+        if continue_execution:
             return "agent_executor"
         else:
-            logger.info("Group execution complete, routing to joiner")
             return "joiner"
     
     def _create_ai_message_for_next_tasks(self, tasks: List[Dict]) -> AIMessage:
-        """Create AI message with tool_calls manually"""
-        
         tool_calls = []
         for task in tasks:
             tool_calls.append({

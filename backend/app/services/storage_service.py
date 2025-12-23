@@ -13,16 +13,8 @@ logger = logging.getLogger(__name__)
 
 
 class SupabaseStorageService:
-    """Service for handling plot image uploads to Supabase Storage"""
     
     def __init__(self, supabase_url: str, supabase_service_role_key: str):
-        """
-        Initialize Supabase client with configuration.
-        
-        Args:
-            supabase_url: Supabase project URL
-            supabase_service_role_key: Supabase service role key
-        """
         if not supabase_url or not supabase_service_role_key:
             raise ValueError("Supabase URL and service role key must be configured")
         
@@ -41,7 +33,6 @@ class SupabaseStorageService:
             raise
     
     def _generate_file_path(self, filename: str) -> str:
-        """Generate a unique file path for the uploaded image"""
         # Extract extension
         extension = filename.split('.')[-1] if '.' in filename else 'png'
         
@@ -57,20 +48,7 @@ class SupabaseStorageService:
         filename: str = "plot.png",
         content_type: str = "image/png"
     ) -> str:
-        """
-        Upload plot image to Supabase Storage and return public URL.
-        
-        Args:
-            image_data: Binary image data
-            filename: Original filename (used for extension detection)
-            content_type: MIME type of the image
-            
-        Returns:
-            Public URL of the uploaded image
-            
-        Raises:
-            Exception: If upload fails
-        """
+    
         try:
             # Generate unique file path
             file_path = self._generate_file_path(filename)
@@ -122,15 +100,6 @@ class SupabaseStorageService:
             raise Exception(f"Image upload failed: {str(e)}")
     
     def delete_plot_image(self, file_path: str) -> bool:
-        """
-        Delete a plot image from Supabase Storage.
-        
-        Args:
-            file_path: Path of the file to delete
-            
-        Returns:
-            True if deletion was successful, False otherwise
-        """
         try:
             response = self.client.storage.from_(self.bucket_name).remove([file_path])
             
@@ -144,34 +113,3 @@ class SupabaseStorageService:
         except Exception as e:
             logger.error(f"Error deleting file {file_path}: {str(e)}")
             return False
-
-
-# Global instance
-_storage_service: Optional[SupabaseStorageService] = None
-
-
-def get_supabase_storage_service() -> SupabaseStorageService:
-    """Get or create the global Supabase storage service instance"""
-    global _storage_service
-    
-    if _storage_service is None:
-        from app.core.config import settings
-        
-        _storage_service = SupabaseStorageService(
-            supabase_url=settings.supabase_url,
-            supabase_service_role_key=settings.supabase_service_role_key
-        )
-    
-    return _storage_service
-
-
-def initialize_storage_service(supabase_url: str, supabase_service_role_key: str) -> None:
-    """
-    Initialize the storage service with custom configuration.
-    
-    Args:
-        supabase_url: Supabase project URL
-        supabase_service_role_key: Supabase service role key
-    """
-    global _storage_service
-    _storage_service = SupabaseStorageService(supabase_url, supabase_service_role_key)

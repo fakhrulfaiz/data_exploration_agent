@@ -4,12 +4,23 @@ import React, { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { markdownComponents } from '../../utils/markdownComponents';
-import { ChevronDown, ChevronRight, Circle } from 'lucide-react';
+import { ChevronDown, ChevronRight, ListOrdered, Wrench } from 'lucide-react';
 
-interface PlanItem {
-    number: number;
-    toolName: string;
+interface ToolOption {
+    name: string;
     description: string;
+}
+
+interface PlanStep {
+    stepNumber: number;
+    title: string;
+    toolOptions: ToolOption[];
+    requires?: string;
+}
+
+interface ParsedPlan {
+    strategy: string;
+    steps: PlanStep[];
 }
 
 interface PlanMessageProps {
@@ -30,66 +41,100 @@ export const PlanMessage: React.FC<PlanMessageProps> = ({
 }) => {
     const [isExpanded, setIsExpanded] = useState(true);
 
-    // Parse plan text to extract numbered items
-    const parsePlan = (planText: string): { intro: string; items: PlanItem[]; outro: string } => {
+    // Parse the new plan format
+    const parsePlan = (planText: string): ParsedPlan => {
         const lines = planText.split('\n');
-        const items: PlanItem[] = [];
-        const introLines: string[] = [];
-        const outroLines: string[] = [];
-        let inItems = false;
-        let afterItems = false;
+        let strategy = '';
+        const steps: PlanStep[] = [];
+        let currentStep: PlanStep | null = null;
+        let inToolOptions = false;
+        let inRequires = false;
 
-        // Regex to match numbered plan items: "1. tool_name: description"
-        const itemRegex = /^(\d+)\.\s+(\w+):\s+(.+)$/;
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i];
 
-        for (const line of lines) {
-            const match = line.match(itemRegex);
-            if (match) {
-                inItems = true;
-                items.push({
-                    number: parseInt(match[1], 10),
-                    toolName: match[2],
-                    description: match[3]
-                });
-            } else if (!inItems && line.trim()) {
-                // Lines before first numbered item
-                introLines.push(line);
-            } else if (inItems && line.trim()) {
-                // Lines after last numbered item
-                afterItems = true;
-                outroLines.push(line);
-            } else if (afterItems) {
-                outroLines.push(line);
+            // Check for Strategy
+            if (line.startsWith('**Strategy**:')) {
+                strategy = line.replace('**Strategy**:', '').trim();
+                continue;
+            }
+
+            // Check for Step headers (e.g., **Step 1**: ...)
+            const stepMatch = line.match(/^\*\*Step (\d+)\*\*:\s*(.+)$/);
+            if (stepMatch) {
+                // Save previous step if exists
+                if (currentStep) {
+                    steps.push(currentStep);
+                }
+
+                currentStep = {
+                    stepNumber: parseInt(stepMatch[1], 10),
+                    title: stepMatch[2].trim(),
+                    toolOptions: []
+                };
+                inToolOptions = false;
+                inRequires = false;
+                continue;
+            }
+
+            // Check for Tool Options header
+            if (line.trim() === 'Tool Options:' && currentStep) {
+                inToolOptions = true;
+                inRequires = false;
+                continue;
+            }
+
+            // Parse tool options (numbered list items)
+            if (inToolOptions && currentStep) {
+                const toolMatch = line.match(/^\s+(\d+)\.\s+(.+?):\s*(.+)$/);
+                if (toolMatch) {
+                    currentStep.toolOptions.push({
+                        name: toolMatch[2].trim(),
+                        description: toolMatch[3].trim()
+                    });
+                    continue;
+                }
+            }
+
+            // Check for Requires
+            if (line.trim().startsWith('Requires:') && currentStep) {
+                currentStep.requires = line.replace('Requires:', '').trim();
+                inToolOptions = false;
+                inRequires = true;
+                continue;
             }
         }
 
-        return {
-            intro: introLines.join('\n').trim(),
-            items,
-            outro: outroLines.join('\n').trim()
-        };
+        // Don't forget the last step
+        if (currentStep) {
+            steps.push(currentStep);
+        }
+
+        return { strategy, steps };
     };
 
-    const { intro, items, outro } = parsePlan(plan);
+    const { strategy, steps } = parsePlan(plan);
 
     return (
         <div className="plan-message">
-            {/* Intro text (if any) */}
-            {intro && (
-                <div className="mb-3 prose prose-sm dark:prose-invert max-w-none">
-                    <ReactMarkdown components={markdownComponents} remarkPlugins={[remarkGfm]}>
-                        {intro}
-                    </ReactMarkdown>
+            {/* Strategy header */}
+            {strategy && (
+                <div className="mb-4">
+                    <div className="flex items-center gap-2 mb-2">
+                        <ListOrdered className="w-4 h-4 text-primary" />
+                        <span className="font-semibold text-sm text-muted-foreground uppercase tracking-wide">Strategy</span>
+                    </div>
+                    <p className="text-foreground">{strategy}</p>
                 </div>
             )}
 
-            {/* Plan items in single expandable card */}
-            {items.length > 0 && (
+            {/* Execution Plan steps */}
+            {steps.length > 0 && (
                 <div>
-                    {/* Clickable header outside card */}
+                    {/* Clickable header */}
                     <button
                         onClick={() => setIsExpanded(!isExpanded)}
-                        className="mb-2 flex items-center gap-2 hover:opacity-80 transition-opacity"
+                        className="mb-3 flex items-center gap-2 hover:opacity-80 transition-opacity"
                     >
                         {isExpanded ? (
                             <ChevronDown className="w-4 h-4 text-muted-foreground" />
@@ -97,39 +142,69 @@ export const PlanMessage: React.FC<PlanMessageProps> = ({
                             <ChevronRight className="w-4 h-4 text-muted-foreground" />
                         )}
                         <span className="font-semibold text-foreground">
-                            Execution Plan
+                            Execution Plan ({steps.length} {steps.length === 1 ? 'step' : 'steps'})
                         </span>
                     </button>
 
-                    {/* Card with list items only */}
+                    {/* Steps list */}
                     {isExpanded && (
-                        <div className="border border-border rounded-lg bg-background shadow-sm px-4 py-3">
-                            <ul className="space-y-3">
-                                {items.map((item) => (
-                                    <li key={item.number} className="flex gap-3 items-start">
-                                        <Circle className="w-2 h-2 fill-current text-primary shrink-0 mt-2" />
-                                        <div className="flex-1">
-                                            <span className="font-medium text-foreground">
-                                                {item.toolName}:
+                        <div className="space-y-3">
+                            {steps.map((step) => (
+                                <div
+                                    key={step.stepNumber}
+                                    className="border border-border rounded-lg bg-background shadow-sm overflow-hidden"
+                                >
+                                    {/* Step header */}
+                                    <div className="px-4 py-3 bg-accent/50">
+                                        <div className="flex items-start gap-2">
+                                            <span className="flex-shrink-0 flex items-center justify-center w-6 h-6 rounded-full bg-primary text-primary-foreground text-xs font-bold">
+                                                {step.stepNumber}
                                             </span>
-                                            <span className="text-muted-foreground ml-1">
-                                                {item.description}
-                                            </span>
+                                            <div className="flex-1 min-w-0">
+                                                <p className="font-medium text-foreground">{step.title}</p>
+                                            </div>
                                         </div>
-                                    </li>
-                                ))}
-                            </ul>
+                                    </div>
+
+                                    {/* Tool options */}
+                                    {step.toolOptions.length > 0 && (
+                                        <div className="px-4 py-3 border-t border-border">
+                                            <div className="flex items-center gap-2 mb-2">
+                                                <Wrench className="w-3.5 h-3.5 text-muted-foreground" />
+                                                <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                                                    Tool Options
+                                                </span>
+                                            </div>
+                                            <ul className="space-y-2">
+                                                {step.toolOptions.map((tool, idx) => (
+                                                    <li key={idx} className="flex gap-2 items-start text-sm">
+                                                        <span className="flex-shrink-0 text-muted-foreground font-medium">
+                                                            {idx + 1}.
+                                                        </span>
+                                                        <div className="flex-1 min-w-0">
+                                                            <span className="font-mono text-xs bg-muted px-1.5 py-0.5 rounded">
+                                                                {tool.name}
+                                                            </span>
+                                                            <span className="text-muted-foreground ml-2">
+                                                                {tool.description}
+                                                            </span>
+                                                        </div>
+                                                    </li>
+                                                ))}
+                                            </ul>
+                                        </div>
+                                    )}
+
+                                    {/* Requirements */}
+                                    {step.requires && (
+                                        <div className="px-4 py-2 bg-muted/50 text-xs text-muted-foreground border-t border-border">
+                                            <span className="font-semibold">Requires:</span> {step.requires}
+                                        </div>
+                                    )}
+                                </div>
+                            ))}
                         </div>
                     )}
-                </div>
-            )}
-
-            {/* Outro text (if any) */}
-            {outro && (
-                <div className="mt-3 prose prose-sm dark:prose-invert max-w-none">
-                    <ReactMarkdown components={markdownComponents} remarkPlugins={[remarkGfm]}>
-                        {outro}
-                    </ReactMarkdown>
                 </div>
             )}
 

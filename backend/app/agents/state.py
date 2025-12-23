@@ -6,6 +6,12 @@ from langchain_core.messages import BaseMessage
 from app.schemas.chat import DataContext
 import operator
 
+# Import for type annotation - using string literal to avoid circular import issues
+try:
+    from app.agents.schemas.tool_selection import DynamicPlan
+except ImportError:
+    DynamicPlan = None  # Will use string annotation
+
 
 
 
@@ -28,16 +34,10 @@ class ExplainableAgentState(MessagesState):
     visualizations: Optional[List[Dict[str, Any]]] = []
     data_context: Optional[DataContext] = None
     
-    
-    # ===== AGENT-BASED PARALLEL EXECUTION FIELDS =====
-    task_groups: Optional[List[List[str]]] = []  # Sequential tool groups (e.g., [["text2SQL", "sql_db_to_df"]])
-    current_group_index: Optional[int] = 0  # Current group being executed
-    current_group_tools: Optional[List[str]] = []  # Tools for current group
-    group_context: Optional[List[BaseMessage]] = []  # Context for current group (tool messages)
-    group_results: Optional[Dict[int, Any]] = {}  # Results from each group
-    continue_group: Optional[bool] = False  # Flag to continue current group (for error recovery)
-    execution_mode: Optional[Literal["sequential", "parallel"]] = "parallel"  # Execution strategy
-    joiner_decision: Optional[Literal["finish", "replan"]] = None  # Joiner's decision
+    # ===== DYNAMIC TOOL SELECTION FIELDS =====
+    dynamic_plan: Optional[Any] = None  # DynamicPlan object from tool_selection schema
+    current_step_index: int = 0  # Track which step is currently executing
+    continue_execution: bool = False  # Flag to continue to next step
     
     # ===== ERROR HANDLING FIELDS =====
     error_info: Optional[Dict[str, Any]] = None  # Error details (error_message, error_type, tool_name, tool_input)

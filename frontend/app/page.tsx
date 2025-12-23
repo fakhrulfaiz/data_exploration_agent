@@ -69,272 +69,20 @@ const ChatWithApproval: React.FC = () => {
         }];
       }
 
-      // Determine needsApproval and messageStatus from content blocks
-      let needsApproval = false;
-      let messageStatus: 'pending' | 'approved' | 'rejected' | 'error' | 'timeout' | undefined = undefined;
-
-      if (Array.isArray(content) && content.length > 0) {
-        // Check if any block needs approval
-        needsApproval = content.some((block: any) => block.needsApproval === true || block.needs_approval === true);
-
-        // Get messageStatus from blocks (use the first non-null status found)
-        for (const block of content) {
-          if (block.messageStatus || block.message_status) {
-            messageStatus = block.messageStatus || block.message_status;
-            break;
-          }
-        }
-
-        // If no block has messageStatus but needsApproval is true, set to pending
-        if (!messageStatus && needsApproval) {
-          messageStatus = 'pending';
-        }
-      } else if (msg.message_status) {
-        // Fallback to message-level status (legacy)
-        messageStatus = msg.message_status;
-        needsApproval = messageStatus === 'pending';
-      }
-
       return {
         message_id: msg.message_id || String(msg.id || Date.now() + index),
         sender: (msg.sender === 'assistant' ? 'assistant' : 'user'),
         content,
         timestamp: new Date(msg.timestamp),
-        needsApproval,
-        messageStatus,
         threadId: msg.thread_id || selectedChatThreadId || undefined,
         checkpointId: msg.checkpoint_id
       } as Message;
     });
   };
 
-  const restoreDataIfNeeded = async (messages: Message[], threadId: string) => {
-    // Find messages with explorer blocks (new content blocks structure)
-    const explorerBlocksInfo: Array<{ messageId: string | number, blockId: string, checkpointId: string }> = [];
-    const visualizationBlocksInfo: Array<{ messageId: string | number, blockId: string, checkpointId: string }> = [];
 
-    // Also check for legacy format
-    const legacyExplorerMessages = messages.filter(msg =>
-      msg.messageType === 'explorer' &&
-      msg.checkpointId &&
-      msg.sender === 'assistant'
-    );
+  // restoreDataIfNeeded function removed - was not being used anywhere
 
-    const legacyVisualizationMessages = messages.filter(msg =>
-      msg.messageType === 'visualization' &&
-      msg.sender === 'assistant'
-    );
-
-    // Extract explorer and visualization blocks from content blocks
-    messages.forEach(msg => {
-      if (Array.isArray(msg.content)) {
-        msg.content.forEach(block => {
-          if (block.type === 'explorer') {
-            const explorerData = block.data as any;
-            if (explorerData.checkpointId) {
-              explorerBlocksInfo.push({
-                messageId: msg.message_id,
-                blockId: block.id,
-                checkpointId: explorerData.checkpointId
-              });
-            }
-          } else if (block.type === 'visualizations') {
-            const visualizationData = block.data as any;
-            if (visualizationData.checkpointId) {
-              visualizationBlocksInfo.push({
-                messageId: msg.message_id,
-                blockId: block.id,
-                checkpointId: visualizationData.checkpointId
-              });
-            }
-          }
-        });
-      }
-    });
-
-    const hasExplorerData = explorerBlocksInfo.length > 0 || legacyExplorerMessages.length > 0;
-    const hasVisualizationData = visualizationBlocksInfo.length > 0 || legacyVisualizationMessages.length > 0;
-
-    if (hasExplorerData || hasVisualizationData) {
-      try {
-        const explorerDataMap = new Map();
-        const visualizationDataMap = new Map();
-
-        // Restore explorer data from content blocks
-        for (const blockInfo of explorerBlocksInfo) {
-          try {
-            const explorerResponse = await ExplorerService.getExplorerData(
-              threadId,
-              blockInfo.checkpointId
-            );
-
-            if (explorerResponse?.data) {
-              explorerDataMap.set(`${blockInfo.messageId}_${blockInfo.blockId}`, explorerResponse.data);
-            }
-          } catch (error) {
-            console.error('Failed to restore explorer data for checkpoint:', blockInfo.checkpointId, error);
-          }
-        }
-
-        // Restore legacy explorer data
-        for (const explorerMessage of legacyExplorerMessages) {
-          try {
-            const explorerResponse = await ExplorerService.getExplorerData(
-              threadId,
-              explorerMessage.checkpointId!
-            );
-
-            if (explorerResponse?.data) {
-              explorerDataMap.set(`legacy_${explorerMessage.message_id}`, explorerResponse.data);
-            }
-          } catch (error) {
-            console.error('Failed to restore legacy explorer data for checkpoint:', explorerMessage.checkpointId, error);
-          }
-        }
-
-        // Restore visualization data from content blocks
-        for (const blockInfo of visualizationBlocksInfo) {
-          try {
-            const visualizationResponse = await VisualizationService.getVisualizationData(
-              threadId,
-              blockInfo.checkpointId
-            );
-            if (visualizationResponse?.data?.visualizations) {
-              visualizationDataMap.set(`${blockInfo.messageId}_${blockInfo.blockId}`, visualizationResponse.data.visualizations);
-            }
-          } catch (error) {
-            console.error('Failed to restore visualization data for checkpoint:', blockInfo.checkpointId, error);
-          }
-        }
-
-        // Restore legacy visualization data
-        for (const visualizationMessage of legacyVisualizationMessages) {
-          try {
-            const visualizationResponse = await VisualizationService.getVisualizationData(
-              threadId,
-              visualizationMessage.checkpointId || ''
-            );
-            if (visualizationResponse?.data?.visualizations) {
-              visualizationDataMap.set(`legacy_${visualizationMessage.message_id}`, visualizationResponse.data.visualizations);
-            }
-          } catch (error) {
-            console.error('Failed to restore legacy visualization data for checkpoint:', visualizationMessage.checkpointId, error);
-          }
-        }
-
-        // Update messages with restored data
-        const updatedMessages = messages.map(msg => {
-          let updatedMsg = { ...msg };
-
-          // Handle content blocks structure
-          if (Array.isArray(msg.content)) {
-            const updatedContentBlocks = msg.content.map(block => {
-              if (block.type === 'explorer') {
-                const explorerDataKey = `${msg.message_id}_${block.id}`;
-                const explorerData = explorerDataMap.get(explorerDataKey);
-                if (explorerData) {
-                  return {
-                    ...block,
-                    data: {
-                      ...block.data,
-                      explorerData
-                    }
-                  };
-                }
-              } else if (block.type === 'visualizations') {
-                const visualizationDataKey = `${msg.message_id}_${block.id}`;
-                const visualizations = visualizationDataMap.get(visualizationDataKey);
-                if (visualizations) {
-                  return {
-                    ...block,
-                    data: {
-                      ...block.data,
-                      visualizations
-                    }
-                  };
-                }
-              }
-              return block;
-            });
-
-            updatedMsg = {
-              ...updatedMsg,
-              content: updatedContentBlocks
-            };
-          }
-
-          // Handle legacy format
-          if (msg.messageType === 'explorer' && explorerDataMap.has(`legacy_${msg.message_id}`)) {
-            const explorerData = explorerDataMap.get(`legacy_${msg.message_id}`);
-            updatedMsg = {
-              ...updatedMsg,
-              metadata: {
-                ...updatedMsg.metadata,
-                explorerData
-              }
-            };
-          }
-
-          if (msg.messageType === 'visualization' && visualizationDataMap.has(`legacy_${msg.message_id}`)) {
-            const visualizations = visualizationDataMap.get(`legacy_${msg.message_id}`);
-            updatedMsg = {
-              ...updatedMsg,
-              metadata: {
-                ...updatedMsg.metadata,
-                visualizations: visualizations
-              }
-            };
-          }
-
-          return updatedMsg;
-        });
-
-        setRestoredMessages(updatedMessages);
-
-        // If any restored message needs approval, set execution status to user_feedback
-        if (updatedMessages.some(m => m.needsApproval)) {
-          setExecutionStatus('user_feedback');
-        }
-
-        // Set the latest explorer data (prioritize content blocks over legacy)
-        let latestExplorerData = null;
-        if (explorerBlocksInfo.length > 0) {
-          const lastBlockInfo = explorerBlocksInfo[explorerBlocksInfo.length - 1];
-          latestExplorerData = explorerDataMap.get(`${lastBlockInfo.messageId}_${lastBlockInfo.blockId}`);
-        } else if (legacyExplorerMessages.length > 0) {
-          const lastExplorerMessage = legacyExplorerMessages[legacyExplorerMessages.length - 1];
-          latestExplorerData = explorerDataMap.get(`legacy_${lastExplorerMessage.message_id}`);
-        }
-
-        if (latestExplorerData) {
-          setExplorerData(latestExplorerData);
-        }
-
-        // Set the latest visualization data (prioritize content blocks over legacy)
-        let latestVisualizationData = null;
-        if (visualizationBlocksInfo.length > 0) {
-          const lastBlockInfo = visualizationBlocksInfo[visualizationBlocksInfo.length - 1];
-          latestVisualizationData = visualizationDataMap.get(`${lastBlockInfo.messageId}_${lastBlockInfo.blockId}`);
-        } else if (legacyVisualizationMessages.length > 0) {
-          const lastVisualizationMessage = legacyVisualizationMessages[legacyVisualizationMessages.length - 1];
-          latestVisualizationData = visualizationDataMap.get(`legacy_${lastVisualizationMessage.message_id}`);
-        }
-
-        if (latestVisualizationData) {
-          setVisualizationCharts(latestVisualizationData);
-        }
-
-      } catch (error) {
-        console.error('Failed to restore data:', error);
-      }
-    } else {
-      setRestoredMessages(messages);
-      // If any restored message needs approval, set execution status to user_feedback
-      if (messages.some(m => m.needsApproval)) {
-        setExecutionStatus('user_feedback');
-      }
-    }
-  };
 
   const handleOpenExplorer = async (data: any) => {
     if (data) {
@@ -433,24 +181,7 @@ const ChatWithApproval: React.FC = () => {
             }
           }
         }
-      } else {
-        // Fallback: if message doesn't have content blocks, use legacy message-level update
-        // This handles backward compatibility with old messages
-        const legacyFields: any = {
-          message_id: msg.message_id,
-          needs_approval: msg.needsApproval
-        };
-
-        if (msg.messageStatus === 'error') {
-          legacyFields.is_error = true;
-        } else if (msg.messageStatus === 'timeout') {
-          legacyFields.has_timed_out = true;
-        }
-
-        const messageId = msg.message_id || String(msg.message_id); // Use UUID or fallback to string id
-        await ConversationService.updateMessageStatus(threadId, messageId, legacyFields);
       }
-
     } catch (error) {
       console.error('Failed to update message flags in database:', error);
     }
@@ -739,10 +470,10 @@ const ChatWithApproval: React.FC = () => {
                     updateContentCallback(vizMessageId, contentBlocks);
                   }
 
-                  // Use the global window functions to open visualizations
-                  if ((window as any).openVisualization) {
-                    (window as any).openVisualization(visualizations);
-                  }
+                  // Auto-open visualization panel disabled - user can manually click to open
+                  // if ((window as any).openVisualization) {
+                  //   (window as any).openVisualization(visualizations);
+                  // }
                 }
               }
               setExecutionStatus(data.status);
@@ -1062,84 +793,6 @@ const ChatWithApproval: React.FC = () => {
     }
   };
 
-  const handleCancel = async (messageId: string | undefined, _content: string, message: Message): Promise<string> => {
-
-    const threadId = currentThreadIdRef.current || currentThreadId || selectedChatThreadId || message.threadId;
-
-    if (!threadId) {
-      throw new Error('No active thread to cancel');
-    }
-
-    try {
-
-      await GraphService.cancelExecution(threadId);
-
-      return `**Execution Cancelled**\n\nThe task has been cancelled and will not be executed.`;
-
-    } catch (error) {
-      console.error('Error cancelling execution:', error);
-      throw error;
-    }
-  };
-
-  const handleRetry = async (message: Message): Promise<HandlerResponse | void> => {
-
-    const threadId = message.threadId || currentThreadId;
-
-    if (!threadId) {
-      throw new Error('No thread ID available for retry');
-    }
-
-    try {
-      let response;
-
-      if (message.messageStatus === 'pending') {
-        response = await GraphService.approveAndContinue(threadId);
-      } else if (message.messageStatus === 'rejected') {
-        response = await GraphService.provideFeedbackAndContinue(threadId, 'Retrying previous action');
-      } else {
-        throw new Error('Cannot retry message with status: ' + message.messageStatus);
-      }
-
-      if (response.data?.run_status === 'finished') {
-        const finalResponse = response.data?.assistant_response || 'Task completed successfully after retry.';
-
-        let detailedResponse = finalResponse;
-        if (response.data?.steps && response.data.steps.length > 0) {
-          detailedResponse += `\n\n**Execution Summary:**\n`;
-          detailedResponse += `- Steps executed: ${response.data.steps.length}\n`;
-          if (response.data?.overall_confidence) {
-            detailedResponse += `- Overall confidence: ${(response.data?.overall_confidence * 100).toFixed(1)}%\n`;
-          }
-          if (response.data?.total_time) {
-            detailedResponse += `- Total time: ${response.data?.total_time.toFixed(2)}s\n`;
-          }
-        }
-
-
-        return { message: detailedResponse, needsApproval: false };
-
-      } else if (response.data?.run_status === 'user_feedback') {
-        const newPlan = response.data?.assistant_response || response.data?.plan || 'New plan generated after retry - awaiting approval';
-        const planMessage = `**Plan after retry:**\n\n${newPlan}\n\n⚠️ **This plan requires your approval before execution.**`;
-
-
-
-        return { message: planMessage || '', needsApproval: true };
-
-      } else if (response.data?.run_status === 'error') {
-        throw new Error(response.data?.error || 'An error occurred during retry');
-      }
-
-      const fallbackResponse = response.data?.assistant_response || 'Retry completed.';
-
-      return { message: fallbackResponse, needsApproval: false };
-
-    } catch (error) {
-      console.error('Error during retry:', error);
-      throw error;
-    }
-  };
 
   // Handle thread selection
   const handleThreadSelect = async (threadId: string | null) => {
@@ -1315,8 +968,6 @@ const ChatWithApproval: React.FC = () => {
                   onSendMessage={handleSendMessage}
                   onApprove={handleApprove}
                   onFeedback={handleFeedback}
-                  onCancel={handleCancel}
-                  onRetry={handleRetry}
                   currentThreadId={currentThreadId || selectedChatThreadId}
                   initialMessages={restoredMessages}
                   placeholder="Ask me anything..."

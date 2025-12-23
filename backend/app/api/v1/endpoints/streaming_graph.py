@@ -275,7 +275,7 @@ async def stream_graph(
         )
         
         tool_handler = ToolCallHandler(context)
-        text_handler = TextContentHandler(context)  # Uses default: ['agent', 'tool_explanation', 'joiner']
+        text_handler = TextContentHandler(context) 
         plan_handler = PlanContentHandler(context, agent)
         persistence = StreamingMessagePersistence(message_service)
         

@@ -92,37 +92,13 @@ const Message: React.FC<MessageComponentProps> = ({
             </div>
           </div>
         ) : (
-          <div className={`px-4 py-3 ${messageStatus === 'error'
-            ? 'rounded-lg border border-destructive/50 text-foreground'
-            : messageStatus === 'timeout'
-              ? 'rounded-lg border border-orange-500/50 text-foreground'
-              : messageStatus === 'approved' && !hasToolCalls
-                ? 'rounded-lg border border-green-500/50 text-foreground'
-                : messageStatus === 'rejected'
-                  ? 'rounded-lg border border-red-500/50 text-foreground'
-                  : 'bg-background text-foreground'
-            }`}>
+          <div className="px-4 py-3 bg-background text-foreground">
             <div className="break-words">
               <MessageRenderer message={message} onAction={handleAction} />
             </div>
           </div>
         )}
 
-        <div className={`text-xs text-muted-foreground mt-0.5 mb-2 ${message.sender === 'user' ? 'text-right' : 'text-left'
-          }`}>
-          {messageStatus === 'approved' && !hasToolCalls && (
-            <span className="ml-2 text-green-600 font-medium">✓ Approved</span>
-          )}
-          {messageStatus === 'rejected' && (
-            <span className="ml-2 text-red-600 font-medium">Cancelled</span>
-          )}
-          {messageStatus === 'timeout' && (
-            <span className="ml-2 text-orange-600 font-medium">Timed out</span>
-          )}
-          {messageStatus === 'error' && (
-            <span className="ml-2 text-red-600 font-medium">Error</span>
-          )}
-        </div>
       </div>
     </div>
   );

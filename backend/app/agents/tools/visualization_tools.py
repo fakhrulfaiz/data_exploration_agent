@@ -360,7 +360,7 @@ class LargePlottingTool(BaseTool):
             import matplotlib.pyplot as plt
             import matplotlib
             from io import BytesIO
-            from app.services.supabase_storage_service import get_supabase_storage_service
+            from app.services.dependencies import get_supabase_storage_service
             import logging
             
             # Set matplotlib to non-interactive mode for server environments
@@ -462,8 +462,8 @@ class LargePlottingTool(BaseTool):
             except ValueError as e:  
                 logger.error(f"Supabase not configured: {str(e)}")
                 # Reset the service instance to allow retry on next call
-                from app.services.supabase_storage_service import reset_storage_service
-                reset_storage_service()
+                # Reset functionality could be added to storage_service if needed
+                pass
                 return "Plot unsuccessful because there is a problem with storage."
             except Exception as upload_error:
                 logger.error(f"Failed to upload to Supabase: {str(upload_error)}")

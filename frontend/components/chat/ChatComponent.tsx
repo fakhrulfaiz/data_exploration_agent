@@ -1470,18 +1470,11 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
     }
 
     try {
-      // Call parent cancel handler
-      if (onCancel) {
-        // Extract text content from content blocks for onCancel
-        const textContent = Array.isArray(message.content)
-          ? message.content
-            .filter(block => block.type === 'text')
-            .map(block => (block.data as any).text)
-            .join('\n')
-          : message.content;
-        const result = await onCancel(message.message_id, textContent, message);
+      // Use onFeedback for rejection instead of onCancel
+      if (onFeedback) {
+        const result = await onFeedback(message.message_id, "Rejected", message);
 
-        // If the cancel handler returns a result, add it as a new message
+        // If the feedback handler returns a result, add it as a new message
         if (result) {
           const resultMessageId = String(Date.now() + 1);
           const resultText = typeof result === 'string' ? result : (result as HandlerResponse).message || '';
@@ -1496,12 +1489,12 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
         }
       }
     } catch (error) {
-      // Add error message if cancellation fails
+      // Add error message if rejection fails
       const errorMessageId = String(Date.now() + 1);
       const errorMessage: MessageType = {
         message_id: errorMessageId,
         sender: 'assistant',
-        content: [createTextBlock(`text_${errorMessageId}`, `Error during cancellation: ${(error as Error).message || 'Something went wrong'}`, false)],
+        content: [createTextBlock(`text_${errorMessageId}`, `Error during rejection: ${(error as Error).message || 'Something went wrong'}`, false)],
         timestamp: new Date()
       };
 

@@ -416,11 +416,11 @@ const Sidebar: React.FC<SidebarProps> = ({
 
                               {/* Actions Button using shadcn DropdownMenu - only show on hover */}
                               {editingTitle !== thread.thread_id && (
-                                <div className="absolute right-3 top-3 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" onClick={(e) => e.stopPropagation()}>
+                                <div className="absolute right-3 top-2.5 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity z-10" onClick={(e) => e.stopPropagation()}>
                                   <DropdownMenu>
                                     <DropdownMenuTrigger asChild>
                                       <button
-                                        className="p-1.5 hover:bg-accent rounded transition-all flex-shrink-0 w-8 h-8 flex items-center justify-center"
+                                        className="hover:bg-accent rounded transition-all flex-shrink-0 w-8 h-8 flex items-center justify-center"
                                         title="Thread options"
                                         onClick={(e) => e.stopPropagation()}
                                       >
@@ -513,11 +513,11 @@ const Sidebar: React.FC<SidebarProps> = ({
 
                               {/* Actions Button using shadcn DropdownMenu - only show on hover */}
                               {editingTitle !== thread.thread_id && (
-                                <div className="absolute right-3 top-3 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" onClick={(e) => e.stopPropagation()}>
+                                <div className="absolute right-3 top-2.5 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity z-10" onClick={(e) => e.stopPropagation()}>
                                   <DropdownMenu>
                                     <DropdownMenuTrigger asChild>
                                       <button
-                                        className="p-1.5 hover:bg-accent rounded transition-all flex-shrink-0 w-8 h-8 flex items-center justify-center"
+                                        className="hover:bg-accent rounded transition-all flex-shrink-0 w-8 h-8 flex items-center justify-center"
                                         title="Thread options"
                                         onClick={(e) => e.stopPropagation()}
                                       >
@@ -610,11 +610,11 @@ const Sidebar: React.FC<SidebarProps> = ({
 
                               {/* Actions Button using shadcn DropdownMenu - only show on hover */}
                               {editingTitle !== thread.thread_id && (
-                                <div className="absolute right-3 top-3 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" onClick={(e) => e.stopPropagation()}>
+                                <div className="absolute right-3 top-2.5 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity z-10" onClick={(e) => e.stopPropagation()}>
                                   <DropdownMenu>
                                     <DropdownMenuTrigger asChild>
                                       <button
-                                        className="p-1.5 hover:bg-accent rounded transition-all flex-shrink-0 w-8 h-8 flex items-center justify-center"
+                                        className="hover:bg-accent rounded transition-all flex-shrink-0 w-8 h-8 flex items-center justify-center"
                                         title="Thread options"
                                         onClick={(e) => e.stopPropagation()}
                                       >

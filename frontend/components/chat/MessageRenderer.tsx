@@ -84,6 +84,42 @@ const ToolHistoryCollapsible: React.FC<ToolHistoryCollapsibleProps> = ({
 };
 
 export const MessageRenderer: React.FC<MessageRendererProps> = ({ message, onAction }) => {
+  // Helper function to get border styling based on block status
+  const getBlockBorderClass = (block: ContentBlock): string => {
+    if (!block.messageStatus) return '';
+
+    switch (block.messageStatus) {
+      case 'approved':
+        return 'border border-green-500/50 rounded-lg p-3';
+      case 'rejected':
+        return 'border border-red-500/50 rounded-lg p-3';
+      case 'error':
+        return 'border border-destructive/50 rounded-lg p-3';
+      case 'timeout':
+        return 'border border-orange-500/50 rounded-lg p-3';
+      default:
+        return '';
+    }
+  };
+
+  // Helper function to get status text based on block status
+  const getBlockStatusText = (block: ContentBlock): React.ReactNode => {
+    if (!block.messageStatus) return null;
+
+    switch (block.messageStatus) {
+      case 'approved':
+        return <span className="text-xs text-green-600 font-medium ml-2">✓ Approved</span>;
+      case 'rejected':
+        return <span className="text-xs text-red-600 font-medium ml-2">Cancelled</span>;
+      case 'error':
+        return <span className="text-xs text-red-600 font-medium ml-2">Error</span>;
+      case 'timeout':
+        return <span className="text-xs text-orange-600 font-medium ml-2">Timed out</span>;
+      default:
+        return null;
+    }
+  };
+
   const renderContentBlock = (block: ContentBlock) => {
     if (isTextBlock(block)) {
       return (
@@ -145,14 +181,17 @@ export const MessageRenderer: React.FC<MessageRendererProps> = ({ message, onAct
     }
 
     if (isPlanBlock(block)) {
+      const borderClass = getBlockBorderClass(block);
+      const statusText = getBlockStatusText(block);
       return (
-        <div key={block.id} className="content-block plan-block mb-4">
+        <div key={block.id} className={`content-block plan-block mb-4 ${borderClass}`}>
           <PlanMessage
             plan={block.data.plan}
             needsApproval={block.needsApproval}
             onApprove={onAction ? () => onAction('approvePlan', block) : undefined}
             onReject={onAction ? () => onAction('rejectPlan', block) : undefined}
           />
+          {statusText && <div className="mt-1">{statusText}</div>}
         </div>
       );
     }

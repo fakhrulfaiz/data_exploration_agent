@@ -1,5 +1,8 @@
-from typing import Dict, Any
-from langchain_core.messages import AIMessage, SystemMessage, ToolMessage
+"""Agent Executor Node - Executes steps from dynamic plan with internal agent"""
+from typing import Dict, Any, List
+from langchain_core.messages import AIMessage, SystemMessage, HumanMessage
+from langgraph.prebuilt import ToolNode
+from langgraph.graph import StateGraph, END, MessagesState
 from app.agents.state import ExplainableAgentState
 from app.schemas.chat import DataContext
 from datetime import datetime
@@ -9,127 +12,125 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-class AgentExecutorNode:
+class AgentExecutorNode: 
     def __init__(self, llm, tools):
         self.llm = llm
         self.tools = tools
         self.tool_map = {tool.name: tool for tool in tools}
     
     def execute(self, state: ExplainableAgentState) -> Dict[str, Any]:
-        """Execute the next tool in the sequence
+        dynamic_plan = state.get("dynamic_plan")
+        current_step_index = state.get("current_step_index", 0)
         
-        This node:
-        1. Gets the current group's tasks (full descriptions)
-        2. Pops the next task to execute
-        3. Parses tool name and description
-        4. Invokes LLM with ONLY that tool bound
-        5. Executes the tool
-        6. Returns results and updated task list
-        """
-        group_index = state.get("current_group_index", 0)
-        group_tools = state.get("current_group_tools", [])
+        if not dynamic_plan or current_step_index >= len(dynamic_plan.steps):
+            logger.warning("No more steps to execute")
+            return {
+                "continue_execution": False
+            }
+        
+        current_step = dynamic_plan.steps[current_step_index]
+        logger.info(f"Executing step {current_step_index + 1}/{len(dynamic_plan.steps)}: {current_step.goal}")
+        
+        step_tool_names = [opt.tool_name for opt in current_step.tool_options]
+        step_tools = [self.tool_map[name] for name in step_tool_names if name in self.tool_map]
+        
+        if not step_tools:
+            logger.error(f"No valid tools found for step {current_step_index + 1}")
+            return {
+                "current_step_index": current_step_index + 1,
+                "continue_execution": current_step_index + 1 < len(dynamic_plan.steps)
+            }
+        
         messages = state.get("messages", [])
-        query = state.get("query", "")
-        plan = state.get("plan", "")
         
-        if not group_tools:
-            logger.error(f"No tasks in group {group_index}")
-            return {
-                "continue_group": False,
-                "group_results": {group_index: "Error: No tasks to execute"}
-            }
+        # Build step prompt with next step context  
+        next_step_index = current_step_index + 1
+        next_step = dynamic_plan.steps[next_step_index] if next_step_index < len(dynamic_plan.steps) else None
+        step_prompt = self._build_step_prompt(current_step, current_step_index + 1, len(dynamic_plan.steps), next_step)
+        step_messages = [SystemMessage(content=step_prompt)] + messages
         
-        current_task = group_tools[0]
-        remaining_tasks = group_tools[1:]  
-        
-        if ':' not in current_task:
-            logger.error(f"Invalid task format: {current_task}")
-            return {
-                "current_group_tools": remaining_tasks,
-                "continue_group": len(remaining_tasks) > 0,
-                "messages": [AIMessage(content=f"Error: Invalid task format")]
-            }
-        
-        tool_name, task_description = current_task.split(':', 1)
-        tool_name = tool_name.strip()
-        task_description = task_description.strip()
-        
-        logger.info(f"Executing {tool_name} ({len(remaining_tasks)} tasks remaining)")
-        logger.info(f"Task description: {task_description[:100]}...")
-        
-        tool = self.tool_map.get(tool_name)
-        if not tool:
-            logger.error(f"Tool {tool_name} not found")
-            return {
-                "current_group_tools": remaining_tasks,
-                "continue_group": len(remaining_tasks) > 0,
-                "messages": [AIMessage(content=f"Error: Tool {tool_name} not found")]
-            }
-    
-        system_message = SystemMessage(content=f"""You are executing step {group_index + 1} of the plan.
-
-Original Query: {query}
-
-Current Task: {current_task}
-
-INSTRUCTIONS:
-- You have access to ONLY ONE tool: {tool_name}
-- Your task: {task_description}
-- Call the tool with appropriate arguments to accomplish this specific task
-- Use the context from previous messages to inform your arguments
-
-Remaining tasks after this: {len(remaining_tasks)}
-{chr(10).join([f"  - {t.split(':')[0]}" for t in remaining_tasks]) if remaining_tasks else "  (This is the last task)"}
-""")
-        
-        # Bind ONLY the current tool
-        llm_with_tool = self.llm.bind_tools([tool])
-        
-        # Filter messages (remove system messages)
-        conversation_messages = [msg for msg in messages if not isinstance(msg, SystemMessage)]
-        
-        # Invoke agent with only this tool
-        all_messages = [system_message] + conversation_messages
-        response = llm_with_tool.invoke(all_messages)
-        
-        # Check if agent made a tool call
-        if not hasattr(response, 'tool_calls') or not response.tool_calls:
-            logger.warning(f"Agent didn't call {tool_name}")
-            return {
-                "current_group_tools": remaining_tasks,
-                "continue_group": len(remaining_tasks) > 0,
-                "messages": [response]
-            }
-        
-        # Execute the tool call
-        tool_call = response.tool_calls[0]
-        logger.info(f"Executing {tool_call['name']} with args: {tool_call['args']}")
+        llm_with_tools = self.llm.bind_tools(step_tools)
         
         try:
-            # Use ToolNode to properly handle InjectedState
-            from langgraph.prebuilt import ToolNode
+            response = llm_with_tools.invoke(step_messages)
             
-            # Create a ToolNode with just this one tool
-            tool_node = ToolNode(tools=[tool])
+            if response.tool_calls:
+                logger.info(f"Step {current_step_index + 1} generated {len(response.tool_calls)} tool call(s)")
+                return {
+                    "messages": [response],
+                    "continue_execution": True
+                }
             
-            # Build state for tool execution (must include messages with the AI message containing tool_calls)
-            tool_state = {
-                **state,
-                "messages": messages + [response],  # Include the AI message with tool_calls
+            # No tool calls - agent says step is done
+            next_step_index = current_step_index + 1
+            has_more_steps = next_step_index < len(dynamic_plan.steps)
+            
+            logger.info(f"Step {current_step_index + 1} complete (no tool calls). More steps: {has_more_steps}")
+            
+            return {
+                "messages": [response],
+                "current_step_index": next_step_index,
+                "continue_execution": has_more_steps
             }
             
-            # Execute the tool through ToolNode (this properly injects state)
-            tool_result = tool_node.invoke(tool_state)
-            
-            # Extract the tool message from the result
-            tool_message = tool_result["messages"][0]  # ToolNode returns messages in result
-            logger.info(f"Tool {tool_name} executed successfully")
-            
-            updated_data_context = state.get("data_context")
-            if tool_name == "sql_db_to_df":
-                logger.info(f"sql_db_to_df raw output: {tool_message.content}")
+        except Exception as e:
+            logger.error(f"Error executing step {current_step_index + 1}: {e}", exc_info=True)
+            return {
+                "messages": [AIMessage(content=f"Error in step {current_step_index + 1}: {str(e)}")],
+                "current_step_index": current_step_index + 1,
+                "continue_execution": current_step_index + 1 < len(dynamic_plan.steps)
+            }
+    
+    def _build_step_prompt(self, step, step_num: int, total_steps: int, next_step=None) -> str:
+        tool_options_text = self._format_tool_options(step.tool_options)
+        context_req = step.context_requirements or "None"
+        
+        next_step_info = ""
+        if next_step:
+            next_step_info = f"\n**Next Step After This**: Step {step_num + 1} - {next_step.goal}"
+        elif step_num == total_steps:
+            next_step_info = "\n**This is the FINAL step**"
+        
+        return f"""You are a ReAct agent executing step {step_num} of {total_steps} in a multi-step plan.
+
+**Current Step Goal**: {step.goal}
+
+**Context Requirements**: {context_req}
+
+**Available Tools**: {', '.join([opt.tool_name for opt in step.tool_options])}
+{next_step_info}
+
+**Your Process**:
+1. **Check history**: Look at recent messages - has this step's goal already been achieved?
+2. **If YES (tool succeeded)**: 
+   - Provide a brief summary: "Step {step_num} successful. I have [what was accomplished]."
+   - If there's a next step, add: "Now I will proceed to step {step_num + 1} to [next goal]."
+   - DO NOT call any tools
+3. **If NO (need to act)**:
+   - Call the appropriate tool to achieve the goal
+   - You may call tools multiple times if there are errors
+
+**Tool Selection Priorities**:
+{tool_options_text}
+
+**Critical Rules**:
+- Review tool results before calling again
+- Never call the same tool twice with the same input
+- Never ask user for permission - proceed automatically
+- Be concise in your responses
+"""
+    
+    def _format_tool_options(self, tool_options: List) -> str:
+        lines = []
+        for opt in sorted(tool_options, key=lambda x: x.priority):
+            lines.append(f"  {opt.priority}. {opt.tool_name}: {opt.use_case}")
+        return "\n".join(lines)
+    
+    def _extract_data_context(self, messages, current_context):
+        for msg in reversed(messages):
+            if isinstance(msg, ToolMessage) and hasattr(msg, 'name') and msg.name == "sql_db_to_df":
                 try:
-                    parsed_output = json.loads(tool_message.content)
+                    parsed_output = json.loads(msg.content)
                     data_context_payload = parsed_output.get("data_context")
                     if data_context_payload:
                         # Convert shape list to tuple if needed
@@ -143,69 +144,8 @@ Remaining tasks after this: {len(remaining_tasks)}
                         if "expires_at" in data_context_payload and isinstance(data_context_payload["expires_at"], str):
                             data_context_payload["expires_at"] = datetime.fromisoformat(data_context_payload["expires_at"])
                         
-                        updated_data_context = DataContext(**data_context_payload)
-                        logger.info(f"Successfully updated data_context: df_id={data_context_payload.get('df_id')}")
+                        return DataContext(**data_context_payload)
                 except Exception as e:
-                    logger.error(f"Failed to extract data_context from sql_db_to_df output: {e}")
-            
-            # Check if this was the last task
-            if not remaining_tasks:
-                logger.info(f"Group {group_index} complete - all tasks executed")
-                
-                # Build summary from recent tool executions
-                group_summary = self._build_group_summary(messages + [response, tool_message])
-                
-                # Store actual results
-                group_results = state.get("group_results", {})
-                group_results[group_index] = group_summary
-                
-                # DEBUG: Log what we're returning
-                logger.info(f"Group {group_index} complete - returning 2 messages (AI + Tool)")
-                logger.info(f"  Total messages in state before: {len(messages)}")
-                logger.info(f"  Returning messages: {len([response, tool_message])}")
-                
-                return {
-                    "current_group_tools": [],
-                    "continue_group": False,
-                    "messages": [response, tool_message],
-                    "group_results": group_results,
-                    "data_context": updated_data_context
-                }
-            else:
-                logger.info(f"Moving to next task: {remaining_tasks[0].split(':')[0]}")
-                return {
-                    "current_group_tools": remaining_tasks,
-                    "continue_group": True,
-                    "messages": [response, tool_message],
-                    "data_context": updated_data_context
-                }
-                
-        except Exception as e:
-            logger.error(f"Tool {tool_name} failed: {e}")
-            tool_message = ToolMessage(
-                content=f"Error: {str(e)}",
-                tool_call_id=tool_call['id'],
-                name=tool_call['name']
-            )
-            
-            # Continue to next task even if this one failed
-            return {
-                "current_group_tools": remaining_tasks,
-                "continue_group": len(remaining_tasks) > 0,
-                "messages": [response, tool_message]
-            }
-    
-    def _build_group_summary(self, messages) -> str:
-        summary_parts = []
+                    logger.error(f"Failed to extract data_context: {e}")
         
-        for msg in messages:
-            if isinstance(msg, AIMessage) and hasattr(msg, 'tool_calls') and msg.tool_calls:
-                for call in msg.tool_calls:
-                    summary_parts.append(f"Called {call['name']} with args: {call['args']}")
-            elif isinstance(msg, ToolMessage):
-                summary_parts.append(f"{msg.name} result: {msg.content}")
-        
-        if not summary_parts:
-            return "No tool executions found"
-        
-        return "\n".join(summary_parts)
+        return current_context
