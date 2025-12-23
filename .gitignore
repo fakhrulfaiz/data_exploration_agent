@@ -42,7 +42,9 @@ out/
 .cache/
 .turbo/
 dist/
-
+TROUBLESHOOTING.md
+WHY_NO_AUTO_CREATE.md
+QUICK_FIX.md
 # IDEs
 .vscode/
 .idea/

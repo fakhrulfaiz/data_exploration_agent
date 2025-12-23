@@ -1,9 +1,3 @@
-"""
-Data Exploration Agent - Specialized for SQL database queries and data analysis.
-Handles database operations, visualizations, and data exploration with planning and explanation capabilities.
-Includes assistant routing functionality.
-"""
-
 from langchain import hub
 from langchain_community.agent_toolkits.sql.toolkit import SQLDatabaseToolkit
 from langchain_community.utilities import SQLDatabase
@@ -137,8 +131,7 @@ class DataExplorationAgent:
         self.graph = self.create_graph()
     
     def create_handoff_tools(self):
-        """Create tools for handing off to specialized agents"""
-        
+
         @tool("transfer_to_data_exploration", description="Transfer database and SQL queries to the data exploration agent")
         def transfer_to_data_exploration(
             state: Annotated[Dict[str, Any], InjectedState],

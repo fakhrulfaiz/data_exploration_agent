@@ -26,28 +26,71 @@ An intelligent data exploration agent built with LangGraph, FastAPI, and Next.js
 
 ## Getting Started
 
+> **🚨 Having issues after git pull?** See [QUICK_FIX.md](QUICK_FIX.md) for common errors and solutions.
+
 ### Prerequisites
 
 - Docker and Docker Compose
 - Node.js (for local development)
 - Python 3.11+ (for local development)
 
-### Running with Docker
+### Quick Setup (Recommended)
+
+**For Linux/Mac:**
+```bash
+chmod +x setup.sh
+./setup.sh
+```
+
+**For Windows:**
+```bash
+setup.bat
+```
+
+### Manual Setup
+
+If you prefer to set up manually:
 
 1. Clone the repository
 2. Navigate to the project directory
-3. Update .env file with your keys
-4. Run the following command to start the application
-
-```bash
-docker compose up
-```
+3. Copy `.env.example` to `.env` and update with your keys:
+   ```bash
+   cp .env.example .env
+   ```
+4. Start the Docker containers:
+   ```bash
+   docker compose up -d
+   ```
+5. **Run database migrations** (IMPORTANT - Required for first-time setup):
+   ```bash
+   docker exec -it agent-backend alembic upgrade head
+   ```
 
 The application will be available at:
 
-- Frontend: http://localhost:3000
-- Backend API: http://localhost:8000
-- API Documentation: http://localhost:8000/docs
+- Frontend: http://localhost:8080 (via Nginx)
+- Backend API: http://localhost:8080/api (via Nginx)
+- API Documentation: http://localhost:8000/docs (direct backend access)
+
+### Database Setup
+
+This project uses **Alembic** for database migrations. Tables are NOT automatically created.
+
+**After pulling from git, always run:**
+```bash
+docker exec -it agent-backend alembic upgrade head
+```
+
+**To create a new migration:**
+```bash
+docker exec -it agent-backend alembic revision --autogenerate -m "description"
+```
+
+**Common Issues:**
+- ❌ "table not found" error → You forgot to run migrations
+- ❌ Database connection error → Check `.env` file has correct credentials
+
+**For more help, see [TROUBLESHOOTING.md](TROUBLESHOOTING.md)**
 
 ## Project Structure
 

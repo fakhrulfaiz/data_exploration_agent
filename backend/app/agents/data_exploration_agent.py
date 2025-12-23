@@ -1,9 +1,3 @@
-"""
-Data Exploration Agent - Specialized for SQL database queries and data analysis.
-Handles database operations, visualizations, and data exploration with planning and explanation capabilities.
-Includes assistant routing functionality and hybrid sequential-parallel execution with LangGraph 1.0 features.
-"""
-
 from langchain import hub
 from langchain_community.agent_toolkits.sql.toolkit import SQLDatabaseToolkit
 from langchain_community.utilities import SQLDatabase
