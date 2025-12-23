@@ -7,23 +7,26 @@ echo Setting up Data Exploration Agent...
 echo.
 
 REM Check if .env exists
-if not exist .env (
-    echo Creating .env file from .env.example...
-    copy .env.example .env
-    echo.
-    echo IMPORTANT: Please update .env with your API keys!
-    echo Required:
-    echo - OPENAI_API_KEY (get from https://platform.openai.com/api-keys)
-    echo    - SUPABASE_URL and keys ^(get from https://supabase.com/dashboard^)
-    echo.
-    echo    Optional:
-    echo    - LANGSMITH_TRACING should be 'false' unless you have a LangSmith account
-    echo.
-    echo    Press any key when ready...
-    pause >nul
-) else (
+if exist .env (
     echo .env file already exists
+    goto start_docker
 )
+
+echo Creating .env file from .env.example...
+copy .env.example .env >nul
+echo.
+echo IMPORTANT: Please update .env with your API keys!
+echo Required:
+echo - OPENAI_API_KEY ^(get from https://platform.openai.com/api-keys^)
+echo - SUPABASE_URL and keys ^(get from https://supabase.com/dashboard^)
+echo.
+echo Optional:
+echo - LANGSMITH_TRACING should be 'false' unless you have a LangSmith account
+echo.
+echo Press any key when ready...
+pause >nul
+
+:start_docker
 
 REM Start Docker containers
 echo.
@@ -44,9 +47,8 @@ echo.
 echo Setup complete!
 echo.
 echo Application URLs:
-echo    - Frontend: http://localhost:8080
-echo    - Backend API: http://localhost:8080/api
-echo    - API Docs: http://localhost:8000/docs
+echo    - Application: http://localhost:8080
+echo    - API Documentation: http://localhost:8080/docs
 echo.
 echo Useful commands:
 echo    - View logs: docker compose logs -f
