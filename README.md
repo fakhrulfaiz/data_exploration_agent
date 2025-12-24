@@ -37,12 +37,14 @@ An intelligent data exploration agent built with LangGraph, FastAPI, and Next.js
 ### Quick Setup (Recommended)
 
 **For Linux/Mac:**
+
 ```bash
 chmod +x setup.sh
 ./setup.sh
 ```
 
 **For Windows:**
+
 ```bash
 setup.bat
 ```
@@ -77,20 +79,31 @@ The application will be available at:
 This project uses **Alembic** for database migrations. Tables are NOT automatically created.
 
 **After pulling from git, always run:**
+
 ```bash
 docker exec -it agent-backend alembic upgrade head
 ```
 
 **To create a new migration:**
+
 ```bash
 docker exec -it agent-backend alembic revision --autogenerate -m "description"
 ```
 
 **Common Issues:**
+
 - ❌ "table not found" error → You forgot to run migrations
 - ❌ Database connection error → Check `.env` file has correct credentials
 
 **For more help, see [TROUBLESHOOTING.md](TROUBLESHOOTING.md)**
+
+### Image Dir Setup
+
+To use image analysis tools with actual images, you need to set up the `images` directory.
+
+1. Create a directory named `images` in the resource directory : `backend/app/resource/images`.
+2. Follow steps on this [Caesure](https://github.com/DataManagementLab/caesura) to download the images. (We will use Artworks DB as it is synced to the art.db)
+3. Place your images in the newly created `images` directory.
 
 ## Project Structure
 
