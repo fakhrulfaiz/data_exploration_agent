@@ -6,7 +6,8 @@ from datetime import datetime
 from fastapi import APIRouter, HTTPException, Depends, Request, Query
 from langchain_core.messages import HumanMessage
 
-from app.agents import DataExplorationAgent
+# from app.agents import DataExplorationAgent
+from app.agents.workflows import DataExplorationAgentWF as DataExplorationAgent # Lazy assingment cause WHY NOT!!! remove later
 from app.services.agent_service import AgentService
 from app.schemas.agent import (
     AgentRequest,

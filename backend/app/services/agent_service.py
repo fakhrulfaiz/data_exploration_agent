@@ -32,7 +32,8 @@ class AgentService:
         use_postgres_checkpointer: bool = True
     ) -> None:
         # Lazy import to avoid circular dependency
-        from ..agents import DataExplorationAgent
+        from ..agents.workflows import DataExplorationAgentWF as DataExplorationAgent  # Lazy assignment cause WHY NOT!!!!
+        # from ..agents import DataExplorationAgent
         
         try:
             self._llm = llm

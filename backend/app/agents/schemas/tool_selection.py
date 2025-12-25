@@ -32,3 +32,8 @@ class DynamicPlan(BaseModel):
         description="High-level explanation of the approach"
     )
     steps: List[PlanStep] = Field(description="Ordered list of execution steps")
+    # test
+    completed_steps: Optional[List[str]] = Field(
+        default=None,
+        description="List of completed steps (if any)"
+    )
