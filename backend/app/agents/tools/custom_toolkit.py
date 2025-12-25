@@ -50,17 +50,25 @@ from transformers.models.blip import BlipForQuestionAnswering, BlipProcessor
 
 class VisualQA():
     def __init__(self, model_name: str = "Salesforce/blip-vqa-base"):
+        # `Salesforce/blip-vqa-capfilt-large` has better performance but i dont have enough storage/ resource 
         self.model = BlipForQuestionAnswering.from_pretrained(model_name)
         self.processor = BlipProcessor.from_pretrained(model_name)
 
     def answer_questions(self, image_paths: List[str], query: str, batch_size: int = 10):
         results = []
         for i in range(0, len(image_paths), batch_size):
+            batch_paths = image_paths[i : i + batch_size]
             with ExitStack() as stack:
-                images = [stack.enter_context(Image.open(image_path)) for image_path in image_paths[i: i + batch_size]]
-                inputs = self.processor(images=images, text=query, return_tensors="pt", padding=True) # type: ignore
+                images = [stack.enter_context(Image.open(image_path)) for image_path in batch_paths]
+                queries = [query] * len(images)
+                inputs = self.processor(
+                    images=images, 
+                    text=queries, 
+                    return_tensors="pt",  # type: ignore
+                    padding=True) # type: ignore
                 outputs = self.model.generate(**inputs, max_length=20) # type: ignore
 
                 # results.extend([self.processor.decode(o, skip_special_tokens=True) for o in outputs])
-                results.extend(self.processor.decode(outputs[0], skip_special_tokens=True)) # type: ignore
+                decoded_outputs = self.processor.batch_decode(outputs, skip_special_tokens=True)
+                results.extend(decoded_outputs) # type: ignore
         return results
