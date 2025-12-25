@@ -16,7 +16,7 @@ from pydantic import Field
 logger = logging.getLogger(__name__)
 
 # PATH for docker
-IMAGE_PATH = "/root/app/agents/resource/"
+IMAGE_PATH = "/app/app/resource/"
 
 class ImageQATool(BaseTool):
     """Image Question Answering tool."""
@@ -54,20 +54,21 @@ Notes:
 
     def _run(self, question: str, context: Union[str, List[str]]):
 
-        if isinstance(context, str):
-            context=correct_malformed_json(context)
+        ### Why does this take the str/ list and change it to dict. We will process the later tasks in list
+        # if isinstance(context, str):
+        #     context=correct_malformed_json(context)
             
-            context = [ast.literal_eval(context)]
+        #     context = [ast.literal_eval(context)]
             
-            # reshape for common LLM halucination
-            if 'status' in context[0]:
-                context=context[0]
-        else:
-            context = ast.literal_eval(context[0])
+        #     # reshape for common LLM halucination
+        #     if 'status' in context[0]:
+        #         context=context[0]
+        # else:
+        #     context = ast.literal_eval(context[0])
         
-        # reshape for common LLM halucination
-        if 'data' in context:
-            context = context['data'] # type: ignore
+        # # reshape for common LLM halucination
+        # if 'data' in context:
+        #     context = context['data'] # type: ignore
 
         # Ensure context is a list
         if not isinstance(context, list):

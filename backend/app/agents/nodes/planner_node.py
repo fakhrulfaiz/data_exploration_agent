@@ -96,136 +96,138 @@ class PlannerNode:
                 "status": "cancelled"
             }
         
-        if status == "feedback" and state.get("human_comment"):
-            return self._handle_feedback(state, messages, user_query)
-        else:
-            return self._handle_dynamic_planning(state, messages, user_query)
-    
-    def _handle_feedback(self, state, messages, user_query):
-        human_feedback = state.get('human_comment', '')
+        return self._handle_dynamic_planning(state, messages, user_query)
         
-        updated_messages = messages + [HumanMessage(content=human_feedback)]
+        # if status == "feedback" and state.get("human_comment"):
+        #     return self._handle_feedback(state, messages, user_query)
+        # else:
+        #     return self._handle_dynamic_planning(state, messages, user_query)
+    
+#     def _handle_feedback(self, state, messages, user_query):
+#         human_feedback = state.get('human_comment', '')
+        
+#         updated_messages = messages + [HumanMessage(content=human_feedback)]
          
-        try:
-            tool_descriptions = "\n".join([f"- {tool.name}: {tool.description}" for tool in self.tools])
+#         try:
+#             tool_descriptions = "\n".join([f"- {tool.name}: {tool.description}" for tool in self.tools])
             
-            core_prompt = self._get_core_planner_prompt(user_query)
+#             core_prompt = self._get_core_planner_prompt(user_query)
             
-            replan_prompt = f"""Analyze user feedback and respond appropriately. You must provide a JSON response with three fields: response_type, content, and new_query.
+#             replan_prompt = f"""Analyze user feedback and respond appropriately. You must provide a JSON response with three fields: response_type, content, and new_query.
 
-RESPONSE TYPES:
-1. "answer" - User asks questions about the plan → Provide clear explanations
-2. "replan" - If User wants changes, improvements, or points out inefficiencies → Create revised numbered plan using available tools. If user changes the original request, set new_query field.
-3. "cancel" - User wants to stop → Confirm cancellation
+# RESPONSE TYPES:
+# 1. "answer" - User asks questions about the plan → Provide clear explanations
+# 2. "replan" - If User wants changes, improvements, or points out inefficiencies → Create revised numbered plan using available tools. If user changes the original request, set new_query field.
+# 3. "cancel" - User wants to stop → Confirm cancellation
 
-REQUIRED FIELDS:
-- response_type: One of "answer", "replan", or "cancel"
-- content: Your response text (if replan, must follow the planning guidelines below)
-- new_query: Set to null unless user wants a completely different query (only for "replan" type when user changes the original request)
+# REQUIRED FIELDS:
+# - response_type: One of "answer", "replan", or "cancel"
+# - content: Your response text (if replan, must follow the planning guidelines below)
+# - new_query: Set to null unless user wants a completely different query (only for "replan" type when user changes the original request)
 
-CONTEXT:
-Query: {user_query}
-Plan: {state.get('plan', 'No previous plan')}
-Feedback: {human_feedback}
-Tools: {tool_descriptions}
+# CONTEXT:
+# Query: {user_query}
+# Plan: {state.get('plan', 'No previous plan')}
+# Feedback: {human_feedback}
+# Tools: {tool_descriptions}
 
-FEEDBACK RESPONSE EXAMPLES:
-- "What does step 2 do?" → response_type: "answer", content: "explain the step", new_query: null
-- "This seems redundant" → response_type: "answer", content: "Which step seems redundant for you?", new_query: null
-- "Can we skip unnecessary steps?" → response_type: "replan", content: "streamline the approach", new_query: null
-- "Change to show all artists" → response_type: "replan", content: "create new plan", new_query: "show all artists"
-- "Cancel this" → response_type: "cancel", content: "confirm cancellation", new_query: null
-- "Show 3 rows from database" → response_type: "answer", content: "ask user for which table they want to see the rows from", new_query: null
+# FEEDBACK RESPONSE EXAMPLES:
+# - "What does step 2 do?" → response_type: "answer", content: "explain the step", new_query: null
+# - "This seems redundant" → response_type: "answer", content: "Which step seems redundant for you?", new_query: null
+# - "Can we skip unnecessary steps?" → response_type: "replan", content: "streamline the approach", new_query: null
+# - "Change to show all artists" → response_type: "replan", content: "create new plan", new_query: "show all artists"
+# - "Cancel this" → response_type: "cancel", content: "confirm cancellation", new_query: null
+# - "Show 3 rows from database" → response_type: "answer", content: "ask user for which table they want to see the rows from", new_query: null
 
-Be intuitive: If user suggests optimizations or questions efficiency, the system should always try to answer with your opinion first and then if user wants to change the plan,
-consider replan. For vague feedback, ask for clarification. If user ask question, do you best to answer and DO NOT replan directly.
+# Be intuitive: If user suggests optimizations or questions efficiency, the system should always try to answer with your opinion first and then if user wants to change the plan,
+# consider replan. For vague feedback, ask for clarification. If user ask question, do you best to answer and DO NOT replan directly.
 
----
+# ---
 
-PLANNING GUIDELINES (for "replan" type):
-When response_type is "replan", follow these comprehensive planning guidelines:
+# PLANNING GUIDELINES (for "replan" type):
+# When response_type is "replan", follow these comprehensive planning guidelines:
 
-{core_prompt}"""
+# {core_prompt}"""
             
-            conversation_messages = [msg for msg in updated_messages 
-                                   if not isinstance(msg, SystemMessage)]
+#             conversation_messages = [msg for msg in updated_messages 
+#                                    if not isinstance(msg, SystemMessage)]
             
-            all_messages = [
-                SystemMessage(content=replan_prompt)
-            ] + conversation_messages
+#             all_messages = [
+#                 SystemMessage(content=replan_prompt)
+#             ] + conversation_messages
             
-            llm_with_structure = self.llm.with_structured_output(FeedbackResponse)
-            response = llm_with_structure.invoke(all_messages)
-            logger.info(f"LLM Response: {response}")
-            logger.info(f"Response Type: {response.response_type}")
-            logger.info(f"New Query: {response.new_query}")
+#             llm_with_structure = self.llm.with_structured_output(FeedbackResponse)
+#             response = llm_with_structure.invoke(all_messages)
+#             logger.info(f"LLM Response: {response}")
+#             logger.info(f"Response Type: {response.response_type}")
+#             logger.info(f"New Query: {response.new_query}")
           
-            if response.response_type == "cancel":
-                return {
-                    "messages": updated_messages,
-                    "query": user_query,
-                    "plan": state.get("plan", ""),
-                    "steps": state.get("steps", []),
-                    "step_counter": state.get("step_counter", 0),
-                    "assistant_response": response.content,
-                    "status": "cancelled",
-                    "response_type": "cancel"
-                }
-            elif response.response_type == "answer":
-                answer_message = AIMessage(content=response.content)
-                return {
-                    "messages": updated_messages + [answer_message],
-                    "query": user_query,
-                    "plan": state.get("plan", ""),
-                    "steps": state.get("steps", []),
-                    "step_counter": state.get("step_counter", 0),
-                    "assistant_response": response.content,
-                    "status": "feedback",
-                    "response_type": "answer"
-                }
-            elif response.response_type == "replan":
-                plan = response.content
-                new_query = response.new_query if response.new_query else user_query
-                replan_message = AIMessage(content=response.content)
-                return {
-                    "messages": updated_messages + [replan_message],
-                    "query": new_query,
-                    "plan": plan,
-                    "steps": [],  # Reset steps for new plan
-                    "step_counter": 0,  # Reset counter for new plan
-                    "assistant_response": response.content,
-                    "status": "feedback",  # Require approval for new plan
-                    "response_type": "replan"  # Mark as new plan
-                }
-            else:
-                plan = f"Revised plan based on feedback: {human_feedback}"
-                fallback_message = AIMessage(content=plan)
-                return {
-                    "messages": updated_messages + [fallback_message],
-                    "query": user_query,
-                    "plan": plan,
-                    "steps": [],  # Reset steps for new plan
-                    "step_counter": 0,  # Reset counter
-                    "assistant_response": plan,
-                    "status": "feedback",
-                    "response_type": "replan"  # Mark as replan
-                }
+#             if response.response_type == "cancel":
+#                 return {
+#                     "messages": updated_messages,
+#                     "query": user_query,
+#                     "plan": state.get("plan", ""),
+#                     "steps": state.get("steps", []),
+#                     "step_counter": state.get("step_counter", 0),
+#                     "assistant_response": response.content,
+#                     "status": "cancelled",
+#                     "response_type": "cancel"
+#                 }
+#             elif response.response_type == "answer":
+#                 answer_message = AIMessage(content=response.content)
+#                 return {
+#                     "messages": updated_messages + [answer_message],
+#                     "query": user_query,
+#                     "plan": state.get("plan", ""),
+#                     "steps": state.get("steps", []),
+#                     "step_counter": state.get("step_counter", 0),
+#                     "assistant_response": response.content,
+#                     "status": "feedback",
+#                     "response_type": "answer"
+#                 }
+#             elif response.response_type == "replan":
+#                 plan = response.content
+#                 new_query = response.new_query if response.new_query else user_query
+#                 replan_message = AIMessage(content=response.content)
+#                 return {
+#                     "messages": updated_messages + [replan_message],
+#                     "query": new_query,
+#                     "plan": plan,
+#                     "steps": [],  # Reset steps for new plan
+#                     "step_counter": 0,  # Reset counter for new plan
+#                     "assistant_response": response.content,
+#                     "status": "feedback",  # Require approval for new plan
+#                     "response_type": "replan"  # Mark as new plan
+#                 }
+#             else:
+#                 plan = f"Revised plan based on feedback: {human_feedback}"
+#                 fallback_message = AIMessage(content=plan)
+#                 return {
+#                     "messages": updated_messages + [fallback_message],
+#                     "query": user_query,
+#                     "plan": plan,
+#                     "steps": [],  # Reset steps for new plan
+#                     "step_counter": 0,  # Reset counter
+#                     "assistant_response": plan,
+#                     "status": "feedback",
+#                     "response_type": "replan"  # Mark as replan
+#                 }
                 
-        except Exception as e:
-            logger.error(f"Error in feedback processing: {e}")
-            plan = f"Error processing feedback: {human_feedback}. Please try again."
-            error_message = AIMessage(content=plan)
+#         except Exception as e:
+#             logger.error(f"Error in feedback processing: {e}")
+#             plan = f"Error processing feedback: {human_feedback}. Please try again."
+#             error_message = AIMessage(content=plan)
             
-            return {
-                "messages": updated_messages + [error_message],
-                "query": user_query,
-                "plan": state.get("plan", ""),  # Preserve original plan on error
-                "steps": state.get("steps", []),  # Preserve steps on error
-                "step_counter": state.get("step_counter", 0),
-                "assistant_response": plan,
-                "status": "feedback",  # Stay in feedback mode for retry
-                "response_type": "answer"  # Treat errors as answers/clarifications
-            }
+#             return {
+#                 "messages": updated_messages + [error_message],
+#                 "query": user_query,
+#                 "plan": state.get("plan", ""),  # Preserve original plan on error
+#                 "steps": state.get("steps", []),  # Preserve steps on error
+#                 "step_counter": state.get("step_counter", 0),
+#                 "assistant_response": plan,
+#                 "status": "feedback",  # Stay in feedback mode for retry
+#                 "response_type": "answer"  # Treat errors as answers/clarifications
+#             }
     
     def _handle_dynamic_planning(self, state, messages, user_query):
 
@@ -314,8 +316,8 @@ Step 2:
             
         except Exception as e:
             logger.error(f"Error in dynamic planning: {e}", exc_info=True)
-            # Fallback to simple plan
-            return self._handle_initial_planning(state, messages, user_query)
+            # Fallback to simple plan // later
+            # return self._handle_initial_planning(state, messages, user_query)
     
     def _format_dynamic_plan(self, plan: DynamicPlan) -> str:
         """Format structured plan for display."""
@@ -332,3 +334,4 @@ Step 2:
                 lines.append(f"  Requires: {step.context_requirements}")
         
         return "\n".join(lines)
+

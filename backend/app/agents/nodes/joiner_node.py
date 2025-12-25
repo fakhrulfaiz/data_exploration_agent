@@ -20,7 +20,7 @@ class Replan(BaseModel):
 
 class JoinerDecision(BaseModel):
     """Joiner decision"""
-    thought: str = Field(description="Chain of thought reasoning")
+    thought: str = Field(description="Chain of thought reasoning with final decision if available")
     action: Union[FinalResponse, Replan]
 
 
@@ -54,7 +54,7 @@ CRITICAL GUIDELINES:
 - **Consider the original query**: Does what we have actually answer what was asked?
 
 Examples of GOOD analysis:
-- "The query returned 5 playlists with their total track times. The data shows Classical Mix has the longest duration at 2.5 hours."
+- "The query returned 5 playlists with their total track times. The data shows Classical Mix has the longest duration at 2.5 hours." (Mention the results in final answer)
 - "The SQL query failed because the 'duration' column doesn't exist. We need to replan using the correct schema."
 - "We successfully retrieved 100 customer records, but the query asked for a visualization which we haven't created yet."
 
