@@ -85,8 +85,8 @@ Notes:
             # Looping the question for all images
             answers = self.vqa.answer_questions(image_paths, question)
 
-            for ctx, answers in zip(context, answers):
-                ctx['question_answer'] = answers # type: ignore
+            for ctx, ans in zip(context, answers):
+                ctx['question_answer'] = ans # type: ignore
                 vqa_answers.append(ctx) 
 
             return vqa_answers
