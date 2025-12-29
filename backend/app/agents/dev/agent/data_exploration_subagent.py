@@ -74,6 +74,7 @@ query to at most {top_k} results.
 You can order the results by a relevant column to return the most interesting
 examples in the database. Never query for all the columns from a specific table,
 only ask for the relevant columns given the question.
+But, always return image path if available in the database.
 
 DO NOT make any DML statements (INSERT, UPDATE, DELETE, DROP etc.) to the database.
 """.format(
