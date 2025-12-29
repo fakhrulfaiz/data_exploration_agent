@@ -51,8 +51,23 @@ from transformers.models.blip import BlipForQuestionAnswering, BlipProcessor
 class VisualQA():
     def __init__(self, model_name: str = "Salesforce/blip-vqa-base"):
         # `Salesforce/blip-vqa-capfilt-large` has better performance but i dont have enough storage/ resource 
-        self.model = BlipForQuestionAnswering.from_pretrained(model_name)
-        self.processor = BlipProcessor.from_pretrained(model_name)
+        self.model_name = model_name
+        self._model = None
+        self._processor = None
+
+    @property
+    def model(self):
+        """Lazy load the model only when needed"""
+        if self._model is None:
+            self._model = BlipForQuestionAnswering.from_pretrained(self.model_name)
+        return self._model
+    
+    @property
+    def processor(self):
+        """Lazy load the processor only when needed"""
+        if self._processor is None:
+            self._processor = BlipProcessor.from_pretrained(self.model_name)
+        return self._processor
 
     def answer_questions(self, image_paths: List[str], query: str, batch_size: int = 10):
         results = []

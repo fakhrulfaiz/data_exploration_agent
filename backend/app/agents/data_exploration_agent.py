@@ -24,6 +24,7 @@ from app.agents.tools.custom_toolkit import CustomToolkit
 from app.agents.state import ExplainableAgentState
 from app.agents.nodes.planner_node import PlannerNode
 from app.agents.nodes.explainer_node import ExplainerNode
+from app.agents.nodes.enhanced_explainer_node import EnhancedExplainerNode
 from app.agents.nodes.error_explainer_node import ErrorExplainerNode
 from app.agents.nodes.agent_executor_node import AgentExecutorNode
 from app.agents.nodes.task_scheduler_node import TaskSchedulerNode
@@ -64,9 +65,8 @@ class DataExplorationAgent:
         self.custom_tools = self.custom_toolkit.get_tools()
         # Use tools directly - approval handled by tool_approval node
         self.tools = self.sql_tools + self.custom_tools
-
         self.store = store
-        self.explainer = ExplainerNode(llm)
+        self.explainer = EnhancedExplainerNode(llm, self.tools)
         self.error_explainer = ErrorExplainerNode(llm)
         self.planner = PlannerNode(llm, self.tools)
         self.agent_executor = AgentExecutorNode(llm, self.tools)
@@ -158,7 +158,9 @@ class DataExplorationAgent:
         
         self.graph = self.create_graph()
         
-        self.save_graph_visualization()
+        # Commented out to prevent blocking during startup
+        # Graph visualization can be accessed via /api/v1/graph/visualization-image endpoint
+        # self.save_graph_visualization()
     
     def save_graph_visualization(self):
         try:
@@ -459,7 +461,16 @@ class DataExplorationAgent:
             }
         )
         graph.add_edge("error_explainer", END)
-        graph.add_edge("explain", "agent")
+        
+        # Update explain node to use conditional routing
+        graph.add_conditional_edges(
+            "explain",
+            self.route_after_explain,
+            {
+                "agent_executor": "agent_executor",  # Planning mode
+                "agent": "agent"  # Non-planning mode
+            }
+        )
         
         if self.checkpointer:
             if self.store:
@@ -494,28 +505,52 @@ class DataExplorationAgent:
             return "joiner"
     
     def route_after_tools(self, state: ExplainableAgentState) -> str:
-        dynamic_plan = state.get("dynamic_plan")
+        """Route after tools execution - BOTH planning and non-planning modes"""
+        # Check for errors FIRST - if error detected, skip explainer
+        if self._has_consecutive_errors(state.get("messages", [])):
+            dynamic_plan = state.get("dynamic_plan")
+            if dynamic_plan:
+                return "agent_executor"  # Planning mode: continue to next step
+            else:
+                return "agent"  # Non-planning mode: return to agent
         
+        # No errors - check if explainer is enabled
+        use_explainer = state.get("use_explainer", True)
+        if use_explainer:
+            return "explain"  # Explain this tool execution
+        
+        # Explainer disabled - continue execution
+        dynamic_plan = state.get("dynamic_plan")
         if dynamic_plan:
-            return "agent_executor"
+            return "agent_executor"  # Planning mode: continue to next step
         else:
-            return self.should_explain(state)
+            return "agent"  # Non-planning mode: return to agent
     
     def route_tasks(self, state: ExplainableAgentState):
         return self.task_scheduler.route_tasks(state)
     
     def after_joiner(self, state: ExplainableAgentState) -> str:
+        """Route after joiner - NO explainer here anymore (it already ran after each tool)"""
         decision = state.get("joiner_decision")
         
         if decision == "finish":
-            if state.get("use_explainer") == True:
-                return "explain"
-            return "end"
+            # Check for errors
+            if self._has_consecutive_errors(state.get("messages", [])):
+                return "error_explainer"
+            return "end"  # Just end, explainer already ran after each tool
         elif decision == "replan":
             return "planner"
         else:
             logger.warning(f"Unexpected joiner decision: {decision}, defaulting to end")
             return "end"
+    
+    def route_after_explain(self, state: ExplainableAgentState) -> str:
+        """Route after explanation - back to execution loop"""
+        dynamic_plan = state.get("dynamic_plan")
+        if dynamic_plan:
+            return "agent_executor"  # Planning mode: continue to next step
+        else:
+            return "agent"  # Non-planning mode: return to agent
     
     
     def should_continue_group(self, state: ExplainableAgentState) -> str:
@@ -1165,57 +1200,8 @@ Examples:
         }
     
     def explainer_node(self, state: ExplainableAgentState):
-        steps = state.get("steps", [])
-        updated_steps = []
-        
-        for i, step in enumerate(steps):
-            step_copy = step.copy()
-            
-            missing_fields = [field for field in ["decision", "reasoning", "confidence", "why_chosen"] 
-                             if field not in step_copy]
-            
-            if missing_fields:
-                try:
-                    if i == len(steps) - 1:
-                        # Get detailed explanation for the last step
-                        explanation = self.explainer.explain_step(step_copy)
-                        step_copy.update({
-                            "decision": explanation.decision,
-                            "reasoning": explanation.reasoning,
-                            "why_chosen": explanation.why_chosen,
-                            "confidence": explanation.confidence
-                        })
-                    else:
-                        # For previous steps, try to generate better defaults based on available data
-                        tool_type = step_copy.get('type', 'unknown')
-                        tool_result = step_copy.get('result', 'No result available')
-                        
-                        step_copy.update({
-                            "decision": f"Execute {tool_type} tool",
-                            "reasoning": f"Used {tool_type} to process the query. Result: {str(tool_result)[:100]}...",
-                            "confidence": 0.7,  # Lower confidence for auto-generated explanations
-                            "why_chosen": f"Selected {tool_type} as the appropriate tool for this step"
-                        })
-                except Exception as e:
-                    # Fallback if explanation generation fails
-                    step_copy.update({
-                        "decision": f"Step {i+1} execution",
-                        "reasoning": f"Error generating explanation: {str(e)}",
-                        "confidence": 0.5,
-                        "why_chosen": "Unable to determine reasoning"
-                    })
-            
-            updated_steps.append(step_copy)
-        
-        return {
-            "messages": state["messages"],
-            "steps": updated_steps,
-            "step_counter": state.get("step_counter", 0),
-            "query": state.get("query", ""),
-            "plan": state.get("plan", ""),
-            "data_context": state.get("data_context"),  # Preserve DataFrame context
-            "visualizations": state.get("visualizations", [])  # Preserve visualizations
-        }
+        """Generate explanations for steps using EnhancedExplainerNode"""
+        return self.explainer.execute(state)
     
     def continue_with_feedback(self, user_feedback: str, status: str = "feedback", config=None):
         """Continue execution with user feedback"""
@@ -1275,7 +1261,8 @@ Examples:
             self.graph = self.create_graph()
             
             # Regenerate graph visualization
-            self.save_graph_visualization()
+            # Commented out to prevent blocking during LLM updates
+            # self.save_graph_visualization()
             
             return True
             

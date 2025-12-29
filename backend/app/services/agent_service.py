@@ -22,7 +22,7 @@ logger = get_logger(__name__)
 
 class AgentService:  
     def __init__(self):
-        self._agent: Optional[Any] = None  # DataExplorationAgent - lazy import
+        self._agent: Optional[Any] = None 
         self._llm: Optional[ChatOpenAI] = None
         
     def initialize_agent(
@@ -32,8 +32,8 @@ class AgentService:
         use_postgres_checkpointer: bool = True
     ) -> None:
         # Lazy import to avoid circular dependency
-        from ..agents.workflows import DataExplorationAgentWF as DataExplorationAgent  # Lazy assignment cause WHY NOT!!!!
-        # from ..agents import DataExplorationAgent
+        # from ..agents.workflows import DataExplorationAgentWF as DataExplorationAgent  # Lazy assignment cause WHY NOT!!!!
+        from ..agents import DataExplorationAgent
         
         try:
             self._llm = llm
@@ -441,17 +441,15 @@ class AgentService:
                         "reasoning": step_data.get("reasoning", ""),
                         "input": step_data.get("input", ""),
                         "output": step_data.get("output", ""),
-                        "confidence": step_data.get("confidence", 0.0),
-                        "why_chosen": step_data.get("why_chosen", ""),
+                        "tool_justification": step_data.get("tool_justification"),
+                        "contrastive_explanation": step_data.get("contrastive_explanation"),
+                        "data_evidence": step_data.get("data_evidence"),
                         "timestamp": step_data.get("timestamp", "")
                     }
                     steps.append(step)
             
-            # Calculate overall confidence
-            overall_confidence = None
-            if steps:
-                confidences = [step["confidence"] for step in steps if step["confidence"] > 0]
-                overall_confidence = sum(confidences) / len(confidences) if confidences else 0.8
+            # Set default overall confidence (no longer calculated from individual steps)
+            overall_confidence = 0.8 if steps else None
             
             # Extract last AI message
             last_message = None
