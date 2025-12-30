@@ -116,7 +116,8 @@ if __name__ == "__main__":
     questions = [
         # "Which genre has the oldest painting?",
         # "How many paintings are there from the Renaissance period?",
-        "What is the most common art style in the database?",
+        # "What is the most common art style in the database?",
+        "Get the highest number of swords depicted in paintings of each movement.",
     ]
     
     for question in questions:

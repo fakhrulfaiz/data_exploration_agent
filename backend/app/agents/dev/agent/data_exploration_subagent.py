@@ -37,9 +37,20 @@ get_schema_node = ToolNode([get_schema_tool], name="get_schema")
 run_query_tool = next(tool for tool in tools if tool.name == "sql_db_query")
 run_query_node = ToolNode([run_query_tool], name="run_query")
 
+# Create custom state
+from langgraph.graph import MessagesState
+from typing import Annotated, Any, Dict
+
+# Reducer 
+def merge_tool_results(a: dict, b: dict) -> dict:
+    return {**a, **b}
+
+# Custom State for data exploration
+class DataExplorationState(MessagesState):
+    tool_results: Annotated[Dict[str, Any], merge_tool_results]
 
 # Node: List available tables
-def list_tables(state: MessagesState):
+def list_tables(state: DataExplorationState):
     tool_call = {
         "name": "sql_db_list_tables",
         "args": {},
@@ -56,7 +67,7 @@ def list_tables(state: MessagesState):
 
 
 # Node: Get schema
-def call_get_schema(state: MessagesState):
+def call_get_schema(state: DataExplorationState):
     llm_with_tools = model.bind_tools([get_schema_tool], tool_choice="any")
     response = llm_with_tools.invoke(state["messages"])
 
@@ -74,16 +85,18 @@ query to at most {top_k} results.
 You can order the results by a relevant column to return the most interesting
 examples in the database. Never query for all the columns from a specific table,
 only ask for the relevant columns given the question.
-But, always return image path if available in the database.
+Always return image path rather than image url.
 
 DO NOT make any DML statements (INSERT, UPDATE, DELETE, DROP etc.) to the database.
+
+If the question does not make sense or is not answerable (given the context of database schema), explain why and recommended the user to explore other tools.
 """.format(
     dialect=db.dialect,
     top_k=5,
 )
 
 
-def generate_query(state: MessagesState):
+def generate_query(state: DataExplorationState):
     system_message = {
         "role": "system",
         "content": generate_query_system_prompt,
@@ -114,7 +127,7 @@ You will call the appropriate tool to execute the query after running this check
 """.format(dialect=db.dialect)
 
 
-def check_query(state: MessagesState):
+def check_query(state: DataExplorationState):
     system_message = {
         "role": "system",
         "content": check_query_system_prompt,
@@ -128,6 +141,40 @@ def check_query(state: MessagesState):
     response.id = state["messages"][-1].id
 
     return {"messages": [response]}
+
+
+# Node to extract tool results into state
+from langchain_core.messages import ToolMessage
+
+def store_query_result(state: DataExplorationState):
+    last_message = state["messages"][-1]
+
+    if not isinstance(last_message, ToolMessage):
+        return {}
+    
+    tool_call_id = last_message.tool_call_id
+    tool_call = None
+    for msg in reversed(state["messages"][:-1]):
+        if isinstance(msg, AIMessage):
+            for call in msg.tool_calls:
+                if call["id"] == tool_call_id:
+                    tool_call = call
+                    break
+        if tool_call:
+            break
+
+    if tool_call is None:
+        return {}
+
+    return {
+        "tool_results": {
+            tool_call_id: {
+                "name": tool_call["name"],
+                "args": tool_call["args"],
+                "result": last_message.content,
+            }
+        }
+    }
 
 
 # Conditional edge function
@@ -149,6 +196,7 @@ def build_agent():
     builder.add_node(generate_query)
     builder.add_node(check_query)
     builder.add_node(run_query_node, "run_query")
+    builder.add_node(store_query_result)
 
     builder.add_edge(START, "list_tables")
     builder.add_edge("list_tables", "call_get_schema")
@@ -159,7 +207,8 @@ def build_agent():
         should_continue,
     )
     builder.add_edge("check_query", "run_query")
-    builder.add_edge("run_query", "generate_query")
+    builder.add_edge("run_query", "store_query_result")
+    builder.add_edge("store_query_result", "generate_query")
 
     return builder.compile()
 
@@ -170,7 +219,7 @@ agent = build_agent()
 
 if __name__ == "__main__":
     # Example usage
-    question = "Which genre has the oldest painting?"
+    question = "Plot the number of paintings for each year"
 
     for step in agent.stream(
         {"messages": [{"role": "user", "content": question}]},
