@@ -14,7 +14,7 @@ class ToolCallHandler(ContentHandler):
         self.completed_tools: Dict[str, Dict] = {}
         self.active_tool_id: Optional[str] = None
         self.active_tool_name: Optional[str] = None
-        self.sequence_counter = 0
+        self.sequence_counter = 0  # Internal counter
     
     async def can_handle(self, msg: Any, metadata: Dict) -> bool:
         return (
@@ -175,6 +175,18 @@ class ToolCallHandler(ContentHandler):
             self.completed_tools[tool_call_id]["data"]["toolCalls"].append(tool_call_object)
         
         tool_state.saved = True
+        
+        # Append completed block to context in stream order
+        block_to_save = {
+            "id": f"tool_{tool_call_id}",
+            "type": "tool_calls",
+            "needsApproval": False,
+            "data": {
+                "toolCalls": [tool_call_object],
+                "content": tool_state.content
+            }
+        }
+        self.context.completed_blocks.append(block_to_save)
         
         yield {
             "event": "content_block",

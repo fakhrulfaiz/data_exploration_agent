@@ -9,10 +9,14 @@ from app.services.message_management_service import MessageManagementService
 class StreamContext:
     thread_id: str
     assistant_message_id: str
-    text_block_id: str
     node_name: str
     message_service: Optional[MessageManagementService]
     config: Dict[str, Any]
+    completed_blocks: List[Dict[str, Any]] = None  # Track blocks in stream order
+    
+    def __post_init__(self):
+        if self.completed_blocks is None:
+            self.completed_blocks = []
 
 
 @dataclass

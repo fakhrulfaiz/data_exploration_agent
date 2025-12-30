@@ -12,12 +12,18 @@ from .base_handler import ContentHandler, StreamContext
 class TextContentHandler(ContentHandler): 
     def __init__(self, context: StreamContext, nodes_to_stream: List[str] = None):
         super().__init__(context)
-        self.nodes_to_stream = nodes_to_stream or ['agent', 'tool_explanation', 'joiner']
-        self.accumulated_text = ""
+        self.nodes_to_stream = nodes_to_stream or ['agent', 'agent_executor', 'tool_explanation', 'joiner']
+        # Track text per message ID instead of accumulating per node
+        self.message_texts: Dict[str, Dict[str, Any]] = {}  # msg_id -> {text, node, block_id}
         self.json_buffer = ""
     
     async def can_handle(self, msg: Any, metadata: Dict) -> bool:
         node_name = metadata.get('langgraph_node', 'unknown')
+        
+        # Skip messages with tool_calls - they're handled by tool_call_handler
+        if hasattr(msg, 'tool_calls') and msg.tool_calls:
+            return False
+        
         return (
             hasattr(msg, 'content') and 
             msg.content and 
@@ -28,6 +34,7 @@ class TextContentHandler(ContentHandler):
     async def handle(self, msg: Any, metadata: Dict) -> AsyncGenerator[Dict, None]:
         chunk_text = msg.content
         node_name = metadata.get('langgraph_node', 'unknown')
+        msg_id = self._extract_msg_id(msg)
         
         if chunk_text.startswith("{") or self.json_buffer:
             self.json_buffer += chunk_text
@@ -39,23 +46,43 @@ class TextContentHandler(ContentHandler):
                         "content": parsed.get("content", ""),
                         "node": node_name,
                         "type": "feedback_answer",
-                        "stream_id": self._extract_msg_id(msg)
+                        "stream_id": msg_id
                     })
                 }
                 self.json_buffer = ""
             except json.JSONDecodeError:
                 return  # Wait for more chunks
         else:
-            # Stream text tokens
-            self.accumulated_text += chunk_text
+            # Track text per message ID - each message gets its own block
+            if msg_id not in self.message_texts:
+                if self.message_texts:
+                    last_msg_id = list(self.message_texts.keys())[-1]
+                    last_msg_data = self.message_texts[last_msg_id]
+                    if last_msg_data["text"].strip():
+                        block = {
+                            "id": last_msg_data["block_id"],
+                            "type": "text",
+                            "needsApproval": False,
+                            "data": {"text": last_msg_data["text"]}
+                        }
+                        self.context.completed_blocks.append(block)
+                
+                self.message_texts[msg_id] = {
+                    "text": "",
+                    "node": node_name,
+                    "block_id": f"text_{msg_id}"
+                }
+            
+            self.message_texts[msg_id]["text"] += chunk_text
+            
             yield {
                 "event": "content_block",
                 "data": json.dumps({
                     "block_type": "text",
-                    "block_id": self.context.text_block_id,
+                    "block_id": f"text_{msg_id}",
                     "content": msg.content,
                     "node": node_name,
-                    "stream_id": self._extract_msg_id(msg),
+                    "stream_id": msg_id,
                     "message_id": self.context.assistant_message_id,
                     "action": "append_text"
                 })
@@ -90,12 +117,38 @@ class TextContentHandler(ContentHandler):
         return msg_id
     
     def get_content_blocks(self, needs_approval: bool = False) -> List[Dict]:
-        if not self.accumulated_text:
-            return []
+        """Return separate text blocks for each message that produced text."""
+        blocks = []
         
-        return [{
-            "id": self.context.text_block_id,
-            "type": "text",
-            "needsApproval": False,
-            "data": {"text": self.accumulated_text}
-        }]
+        # Create a separate block for each message's text
+        for msg_id, msg_data in self.message_texts.items():
+            text = msg_data["text"]
+            if text.strip():  # Only include non-empty text
+                blocks.append({
+                    "id": msg_data["block_id"],
+                    "type": "text",
+                    "needsApproval": False,
+                    "data": {"text": text}
+                })
+        
+        return blocks
+    
+    async def finalize(self) -> AsyncGenerator[Dict, None]:
+        """Append the last text block to context when streaming completes."""
+        # Only append the last message (all previous ones were appended when new messages started)
+        if self.message_texts:
+            last_msg_id = list(self.message_texts.keys())[-1]
+            last_msg_data = self.message_texts[last_msg_id]
+            text = last_msg_data["text"]
+            if text.strip():  # Only include non-empty text
+                block = {
+                    "id": last_msg_data["block_id"],
+                    "type": "text",
+                    "needsApproval": False,
+                    "data": {"text": text}
+                }
+                self.context.completed_blocks.append(block)
+        
+        # Make this a generator
+        if False:
+            yield {}

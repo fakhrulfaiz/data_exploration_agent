@@ -270,12 +270,15 @@ async def handle_completion(
         content_blocks.extend(context.existing_blocks)
         logger.info(f"Including {len(context.existing_blocks)} existing blocks from context")
     
-    content_blocks.extend(tool_handler.get_content_blocks())
-    content_blocks.extend(plan_handler.get_content_blocks())
-    content_blocks.extend(text_handler.get_content_blocks())
+    
+    # Add blocks that were tracked during streaming (already in correct order)
+    content_blocks.extend(context.completed_blocks)
+    logger.info(f"Collected {len(context.completed_blocks)} blocks from stream in order")
     
     checkpoint_id = _extract_checkpoint_id(state)
     content_blocks.extend(_build_additional_blocks(values, checkpoint_id, context))
+    
+    # No need to sort - blocks are already in stream order!
     
     user_id = config.get('configurable', {}).get('user_id')
     await persistence.save_with_content_blocks(
