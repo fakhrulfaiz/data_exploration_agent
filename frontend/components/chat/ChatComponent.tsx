@@ -2,7 +2,7 @@
 
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { ThumbsUp, ThumbsDown, ChevronDown } from 'lucide-react';
-import { Message as MessageType, ChatComponentProps, HandlerResponse, ContentBlock, ToolCallsContent, createTextBlock, createToolCallsBlock, createExplorerBlock, createVisualizationsBlock, createPlanBlock, createErrorBlock } from '@/types/chat';
+import { Message as MessageType, ChatComponentProps, HandlerResponse, ContentBlock, ToolCallsContent, createTextBlock, createToolCallsBlock, createExplorerBlock, createVisualizationsBlock, createPlanBlock, createErrorBlock, createExplanationBlock } from '@/types/chat';
 import Message from './Message';
 import GeneratingIndicator from './GeneratingIndicator';
 import InputForm from './InputForm';
@@ -67,6 +67,7 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
   hasDataContext,
   onOpenDataContext,
   onDataFrameDetected,
+  onCancelStream,
 }) => {
 
 
@@ -784,6 +785,13 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
         if (errorExplanation) {
           const errorBlock = createErrorBlock(blockId, errorExplanation);
           updatedBlocks = [...updatedBlocks, errorBlock];
+        }
+      } else if (blockType === 'explanation' && action === 'add_block') {
+        // Handle explanation blocks from explain node
+        const explanationData = blockData.data;
+        if (explanationData) {
+          const explanationBlock = createExplanationBlock(blockId, explanationData);
+          updatedBlocks = [...updatedBlocks, explanationBlock];
         }
       }
 
@@ -1504,6 +1512,16 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
     }
   };
 
+  const handleStopStream = () => {
+    console.log('Stopping stream...');
+    setStreamingActive(false);
+    setIsLoading(false);
+    setExecutionStatus('idle');
+
+    // Note: EventSource closing is handled in page.tsx
+    // This handler just updates the local UI state
+  };
+
   const handleRetry = async (messageId: string): Promise<void> => {
     const message = messages.find(m => m.message_id === messageId);
     // Check if message has timeout status in any block (can be retried)
@@ -1735,6 +1753,8 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
             attachedFiles={attachedFiles}
             hasDataContext={hasDataContext}
             onOpenDataContext={onOpenDataContext}
+            isStreaming={streamingActive}
+            onStopStream={handleStopStream}
           />
         </div>
       </div>

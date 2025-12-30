@@ -50,6 +50,7 @@ export const API_ENDPOINTS = {
             RESUME: '/v1/graph/stream/resume',
             STREAM: (threadId: string) => `/v1/graph/stream/${threadId}`,
             RESULT: (threadId: string) => `/v1/graph/stream/result/${threadId}`,
+            CANCEL: (threadId: string) => `/v1/graph/stream/cancel/${threadId}`,
         },
         EXPLORER: '/v1/graph/explorer',
         VISUALIZATION: '/v1/graph/visualization',
