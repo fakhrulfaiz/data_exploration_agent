@@ -6,6 +6,7 @@ from .base_handler import ContentHandler, StreamContext, ToolCallState
 from .tool_call_handler import ToolCallHandler
 from .text_handler import TextContentHandler
 from .plan_handler import PlanContentHandler
+from .explanation_handler import ExplanationContentHandler
 
 __all__ = [
     "ContentHandler",
@@ -14,4 +15,5 @@ __all__ = [
     "ToolCallHandler",
     "TextContentHandler",
     "PlanContentHandler",
+    "ExplanationContentHandler",
 ]
