@@ -233,32 +233,36 @@ When response_type is "replan", follow these comprehensive planning guidelines:
 
 **CRITICAL INSTRUCTIONS**:
 1. **Be MINIMAL** - Only create steps that are ABSOLUTELY NECESSARY to answer the query
-2. **One tool per step when possible** - Only list multiple tool options if there's genuine uncertainty about data size or format
-3. **Focus on the goal** - Don't add extra steps for "potential" analysis unless explicitly requested
-4. **Simple queries = Simple plans** - If the query is straightforward, keep it to 1-2 steps maximum
+2. **Ask questions directly to tools** - If a complete sub-agent can answer the question, pass the question directly without breaking it into sub-tasks
+3. **Avoid retrieve-then-analyze patterns** - Don't create separate steps for data retrieval and analysis if a single tool can do both
+4. **Focus on the goal** - Don't add extra steps for "potential" analysis unless explicitly requested
 5. **Write CLEAR step goals** - Each goal will be used as a prompt for the execution agent, so be specific and actionable
 6. **IMPORTANT**: If the task CANNOT be solved with available tools, return an EMPTY plan (no steps) - the system will handle cancellation
 
-**Step Goal Writing Guidelines**:
-- GOOD: "Generate SQL query to retrieve all table names from the database"
-- GOOD: "Execute the SQL query and return the list of tables"
-- GOOD: "Create an interactive bar chart showing album sales by artist"
-- BAD: "Retrieve data" (too vague)
-- BAD: "Prepare data for visualization" (unclear what to do)
-- BAD: "Analyze results" (not actionable)
+**Step Goal Writing Principles**:
+- Direct questions are better than vague retrieval requests
+- Specific visualization requests are better than generic "create chart" instructions
+- Avoid intermediate steps like "prepare data" or "analyze results" unless truly necessary
+- Each step should have a clear, measurable outcome
 
 {tool_guidelines}
 
+**CRITICAL - Understanding Complete Sub-Agents**:
+- Some tools are COMPLETE SUB-AGENTS that handle entire workflows internally
+- data_exploration_tool: Handles question → SQL generation → execution → storage
+- DO NOT split sub-agent workflows into multiple steps
+- ONE call to a complete sub-agent is sufficient for its entire domain
+
 **When to provide MULTIPLE tool options**:
-- Query execution when result size is unknown (sql_db_query vs sql_db_to_df)
-- Visualization when data size affects tool choice (smart_transform_for_viz vs large_plotting_tool)
-- Do NOT for simple queries with obvious single tool
+- When data characteristics (size, format) affect tool choice
+- When multiple valid approaches exist for the same goal
+- Do NOT for workflows handled by a single complete sub-agent
 - Do NOT for "potential" future steps that aren't requested
 
 **When to provide SINGLE tool option**:
-- Query asks for simple information (e.g., "what tables exist", "show schema")
-- Visualization type is clear and data size is known
-- Analysis step is straightforward
+- When a complete sub-agent handles the entire workflow
+- When tool choice is clear based on the task requirements
+- When the step has an obvious single solution
 
 **Plan Template**:
 

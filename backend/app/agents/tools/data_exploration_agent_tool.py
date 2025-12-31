@@ -30,22 +30,49 @@ class DataExplorationAgentTool(BaseTool):
     """
     
     name: str = "data_exploration_tool"
-    description: str = """Unified tool for data exploration and retrieval.
+    description: str = """COMPLETE SUB-AGENT for database exploration and retrieval.
     
-    Use this tool to:
-    1. Ask questions about data in natural language
-    2. Automatically generate correct SQL queries
-    3. Execute queries and retrieve data
-    4. Store results in Redis for further analysis
+    This is a COMPLETE SUB-AGENT that handles the entire database query workflow:
+    1. Natural language question → SQL generation (with full SQL capabilities)
+    2. SQL validation and execution
+    3. Result retrieval and storage
+    
+    ONE CALL to this tool completes the entire database query process.
+    DO NOT split into separate "generate SQL" and "execute SQL" steps.
+    
+    IMPORTANT - This tool can ANSWER QUESTIONS DIRECTLY using SQL:
+    - Finding oldest/newest/min/max values (ORDER BY, MIN, MAX)
+    - Counting, summing, averaging (COUNT, SUM, AVG)
+    - Grouping and aggregating data (GROUP BY)
+    - Filtering with conditions (WHERE)
+    - Joining multiple tables
+    - Complex queries with subqueries and CTEs
+    
+    If the question can be answered with SQL, this tool will RETURN THE ANSWER.
+    You do NOT need additional analysis steps for questions like:
+    - "Which genre has the oldest painting?" → Returns the genre directly
+    - "How many paintings per artist?" → Returns counts directly
+    - "What's the average price by category?" → Returns averages directly
+    
+    Use this tool for ANY database-related question:
+    - Simple data retrieval
+    - Complex analytical queries
+    - Questions requiring aggregation, sorting, or filtering
     
     Parameters:
-    - question (str): Bio-medical/Healthcare question to answer with data
+    - question (str): Natural language question about the data
     - context (optional str): Additional context for the query
     
     Returns: JSON containing:
-    - data_context: Metadata about the stored DataFrame (ID, shape, etc.)
+    - data_context: Metadata about the stored DataFrame (ID, shape, columns, etc.)
     - description: Human-readable summary of what was retrieved
-    - data: First 5 rows of data (for immediate preview)
+    - data_preview: First 5 rows of data for immediate inspection
+    - sql_query: The generated SQL query that was executed
+    
+    The retrieved data is automatically stored in Redis and available for:
+    - python_repl (only if additional computation is needed)
+    - smart_transform_for_viz (for creating charts)
+    - large_plotting_tool (for matplotlib plots)
     """
     
     llm: Any = Field(description="Language model for SQL generation")

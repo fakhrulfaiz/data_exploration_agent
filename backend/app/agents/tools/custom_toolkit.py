@@ -22,12 +22,13 @@ class CustomToolkit(BaseToolkit):
         super().__init__(llm=llm, db_engine=db_engine, db_path=db_path, **kwargs)
     
     def get_tools(self) -> List[BaseTool]:
-        vqa = VisualQA()
+        # Temporarily disabled for faster testing - uncomment when needed
+        # vqa = VisualQA()
         tools = [
             SmartTransformForVizTool(llm=self.llm),
             SecurePythonREPLTool(),
             DataFrameInfoTool(),
-            ImageQATool(vqa=vqa) # consider initialize with LLM and pass as class attribute
+            # ImageQATool(vqa=vqa)  # Commented out - loads heavy BLIP model
         ]
         
         if self.db_engine is not None:

@@ -113,7 +113,7 @@ class MainAgent:
         step_counter = state.get("step_counter", 0)
         
         if not dynamic_plan or current_idx >= len(dynamic_plan.steps):
-            logger.info(f"All steps completed. Current index: {current_idx}")
+            logger.info(f"All steps completed. Current index: {current_idx}, Total steps: {len(dynamic_plan.steps) if dynamic_plan else 0}")
             return {"messages": messages}
         
         # Get current step
@@ -225,7 +225,7 @@ class MainAgent:
         Routes to:
         - human_feedback: if feedback/comment exists
         - tools: if last message has tool calls (PRIORITY - check this first!)
-        - cleanup: if all steps completed
+        - cleanup: if all steps completed OR no more work to do
         - process_query: otherwise (continue to next step)
         """
         # Check for feedback/replan request
@@ -246,6 +246,7 @@ class MainAgent:
         dynamic_plan = state.get("dynamic_plan")
         current_idx = state.get("current_step_index", 0)
         
+        # If we're at or past the end of the plan and no tool calls, we're done
         if dynamic_plan and current_idx >= len(dynamic_plan.steps):
             logger.info("All steps completed, routing to cleanup")
             return "cleanup"
