@@ -30,6 +30,7 @@ Thumbs.db
 # Logs
 *.log
 logs/
+*.csv
 
 # Environment variables
 .env
