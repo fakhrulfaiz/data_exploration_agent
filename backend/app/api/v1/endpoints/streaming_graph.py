@@ -21,7 +21,9 @@ from app.api.v1.endpoints.streaming.handlers import (
     StreamContext,
     ToolCallHandler,
     TextContentHandler,
-    PlanContentHandler
+    PlanContentHandler,
+    ExplanationContentHandler,
+    ReasoningChainContentHandler
 )
 from app.api.v1.endpoints.streaming.streaming_persistence import StreamingMessagePersistence
 from app.api.v1.endpoints.streaming.streaming_utils import (
@@ -277,7 +279,18 @@ async def stream_graph(
         tool_handler = ToolCallHandler(context)
         text_handler = TextContentHandler(context) 
         plan_handler = PlanContentHandler(context, agent)
+        explanation_handler = ExplanationContentHandler(context)
+        reasoning_chain_handler = ReasoningChainContentHandler(context)
+        tool_call_handler = ToolCallHandler(context)
         persistence = StreamingMessagePersistence(message_service)
+
+        handlers = [
+            tool_call_handler,
+            explanation_handler,  # Check explanations before text
+            reasoning_chain_handler,  # Check reasoning chains before text
+            plan_handler,
+            text_handler
+        ]
         
         # Load existing blocks for BOTH tool approval and plan approval
         if event_type in ["tool_resume", "resume"] and assistant_message_id and message_service:
@@ -314,6 +327,12 @@ async def stream_graph(
                 
                 if await tool_handler.can_handle(msg, metadata):
                     async for event in tool_handler.handle(msg, metadata):
+                        yield event
+                elif await explanation_handler.can_handle(msg, metadata):
+                     async for event in explanation_handler.handle(msg, metadata):
+                        yield event
+                elif await reasoning_chain_handler.can_handle(msg, metadata):
+                    async for event in reasoning_chain_handler.handle(msg, metadata):
                         yield event
                 elif await plan_handler.can_handle(msg, metadata):
                     async for event in plan_handler.handle(msg, metadata):

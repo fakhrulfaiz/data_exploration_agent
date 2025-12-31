@@ -12,17 +12,16 @@ class TaskSchedulerNode:
     
     def execute(self, state: ExplainableAgentState) -> Dict[str, Any]:
         dynamic_plan = state.get("dynamic_plan")
+        current_step_index = state.get("current_step_index", 0)
         
         if dynamic_plan and len(dynamic_plan.steps) > 0:
-            logger.info(f"Initializing dynamic plan execution with {len(dynamic_plan.steps)} steps")
+            logger.info(f"Initializing dynamic plan execution with {len(dynamic_plan.steps)} steps (Starting at index {current_step_index})")
             return {
-                "current_step_index": 0,
                 "continue_execution": True
             }
         else:
             logger.warning("No dynamic plan found or plan has no steps")
             return {
-                "current_step_index": 0,
                 "continue_execution": False
             }
     

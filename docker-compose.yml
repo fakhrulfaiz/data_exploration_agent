@@ -62,6 +62,7 @@ services:
   postgres:
     image: postgres:15-alpine
     container_name: agent-postgres
+    restart: unless-stopped
     environment:
       POSTGRES_DB: agent_db
       POSTGRES_USER: postgres

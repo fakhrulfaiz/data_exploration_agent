@@ -111,10 +111,10 @@ class DataExplorationAgentWF:
             prompt=(
                 "You are an assistant that routes tasks to specialized agents.\n\n"
                 "AVAILABLE AGENTS:\n"
-                "- data_exploration_agent: Handles database queries and visualizations, SQL analysis, and data exploration\n"
+                "- data_exploration_tool: Handles database queries and visualizations, SQL analysis, and data exploration\n"
                 "  Use this for: SQL queries, database analysis, table inspection, data queries, schema questions, visualizations\n\n"
                 "ROUTING LOGIC:\n"
-                "- For DATA EXPLORATION queries: Transfer to data_exploration_agent\n"
+                "- For DATA EXPLORATION queries: Transfer to data_exploration_tool\n"
                 "- For general conversation: Respond normally without transferring\n\n"
                 "TRANSFER RULES:\n"
                 "- IMPORTANT: Only route to agents when you receive a NEW user message, not for agent responses\n"
@@ -135,7 +135,7 @@ class DataExplorationAgentWF:
         def assistant_agent(state):
             use_planning = state.get("use_planning", True)
             use_explainer = state.get("use_explainer", True)
-            agent_type = state.get("agent_type", "data_exploration_agent")
+            agent_type = state.get("agent_type", "data_exploration_tool")
             query = state.get("query", "")
             
             self._use_planning = use_planning
@@ -206,7 +206,7 @@ class DataExplorationAgentWF:
             
             update_state = {
                 "messages": state.get("messages", []) + [tool_message],
-                "agent_type": "data_exploration_agent",
+                "agent_type": "data_exploration_tool",
                 "routing_reason": f"Transferred to data exploration agent: {task_description}",
                 "query": query,
                 "plan": state.get("plan", ""),

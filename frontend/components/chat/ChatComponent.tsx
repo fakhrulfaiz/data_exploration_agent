@@ -2,7 +2,7 @@
 
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { ThumbsUp, ThumbsDown, ChevronDown } from 'lucide-react';
-import { Message as MessageType, ChatComponentProps, HandlerResponse, ContentBlock, ToolCallsContent, createTextBlock, createToolCallsBlock, createExplorerBlock, createVisualizationsBlock, createPlanBlock, createErrorBlock } from '@/types/chat';
+import { Message as MessageType, ChatComponentProps, HandlerResponse, ContentBlock, ToolCallsContent, createTextBlock, createToolCallsBlock, createExplorerBlock, createVisualizationsBlock, createPlanBlock, createErrorBlock, createExplanationBlock, createReasoningChainBlock } from '@/types/chat';
 import Message from './Message';
 import GeneratingIndicator from './GeneratingIndicator';
 import InputForm from './InputForm';
@@ -441,6 +441,49 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
       }
     }
 
+    // Handle SQL Approval interrupt
+    if (status === 'interrupt') {
+      try {
+        if (!eventData) return;
+        const interruptData = JSON.parse(eventData);
+
+        // Special handling for sql_approval
+        if (interruptData.value && interruptData.value.type === 'sql_approval') {
+          const sqlApprovalMsgId = (Date.now() + Math.floor(Math.random() * 1000)).toString();
+
+          const sqlBlock: ContentBlock = {
+            id: `sql_approval_${sqlApprovalMsgId}`,
+            type: 'text',
+            needsApproval: true,
+            metadata: {
+              type: 'sql_approval',
+              sql: interruptData.value.sql,
+              tool_call_id: interruptData.value.tool_call_id
+            },
+            data: {
+              text: interruptData.value.description || "Please review the generated SQL."
+            }
+          };
+
+          const message: MessageType = {
+            message_id: sqlApprovalMsgId,
+            sender: 'assistant',
+            content: [sqlBlock],
+            timestamp: new Date(),
+            threadId: contextThreadId || currentThreadId || undefined
+          };
+
+          setTimeout(() => {
+            setMessages(prev => [...prev, message]);
+          }, 50);
+
+          setExecutionStatus('user_feedback');
+        }
+      } catch (e) {
+        console.error('Error handling interrupt:', e);
+      }
+    }
+
     // Handle tool result - update the indicator
     if (status === 'tool_result' && eventData) {
       try {
@@ -461,7 +504,7 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
         console.error('Error handling tool_result for indicator:', error);
       }
     }
-  }, []);
+  }, [contextThreadId, currentThreadId]);
 
   // Helper function to resolve backend message ID to frontend message ID
   const resolveMessageId = useCallback((frontendMessageId: string, backendMessageId?: string): string => {
@@ -784,6 +827,20 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
         if (errorExplanation) {
           const errorBlock = createErrorBlock(blockId, errorExplanation);
           updatedBlocks = [...updatedBlocks, errorBlock];
+        }
+      } else if (blockType === 'explanation' && action === 'add_block') {
+        // Handle explanation blocks from explain node
+        const explanationData = blockData.data;
+        if (explanationData) {
+          const explanationBlock = createExplanationBlock(blockId, explanationData);
+          updatedBlocks = [...updatedBlocks, explanationBlock];
+        }
+      } else if (blockType === 'reasoning_chain' && action === 'add_block') {
+        // Handle reasoning chain blocks from joiner node
+        const chainData = blockData.data;
+        if (chainData && chainData.steps) {
+          const reasoningChainBlock = createReasoningChainBlock(blockId, chainData);
+          updatedBlocks = [...updatedBlocks, reasoningChainBlock];
         }
       }
 

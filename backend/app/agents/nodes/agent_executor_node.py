@@ -22,8 +22,16 @@ class AgentExecutorNode:
         dynamic_plan = state.get("dynamic_plan")
         current_step_index = state.get("current_step_index", 0)
         
+        logger.info(f"AgentExecutor ENTERED - Current index: {current_step_index}")
+        if dynamic_plan:
+            logger.info(f"Plan has {len(dynamic_plan.steps)} steps")
+            for i, step in enumerate(dynamic_plan.steps):
+                logger.info(f"  Step {i}: {step.goal}")
+        else:
+            logger.warning("No dynamic plan found in state!")
+        
         if not dynamic_plan or current_step_index >= len(dynamic_plan.steps):
-            logger.warning("No more steps to execute")
+            logger.warning(f"No more steps to execute (Index {current_step_index} >= {len(dynamic_plan.steps) if dynamic_plan else 0})")
             return {
                 "continue_execution": False
             }
@@ -31,7 +39,18 @@ class AgentExecutorNode:
         current_step = dynamic_plan.steps[current_step_index]
         logger.info(f"Executing step {current_step_index + 1}/{len(dynamic_plan.steps)}: {current_step.goal}")
         
+        # Get tools for current step
         step_tool_names = [opt.tool_name for opt in current_step.tool_options]
+        
+        next_step_index = current_step_index + 1
+        if next_step_index < len(dynamic_plan.steps):
+            next_step = dynamic_plan.steps[next_step_index]
+            next_step_tool_names = [opt.tool_name for opt in next_step.tool_options]
+            step_tool_names = list(set(step_tool_names + next_step_tool_names))
+            logger.info(f"Exposing tools from steps {current_step_index + 1} and {next_step_index + 1}: {step_tool_names}")
+        else:
+            logger.info(f"Exposing tools from step {current_step_index + 1}: {step_tool_names}")
+        
         step_tools = [self.tool_map[name] for name in step_tool_names if name in self.tool_map]
         
         if not step_tools:
@@ -43,11 +62,19 @@ class AgentExecutorNode:
         
         messages = state.get("messages", [])
         
+        # Filter out explanation messages - they're for streaming only, not for agent context
+        # Explanation messages have additional_kwargs["is_explanation"] = True
+        filtered_messages = [
+            msg for msg in messages
+            if not (hasattr(msg, 'additional_kwargs') and 
+                    msg.additional_kwargs.get('is_explanation', False))
+        ]
+        
         # Build step prompt with next step context  
         next_step_index = current_step_index + 1
         next_step = dynamic_plan.steps[next_step_index] if next_step_index < len(dynamic_plan.steps) else None
         step_prompt = self._build_step_prompt(current_step, current_step_index + 1, len(dynamic_plan.steps), next_step)
-        step_messages = [SystemMessage(content=step_prompt)] + messages
+        step_messages = [SystemMessage(content=step_prompt)] + filtered_messages
         
         llm_with_tools = self.llm.bind_tools(step_tools)
         
@@ -103,21 +130,23 @@ class AgentExecutorNode:
 **Your Process**:
 1. **Check history**: Look at recent messages - has this step's goal already been achieved?
 2. **If YES (tool succeeded)**: 
-   - Provide a brief summary: "Step {step_num} successful. I have [what was accomplished]."
-   - If there's a next step, add: "Now I will proceed to step {step_num + 1} to [next goal]."
-   - DO NOT call any tools
+   - Be EXTREMELY concise: "Step {step_num} complete. Proceeding to step {step_num + 1}."
+   - DO NOT repeat the tool output or results
 3. **If NO (need to act)**:
    - Call the appropriate tool to achieve the goal
-   - You may call tools multiple times if there are errors
+   - If the required tool is NOT in **Available Tools**:
+     * STOP immediately
+     * Respond: "Required tool for this step is not available. Passing control back to planner."
+   - You may call tools multiple times if there are errors, but limmited to two calls
 
 **Tool Selection Priorities**:
 {tool_options_text}
 
 **Critical Rules**:
-- Review tool results before calling again
-- Never call the same tool twice with the same input
-- Never ask user for permission - proceed automatically
-- Be concise in your responses
+- **NO REPETITION**: Do not summarize what was just shown in the tool output
+- **FOCUS ON NEXT**: Your goal is to move to the next step, not linger on the current one
+- **Review tool results**: Check if the tool succeeded before moving on
+- **Be concise**: One sentence status updates are preferred
 """
     
     def _format_tool_options(self, tool_options: List) -> str:

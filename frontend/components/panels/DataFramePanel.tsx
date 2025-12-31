@@ -112,30 +112,32 @@ const DataFramePanel: React.FC<DataFramePanelProps> = ({
                     </CardHeader>
                     <CardContent className="flex-1 p-0 overflow-hidden flex flex-col">
                         {/* Scrollable table area */}
-                        <ScrollArea className="flex-1 w-full">
-                            <div className="p-4">
-                                <Table>
-                                    <TableHeader>
-                                        <TableRow>
-                                            {data.columns.map((col) => (
-                                                <TableHead key={col} className="whitespace-nowrap">
-                                                    {col}
-                                                </TableHead>
-                                            ))}
-                                        </TableRow>
-                                    </TableHeader>
-                                    <TableBody>
-                                        {visibleRows.map((row, idx) => (
-                                            <TableRow key={`${startIndex + idx}`}>
+                        <ScrollArea className="flex-1 w-full border-b">
+                            <div className="w-full overflow-x-auto">
+                                <div className="min-w-max p-4">
+                                    <Table>
+                                        <TableHeader>
+                                            <TableRow>
                                                 {data.columns.map((col) => (
-                                                    <TableCell key={`${startIndex + idx}-${col}`} className="whitespace-nowrap">
-                                                        {row[col] !== null ? String(row[col]) : <span className="text-muted-foreground italic">null</span>}
-                                                    </TableCell>
+                                                    <TableHead key={col} className="whitespace-nowrap">
+                                                        {col}
+                                                    </TableHead>
                                                 ))}
                                             </TableRow>
-                                        ))}
-                                    </TableBody>
-                                </Table>
+                                        </TableHeader>
+                                        <TableBody>
+                                            {visibleRows.map((row, idx) => (
+                                                <TableRow key={`${startIndex + idx}`}>
+                                                    {data.columns.map((col) => (
+                                                        <TableCell key={`${startIndex + idx}-${col}`} className="whitespace-nowrap">
+                                                            {row[col] !== null ? String(row[col]) : <span className="text-muted-foreground italic">null</span>}
+                                                        </TableCell>
+                                                    ))}
+                                                </TableRow>
+                                            ))}
+                                        </TableBody>
+                                    </Table>
+                                </div>
                             </div>
                         </ScrollArea>
 

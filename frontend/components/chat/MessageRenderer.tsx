@@ -1,13 +1,16 @@
 import React, { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Message, ContentBlock, isTextBlock, isToolCallsBlock, isExplorerBlock, isVisualizationsBlock, isPlanBlock, isErrorBlock } from '@/types/chat';
+import { Message, ContentBlock, isTextBlock, isToolCallsBlock, isExplorerBlock, isVisualizationsBlock, isPlanBlock, isErrorBlock, isExplanationBlock, isReasoningChainBlock } from '@/types/chat';
 import { ExplorerMessage } from '@/components/messages/ExplorerMessage';
 import { markdownComponents } from '@/utils/markdownComponents';
 import VisualizationMessage from '@/components/messages/VisualizationMessage';
 import { ToolCallMessage } from '@/components/messages/ToolCallMessage';
 import { PlanMessage } from '@/components/messages/PlanMessage';
 import { ErrorMessage } from '@/components/messages/ErrorMessage';
+import { ExplanationMessage } from '@/components/messages/ExplanationMessage';
+import { ReasoningChainMessage } from '@/components/messages/ReasoningChainMessage';
+import { SqlApprovalMessage } from '@/components/messages/SqlApprovalMessage';
 import {
   Collapsible,
   CollapsibleContent,
@@ -122,6 +125,24 @@ export const MessageRenderer: React.FC<MessageRendererProps> = ({ message, onAct
 
   const renderContentBlock = (block: ContentBlock) => {
     if (isTextBlock(block)) {
+      // Check for SQL approval metadata
+      if (block.metadata?.type === 'sql_approval' && block.metadata?.sql) {
+        return (
+          <div key={block.id} className="content-block sql-approval-block mb-4">
+            <SqlApprovalMessage
+              data={{
+                sql: block.metadata.sql,
+                type: 'sql_approval',
+                tool_call_id: block.metadata.tool_call_id
+              }}
+              onApprove={onAction ? () => onAction('approveSql', block) : undefined}
+              onReject={onAction ? () => onAction('rejectSql', block) : undefined}
+              onEdit={onAction ? (newSql) => onAction('editSql', { ...block, metadata: { ...block.metadata, sql: newSql } }) : undefined}
+            />
+          </div>
+        );
+      }
+
       return (
         <div key={block.id} className="content-block text-block mb-4 last:mb-0">
           <ReactMarkdown
@@ -140,7 +161,9 @@ export const MessageRenderer: React.FC<MessageRendererProps> = ({ message, onAct
         name: toolCall.name,
         input: toolCall.input,
         output: toolCall.output,
-        status: toolCall.status
+        status: toolCall.status,
+        internalTools: toolCall.internalTools,
+        generatedContent: toolCall.generatedContent
       }));
 
       return (
@@ -151,6 +174,7 @@ export const MessageRenderer: React.FC<MessageRendererProps> = ({ message, onAct
             needsApproval={block.needsApproval}
             onApprove={onAction ? () => onAction('approveToolCall', block) : undefined}
             onReject={onAction ? () => onAction('rejectToolCall', block) : undefined}
+            onEdit={onAction ? (toolCallId, editedContent) => onAction('editToolCall', { block, toolCallId, editedContent }) : undefined}
           />
         </div>
       );
@@ -204,6 +228,21 @@ export const MessageRenderer: React.FC<MessageRendererProps> = ({ message, onAct
       );
     }
 
+    if (isExplanationBlock(block)) {
+      return (
+        <div key={block.id} className="content-block explanation-block mb-4">
+          <ExplanationMessage data={block.data} />
+        </div>
+      );
+    }
+
+    if (isReasoningChainBlock(block)) {
+      return (
+        <div key={block.id} className="content-block reasoning-chain-block mb-4">
+          <ReasoningChainMessage data={block.data} />
+        </div>
+      );
+    }
     return null;
   };
 

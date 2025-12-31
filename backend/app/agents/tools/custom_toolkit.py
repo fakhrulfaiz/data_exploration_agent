@@ -8,9 +8,9 @@ from langchain.tools import BaseTool
 from typing import List, Any, Optional
 from pydantic import Field
 from .visualization_tools import SmartTransformForVizTool, LargePlottingTool
-from .data_analysis_tools import SqlToDataFrameTool, SecurePythonREPLTool, DataFrameInfoTool
-from .text2sql_tool import Text2SQLTool
+from .data_analysis_tools import SecurePythonREPLTool, DataFrameInfoTool
 from .image_QA_tools import ImageQATool
+from .data_exploration_agent_tool import DataExplorationAgentTool
 
 
 class CustomToolkit(BaseToolkit):
@@ -31,13 +31,14 @@ class CustomToolkit(BaseToolkit):
         ]
         
         if self.db_engine is not None:
-            tools.extend([
-                SqlToDataFrameTool(db_engine=self.db_engine),
-                LargePlottingTool(llm=self.llm),
-            ])
-        
-        if self.db_path is not None:
-            tools.append(Text2SQLTool(llm=self.llm, db_path=self.db_path))
+            tools.append(LargePlottingTool(llm=self.llm))
+            
+            if self.db_path is not None:
+                tools.append(DataExplorationAgentTool(
+                    llm=self.llm,
+                    db_engine=self.db_engine,
+                    db_path=self.db_path
+                ))
         
         return tools
     
@@ -49,10 +50,26 @@ from PIL import Image
 from transformers.models.blip import BlipForQuestionAnswering, BlipProcessor
 
 class VisualQA():
+    _instance = None
+    _model = None
+    _processor = None
+    
+    def __new__(cls, model_name: str = "Salesforce/blip-vqa-base"):
+        if cls._instance is None:
+            cls._instance = super(VisualQA, cls).__new__(cls)
+        return cls._instance
+    
     def __init__(self, model_name: str = "Salesforce/blip-vqa-base"):
-        # `Salesforce/blip-vqa-capfilt-large` has better performance but i dont have enough storage/ resource 
-        self.model = BlipForQuestionAnswering.from_pretrained(model_name)
-        self.processor = BlipProcessor.from_pretrained(model_name)
+        # Only load model once (singleton pattern)
+        if VisualQA._model is None:
+            print("Loading VisualQA model (first time only)...")
+            # `Salesforce/blip-vqa-capfilt-large` has better performance but i dont have enough storage/ resource 
+            VisualQA._model = BlipForQuestionAnswering.from_pretrained(model_name)
+            VisualQA._processor = BlipProcessor.from_pretrained(model_name)
+            print("✅ VisualQA model loaded and cached")
+        
+        self.model = VisualQA._model
+        self.processor = VisualQA._processor
 
     def answer_questions(self, image_paths: List[str], query: str, batch_size: int = 10):
         results = []
