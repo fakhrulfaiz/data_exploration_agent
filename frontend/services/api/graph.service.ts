@@ -84,6 +84,17 @@ export class GraphService {
     }
 
     /**
+     * Cancel an ongoing stream
+     */
+    static async cancelStream(threadId: string): Promise<void> {
+        return apiClient.post(
+            API_ENDPOINTS.GRAPH.STREAM.CANCEL(threadId),
+            {}
+        );
+    }
+
+
+    /**
      * Stream SSE events from the graph execution
      * Returns EventSource for connection management
      */

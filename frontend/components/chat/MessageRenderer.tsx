@@ -271,7 +271,7 @@ export const MessageRenderer: React.FC<MessageRendererProps> = ({ message, onAct
           // Hide text block if:
           // 1. It appears before tool_calls block
           // 2. Its content matches or is contained in tool_calls block content
-          if (index < toolCallsIndex && toolCallsContent && textContent.trim()) {
+          if (index < toolCallsIndex && toolCallsContent && typeof textContent === 'string' && textContent.trim()) {
             const normalizedText = textContent.trim();
             const normalizedToolContent = toolCallsContent.trim();
             // Check if text content matches tool_calls content (tool explanation)
@@ -294,27 +294,24 @@ export const MessageRenderer: React.FC<MessageRendererProps> = ({ message, onAct
       filteredBlocks.slice(0, latestToolCallIndex).some(b => isToolCallsBlock(b));
 
     if (hasToolCallHistory) {
-      const beforeLatest = filteredBlocks.slice(0, latestToolCallIndex);
-      const fromLatest = filteredBlocks.slice(latestToolCallIndex);
-      const visibleBeforeLatest = beforeLatest.filter(b => !isToolCallsBlock(b));
-      const collapsibleToolBlocks = beforeLatest.filter(b => isToolCallsBlock(b));
+      // Keep blocks in stream order, but collapse older tool calls
+      // Find where to start collapsing (first tool call)
+      const firstToolCallIndex = filteredBlocks.findIndex(b => isToolCallsBlock(b));
 
       return (
         <div className="content-blocks">
-          {/* Always visible blocks (plan, text, etc.) */}
-          {visibleBeforeLatest.map((block) => renderContentBlock(block))}
+          {/* Blocks before any tool calls (e.g., plan) */}
+          {filteredBlocks.slice(0, firstToolCallIndex).map((block) => renderContentBlock(block))}
 
-          {/* Collapsible tool history */}
-          {collapsibleToolBlocks.length > 0 && (
-            <ToolHistoryCollapsible
-              blocks={collapsibleToolBlocks}
-              collapseUntilIndex={collapsibleToolBlocks.length}
-              renderContentBlock={renderContentBlock}
-            />
-          )}
+          {/* Collapsible section: everything from first tool call to before latest tool call */}
+          <ToolHistoryCollapsible
+            blocks={filteredBlocks.slice(firstToolCallIndex, latestToolCallIndex)}
+            collapseUntilIndex={filteredBlocks.slice(firstToolCallIndex, latestToolCallIndex).length}
+            renderContentBlock={renderContentBlock}
+          />
 
-          {/* Latest tool call and everything after */}
-          {fromLatest.map((block) => renderContentBlock(block))}
+          {/* Latest tool call and everything after (always visible) */}
+          {filteredBlocks.slice(latestToolCallIndex).map((block) => renderContentBlock(block))}
         </div>
       );
     }

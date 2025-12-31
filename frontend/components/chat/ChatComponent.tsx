@@ -67,6 +67,7 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
   hasDataContext,
   onOpenDataContext,
   onDataFrameDetected,
+  onCancelStream,
 }) => {
 
 
@@ -1561,6 +1562,16 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
     }
   };
 
+  const handleStopStream = () => {
+    console.log('Stopping stream...');
+    setStreamingActive(false);
+    setIsLoading(false);
+    setExecutionStatus('idle');
+
+    // Note: EventSource closing is handled in page.tsx
+    // This handler just updates the local UI state
+  };
+
   const handleRetry = async (messageId: string): Promise<void> => {
     const message = messages.find(m => m.message_id === messageId);
     // Check if message has timeout status in any block (can be retried)
@@ -1792,6 +1803,8 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
             attachedFiles={attachedFiles}
             hasDataContext={hasDataContext}
             onOpenDataContext={onOpenDataContext}
+            isStreaming={streamingActive}
+            onStopStream={handleStopStream}
           />
         </div>
       </div>

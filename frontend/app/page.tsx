@@ -143,7 +143,6 @@ const ChatWithApproval: React.FC = () => {
   };
 
   const handleMessageUpdated = async (msg: Message) => {
-    // Handle persistent storage of block-level approval updates
     const threadId = currentThreadIdRef.current || currentThreadId || selectedChatThreadId || msg.threadId;
     if (!threadId) {
       console.error('No thread ID available for message update');
@@ -155,6 +154,11 @@ const ChatWithApproval: React.FC = () => {
       if (Array.isArray(msg.content)) {
         // Update each block that has status changes
         for (const block of msg.content) {
+          // Skip explanation blocks - they don't need approval
+          if (block.type === 'explanation') {
+            continue;
+          }
+
           // Only update blocks that have status-related fields
           if (block.needsApproval !== undefined || block.messageStatus !== undefined) {
             const blockUpdates: {
@@ -793,6 +797,37 @@ const ChatWithApproval: React.FC = () => {
     }
   };
 
+  const handleCancelStream = async (): Promise<void> => {
+    try {
+      // Close the EventSource connection
+      if (eventSourceRef.current) {
+        eventSourceRef.current.close();
+        eventSourceRef.current = null;
+        console.log('EventSource connection closed');
+      }
+
+      // Call backend cancel endpoint if we have a thread ID
+      const threadId = currentThreadIdRef.current || currentThreadId || selectedChatThreadId;
+      if (threadId) {
+        try {
+          await GraphService.cancelStream(threadId);
+          console.log('Stream cancelled on backend for thread:', threadId);
+        } catch (error) {
+          console.error('Failed to cancel stream on backend:', error);
+          // Don't throw - EventSource is already closed, which is the important part
+        }
+      }
+
+      // Reset states
+      setLoading(false);
+      setExecutionStatus('finished');
+    } catch (error) {
+      console.error('Error cancelling stream:', error);
+    }
+  };
+
+
+
 
   // Handle thread selection
   const handleThreadSelect = async (threadId: string | null) => {
@@ -979,6 +1014,7 @@ const ChatWithApproval: React.FC = () => {
                   hasDataContext={!!dataFrameData}
                   onOpenDataContext={() => setDataFrameOpen(true)}
                   onDataFrameDetected={handleDataFrameDetected}
+                  onCancelStream={handleCancelStream}
                 />
               )}
             </div>

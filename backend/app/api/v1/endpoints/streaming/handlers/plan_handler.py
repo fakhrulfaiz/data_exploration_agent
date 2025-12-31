@@ -44,6 +44,15 @@ class PlanContentHandler(ContentHandler):
                     "action": action
                 })
             }
+            
+            # Append plan block to context in stream order
+            plan_block = {
+                "id": block_id,
+                "type": "plan",
+                "needsApproval": False,
+                "data": {"plan": msg.content}
+            }
+            self.context.completed_blocks.append(plan_block)
         elif response_type == "answer":
             block_id = f"text_{self.context.assistant_message_id}"
             yield {
@@ -77,6 +86,8 @@ class PlanContentHandler(ContentHandler):
             return [{
                 "id": f"plan_{self.context.assistant_message_id}",
                 "type": "plan",
+                "sequence": 0,  # Plan is always first
                 "needsApproval": needs_approval,
                 "data": {"plan": self.plan_content}
             }]
+

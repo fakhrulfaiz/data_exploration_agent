@@ -49,6 +49,8 @@ interface InputFormProps {
   onAttachmentDeleted?: (attachment: UploadedAttachment) => void;
   hasDataContext?: boolean;
   onOpenDataContext?: () => void;
+  isStreaming?: boolean;
+  onStopStream?: () => void;
 }
 
 const InputForm: React.FC<InputFormProps> = ({
@@ -72,6 +74,8 @@ const InputForm: React.FC<InputFormProps> = ({
   onAttachmentDeleted,
   hasDataContext,
   onOpenDataContext,
+  isStreaming = false,
+  onStopStream,
 }) => {
   const useStreaming = useStreamingProp ?? true;
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -404,17 +408,32 @@ const InputForm: React.FC<InputFormProps> = ({
 
           <Separator orientation="vertical" className="!h-4" />
 
-          {/* Send Button */}
-          <InputGroupButton
-            variant="default"
-            className="rounded-xl"
-            size="icon-sm"
-            disabled={!value.trim() || disabled || isLoading}
-            onClick={onSend}
-          >
-            <ArrowUp className="w-5 h-5 text-background" strokeWidth={3} />
-            <span className="sr-only">Send</span>
-          </InputGroupButton>
+          {/* Send/Stop Button */}
+          {isStreaming ? (
+            <InputGroupButton
+              variant="destructive"
+              className="rounded-xl"
+              size="icon-sm"
+              onClick={onStopStream}
+              title="Stop stream"
+            >
+              <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                <rect x="6" y="6" width="12" height="12" rx="1" />
+              </svg>
+              <span className="sr-only">Stop</span>
+            </InputGroupButton>
+          ) : (
+            <InputGroupButton
+              variant="default"
+              className="rounded-xl"
+              size="icon-sm"
+              disabled={!value.trim() || disabled || isLoading}
+              onClick={onSend}
+            >
+              <ArrowUp className="w-5 h-5 text-background" strokeWidth={3} />
+              <span className="sr-only">Send</span>
+            </InputGroupButton>
+          )}
         </InputGroupAddon>
       </InputGroup>
 

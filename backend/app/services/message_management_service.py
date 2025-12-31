@@ -202,10 +202,17 @@ class MessageManagementService:
                     logger.error(f"Failed to save message: {e}")
                     raise
             
+            
             if blocks:
                 try:
+                    # Delete old blocks first
                     await self.message_content_repo.delete_blocks_by_message_id(message_id)
-                    await self.message_content_repo.add_content_blocks(message.message_id, blocks)
+                    for block in blocks:
+                        await self.message_content_repo.add_content_block_with_sequence(
+                            message_id, block
+                        )
+                    
+                    logger.info(f"Inserted {len(blocks)} content blocks with sequences for message {message_id}")
                 except Exception as e:
                     logger.error(f"Failed to save content blocks for message {message.message_id}: {e}")
                     if not existing_message:

@@ -152,6 +152,49 @@ async def resume_graph_streaming(
         message="Streaming graph resume pending"
     )
 
+@router.post("/cancel/{thread_id}", response_model=GraphResponse)
+async def cancel_stream(
+    thread_id: str,
+    agent_service: AgentService = Depends(get_agent_service),
+    current_user: SupabaseUser = Depends(get_current_user)
+):
+    """
+    Cancel an ongoing stream execution
+    """
+    user_id = current_user.user_id
+    logger.info(f"Cancelling stream - thread_id: {thread_id}, user_id: {user_id}")
+    
+    try:
+        # Clean up run configs
+        if thread_id in run_configs:
+            del run_configs[thread_id]
+            logger.info(f"Cleaned up run_configs for thread {thread_id}")
+        
+        # Update agent state to mark as cancelled
+        agent = agent_service.get_agent()
+        config = {"configurable": {"thread_id": thread_id, "user_id": user_id}}
+        
+        try:
+            # Update state to cancelled status
+            agent.graph.update_state(config, {"status": "cancelled"})
+            logger.info(f"Updated agent state to cancelled for thread {thread_id}")
+        except Exception as state_error:
+            # State update might fail if thread doesn't exist, which is fine
+            logger.warning(f"Could not update state for thread {thread_id}: {state_error}")
+        
+        return GraphResponse(
+            data={
+                "thread_id": thread_id,
+                "run_status": "cancelled",
+                "assistant_response": "Stream execution cancelled by user"
+            },
+            message="Stream cancelled successfully"
+        )
+    except Exception as e:
+        logger.error(f"Error cancelling stream for thread {thread_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to cancel stream: {str(e)}")
+
+
 @router.get("/{thread_id}")
 async def stream_graph(
     request: Request,
@@ -182,11 +225,6 @@ async def stream_graph(
     if not assistant_message_id:
         assistant_message_id = str(uuid4())
         run_data["assistant_message_id"] = assistant_message_id
-    
-    text_block_id = run_data.get("text_block_id")
-    if not text_block_id:
-        text_block_id = f"text_run--{uuid4()}"
-        run_data["text_block_id"] = text_block_id
     
     # Get agent instance - needed for both start and resume cases
     agent = agent_service.get_agent()
@@ -270,13 +308,12 @@ async def stream_graph(
         context = StreamContext(
             thread_id=thread_id,
             assistant_message_id=assistant_message_id,
-            text_block_id=text_block_id,
             node_name="",
             message_service=message_service,
             config=config
         )
         
-        tool_handler = ToolCallHandler(context)
+        # Initialize handlers (database handles sequencing)
         text_handler = TextContentHandler(context) 
         plan_handler = PlanContentHandler(context, agent)
         explanation_handler = ExplanationContentHandler(context)
@@ -299,7 +336,7 @@ async def stream_graph(
                 completed, pending, other_blocks = await persistence.load_existing_blocks(
                     thread_id, assistant_message_id
                 )
-                tool_handler.load_existing_state(completed, pending)
+                tool_call_handler.load_existing_state(completed, pending)
                 # Store other_blocks (plan, text) in context for later use
                 context.existing_blocks = other_blocks
             except Exception as e:
@@ -338,16 +375,15 @@ async def stream_graph(
                     async for event in plan_handler.handle(msg, metadata):
                         yield event
                 elif await text_handler.can_handle(msg, metadata):
-                    # Check if this is tool explanation content (from ANY node)
-                    # Tool explanations can come from 'agent' or 'tool_explanation' nodes
-                    if (type(msg).__name__ == 'AIMessageChunk' and tool_handler.active_tool_id):
-                        async for event in tool_handler.handle_explanation(msg, metadata):
+                    # Check if this is tool explanation content
+                    if (type(msg).__name__ == 'AIMessageChunk' and tool_call_handler.active_tool_id):
+                        async for event in tool_call_handler.handle_explanation(msg, metadata):
                             yield event
                     elif (type(msg).__name__ == 'AIMessage' and
                           context.node_name == 'tool_explanation' and
-                          tool_handler.active_tool_id):
+                          tool_call_handler.active_tool_id):
                         # Final tool explanation from tool_explanation node
-                        async for event in tool_handler.handle_explanation(msg, metadata):
+                        async for event in tool_call_handler.handle_explanation(msg, metadata):
                             yield event
                     else:
                         # Regular text content
@@ -376,23 +412,28 @@ async def stream_graph(
             
             if interrupt_data:
                 async for event in handle_tool_interrupt(
-                    interrupt_data, tool_handler, persistence, context, state, config
+                    interrupt_data, tool_call_handler, persistence, context, state, config
                 ):
                     yield event
             elif state.next and 'human_feedback' in state.next:
                 async for event in handle_plan_approval(
-                    tool_handler, text_handler, plan_handler, persistence, context, state, config
+                    tool_call_handler, text_handler, plan_handler, persistence, context, state, config
                 ):
                     yield event
             else:
+                # Finalize text handler to append all text blocks to context
+                async for event in text_handler.finalize():
+                    yield event
+                
+                # Normal completion - save all blocks
                 async for event in handle_completion(
-                    tool_handler, text_handler, plan_handler, persistence, context, state, config
+                    tool_call_handler, text_handler, plan_handler, persistence, context, state, config
                 ):
                     yield event
         
         except Exception as e:
             async for event in handle_error(
-                e, tool_handler, persistence, context, agent, config, run_data
+                e, tool_call_handler, persistence, context, agent, config, run_data
             ):
                 yield event
         finally:

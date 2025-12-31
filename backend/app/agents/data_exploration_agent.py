@@ -23,6 +23,7 @@ from app.agents.tools.custom_toolkit import CustomToolkit
 from app.agents.state import ExplainableAgentState
 from app.agents.nodes.planner_node import PlannerNode
 from app.agents.nodes.explainer_node import ExplainerNode
+from app.agents.nodes.enhanced_explainer_node import EnhancedExplainerNode
 from app.agents.nodes.error_explainer_node import ErrorExplainerNode
 from app.agents.nodes.agent_executor_node import AgentExecutorNode
 from app.agents.nodes.task_scheduler_node import TaskSchedulerNode
@@ -106,7 +107,9 @@ class DataExplorationAgent:
         
         self.graph = self.create_graph()
         
-        self.save_graph_visualization()
+        # Commented out to prevent blocking during startup
+        # Graph visualization can be accessed via /api/v1/graph/visualization-image endpoint
+        # self.save_graph_visualization()
     
     def save_graph_visualization(self):
         try:
@@ -408,7 +411,16 @@ class DataExplorationAgent:
             }
         )
         graph.add_edge("error_explainer", END)
-        graph.add_edge("explain", "agent")
+        
+        # Update explain node to use conditional routing
+        graph.add_conditional_edges(
+            "explain",
+            self.route_after_explain,
+            {
+                "agent_executor": "agent_executor",  # Planning mode
+                "agent": "agent"  # Non-planning mode
+            }
+        )
         
         if self.checkpointer:
             if self.store:
@@ -462,14 +474,15 @@ class DataExplorationAgent:
         dynamic_plan = state.get("dynamic_plan")
         
         if dynamic_plan:
-            return "agent_executor"
+            return "agent_executor"  # Planning mode: continue to next step
         else:
-            return self.should_explain(state)
+            return "agent"  # Non-planning mode: return to agent
     
     def route_tasks(self, state: ExplainableAgentState):
         return self.task_scheduler.route_tasks(state)
     
     def after_joiner(self, state: ExplainableAgentState) -> str:
+        """Route after joiner - NO explainer here anymore (it already ran after each tool)"""
         decision = state.get("joiner_decision")
         
         if decision == "finish":
@@ -483,6 +496,14 @@ class DataExplorationAgent:
         else:
             logger.warning(f"Unexpected joiner decision: {decision}, defaulting to end")
             return "end"
+    
+    def route_after_explain(self, state: ExplainableAgentState) -> str:
+        """Route after explanation - back to execution loop"""
+        dynamic_plan = state.get("dynamic_plan")
+        if dynamic_plan:
+            return "agent_executor"  # Planning mode: continue to next step
+        else:
+            return "agent"  # Non-planning mode: return to agent
     
     
     def should_continue_group(self, state: ExplainableAgentState) -> str:
@@ -1204,7 +1225,8 @@ Examples:
             self.graph = self.create_graph()
             
             # Regenerate graph visualization
-            self.save_graph_visualization()
+            # Commented out to prevent blocking during LLM updates
+            # self.save_graph_visualization()
             
             return True
             

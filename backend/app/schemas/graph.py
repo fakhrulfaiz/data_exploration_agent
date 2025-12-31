@@ -55,8 +55,9 @@ class StepData(BaseModel):
     reasoning: str = Field(..., description="Reasoning for decision")
     input: str = Field(..., description="Step input")
     output: str = Field(..., description="Step output")
-    confidence: float = Field(..., description="Confidence score")
-    why_chosen: str = Field(..., description="Why this step was chosen")
+    tool_justification: Optional[str] = Field(None, description="Why this tool was appropriate")
+    contrastive_explanation: Optional[str] = Field(None, description="Why alternative was not used")
+    data_evidence: Optional[str] = Field(None, description="Data evidence supporting decision")
     timestamp: str = Field(..., description="Step timestamp")
 
 
@@ -119,8 +120,9 @@ class ExplorerStepData(BaseModel):
     reasoning: str
     input: str
     output: str
-    confidence: float
-    why_chosen: str
+    tool_justification: Optional[str] = None
+    contrastive_explanation: Optional[str] = None
+    data_evidence: Optional[str] = None
     timestamp: str
 
 

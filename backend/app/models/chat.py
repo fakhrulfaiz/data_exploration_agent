@@ -131,6 +131,7 @@ class MessageContent(Base):
         nullable=True
     )
     data: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    sequence: Mapped[int] = mapped_column(Integer, nullable=False, default=0, index=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
@@ -142,6 +143,7 @@ class MessageContent(Base):
     
     __table_args__ = (
         Index('idx_message_content_message_created', 'chat_message_id', 'created_at'),
+        Index('idx_message_content_message_sequence', 'chat_message_id', 'sequence'),
     )
     
     def __repr__(self):

@@ -73,7 +73,7 @@ class MainAgentState(MessagesState):
     feedback: str | None = None
     replan_approval: bool = False
 
-    # from data_exploration_subagent, can include by appending it in a static format in tool message then parse it into this state.        
+    # from data_exploration_subagent
     tool_results: Annotated[Dict[str, Any], merge_tool_results]
 
 

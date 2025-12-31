@@ -81,6 +81,56 @@ class MessageContentRepository(BaseRepository[MessageContent]):
             await self.session.rollback()
             raise Exception(f"Failed to add content blocks: {e}")
     
+    async def add_content_block_with_sequence(
+        self,
+        chat_message_id: str,
+        block: Dict[str, Any]
+    ) -> bool:
+        try:
+            # Get next sequence number for this message
+            stmt = select(MessageContent).where(MessageContent.chat_message_id == chat_message_id)
+            result = await self.session.execute(stmt)
+            existing_blocks = result.scalars().all()
+            next_sequence = len(existing_blocks)  # 0-indexed
+            
+            needs_approval = block.get('needsApproval', block.get('needs_approval', False))
+            block_id = block.get('id', block.get('block_id'))
+            block_type = block.get('type')
+            block_data = block.get('data', {})
+            message_status = block.get('messageStatus', block.get('message_status'))
+            
+            if not block_id or not block_type:
+                logger.warning(f"Skipping block with missing id or type: {block}")
+                return False
+            
+            # Convert message_status string to enum if needed
+            if message_status and isinstance(message_status, str):
+                try:
+                    message_status = MessageStatusEnum(message_status)
+                except ValueError:
+                    logger.warning(f"Invalid message_status: {message_status}")
+                    message_status = None
+            
+            content = MessageContent(
+                chat_message_id=chat_message_id,
+                block_id=block_id,
+                type=block_type,
+                needs_approval=needs_approval,
+                message_status=message_status,
+                data=block_data,
+                sequence=next_sequence,  # Auto-assigned sequence
+                created_at=datetime.now()
+            )
+            
+            self.session.add(content)
+            await self.session.flush()
+            logger.info(f"Inserted content block {block_id} with sequence {next_sequence} for message {chat_message_id}")
+            return True
+        except SQLAlchemyError as e:
+            logger.error(f"Error adding content block for message {chat_message_id}: {e}")
+            await self.session.rollback()
+            raise Exception(f"Failed to add content block: {e}")
+    
     async def get_blocks_by_message_id(self, chat_message_id: str) -> List[Dict[str, Any]]:
         """
         Retrieve all content blocks for a message, ordered by created_at.
@@ -95,7 +145,7 @@ class MessageContentRepository(BaseRepository[MessageContent]):
             stmt = (
                 select(MessageContent)
                 .where(MessageContent.chat_message_id == chat_message_id)
-                .order_by(asc(MessageContent.created_at))
+                .order_by(asc(MessageContent.sequence))  # Order by sequence instead of created_at
             )
             result = await self.session.execute(stmt)
             documents = result.scalars().all()
