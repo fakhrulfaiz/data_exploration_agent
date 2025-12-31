@@ -1,6 +1,8 @@
 import os
+import csv
+import ast
 from pathlib import Path
-from typing import Literal
+from typing import Literal, Annotated, Any, Dict
 
 from dotenv import load_dotenv
 from langchain.chat_models import init_chat_model
@@ -18,12 +20,13 @@ model = init_chat_model("gpt-4o-mini")
 
 # Setup database connection
 base_path = Path.cwd().parent.parent
+print(base_path)
 db_path = base_path / "resource" / "art.db"
 
-# Override the database path cause error in notebook
-db_path = "/home/afiq/fyp/fafa-repo/backend/app/resource/art.db"
+dev_path = base_path / "agents" / "dev"
+workspace_path = dev_path / "workspace"
 
-sql_url = f"sqlite:///{db_path}"
+sql_url = f"sqlite:///{db_path.resolve()}"
 db = SQLDatabase.from_uri(sql_url)
 
 # Initialize toolkit and tools
@@ -34,12 +37,28 @@ tools = toolkit.get_tools()
 get_schema_tool = next(tool for tool in tools if tool.name == "sql_db_schema")
 get_schema_node = ToolNode([get_schema_tool], name="get_schema")
 
-run_query_tool = next(tool for tool in tools if tool.name == "sql_db_query")
-run_query_node = ToolNode([run_query_tool], name="run_query")
+from pydantic import BaseModel, Field
+class QueryArgs(BaseModel):
+    """Args required to run a query"""
+    query: str = Field(..., description="The query to run")
+    columns: list[str] = Field(..., description="The columns or headers created/ return by the given query")
 
-# Create custom state
-from langgraph.graph import MessagesState
-from typing import Annotated, Any, Dict
+from langchain_core.tools import StructuredTool
+
+run_query_tool = next(tool for tool in tools if tool.name == "sql_db_query")
+
+def run_query_tool_with_columns(query: str, columns: list[str]):
+    # columns is for planning / downstream use
+    # the actual DB tool only needs `query`
+    return run_query_tool.invoke({"query": query})
+
+wrapped_run_query_tool = StructuredTool.from_function(
+    name="sql_db_query",  # SAME name (important)
+    description=run_query_tool.description,
+    func=run_query_tool_with_columns,
+    args_schema=QueryArgs,
+)
+run_query_node = ToolNode([run_query_tool], name="run_query")
 
 # Reducer 
 def merge_tool_results(a: dict, b: dict) -> dict:
@@ -85,11 +104,10 @@ query to at most {top_k} results.
 You can order the results by a relevant column to return the most interesting
 examples in the database. Never query for all the columns from a specific table,
 only ask for the relevant columns given the question.
-Always return image path rather than image url.
 
 DO NOT make any DML statements (INSERT, UPDATE, DELETE, DROP etc.) to the database.
 
-If the question does not make sense or is not answerable (given the context of database schema), explain why and recommended the user to explore other tools.
+If you have enough information to answer the user's question: DO NOT generate a tool call but instead answer the question.
 """.format(
     dialect=db.dialect,
     top_k=5,
@@ -101,7 +119,7 @@ def generate_query(state: DataExplorationState):
         "role": "system",
         "content": generate_query_system_prompt,
     }
-    llm_with_tools = model.bind_tools([run_query_tool])
+    llm_with_tools = model.bind_tools([wrapped_run_query_tool])
     response = llm_with_tools.invoke([system_message] + state["messages"])
 
     return {"messages": [response]}
@@ -127,22 +145,6 @@ You will call the appropriate tool to execute the query after running this check
 """.format(dialect=db.dialect)
 
 
-def check_query(state: DataExplorationState):
-    system_message = {
-        "role": "system",
-        "content": check_query_system_prompt,
-    }
-
-    # Generate an artificial user message to check
-    tool_call = state["messages"][-1].tool_calls[0]
-    user_message = {"role": "user", "content": tool_call["args"]["query"]}
-    llm_with_tools = model.bind_tools([run_query_tool], tool_choice="any")
-    response = llm_with_tools.invoke([system_message, user_message])
-    response.id = state["messages"][-1].id
-
-    return {"messages": [response]}
-
-
 # Node to extract tool results into state
 from langchain_core.messages import ToolMessage
 
@@ -153,7 +155,6 @@ def store_query_result(state: DataExplorationState):
         return {}
     
     tool_call_id = last_message.tool_call_id
-    tool_call = None
     for msg in reversed(state["messages"][:-1]):
         if isinstance(msg, AIMessage):
             for call in msg.tool_calls:
@@ -165,26 +166,56 @@ def store_query_result(state: DataExplorationState):
 
     if tool_call is None:
         return {}
-
-    return {
-        "tool_results": {
-            tool_call_id: {
-                "name": tool_call["name"],
-                "args": tool_call["args"],
-                "result": last_message.content,
-            }
+    
+    tool_results = {
+        tool_call_id: {
+            "name": tool_call["name"],
+            "query": tool_call["args"]["query"],
+            "columns": tool_call["args"]["columns"],
+            "result": last_message.content,
         }
     }
+    
+    return {"tool_results": tool_results}
+
+
+# Node to save query results to CSV workspace
+def update_workspace(state: DataExplorationState):
+    if not state.get("tool_results"):
+        return state
+    
+    last_call_id = list(state["tool_results"].keys())[-1]
+    headers = state["tool_results"][last_call_id]["columns"]
+    raw_sqlite_results = state["tool_results"][last_call_id]["result"]
+
+    try:
+        rows = ast.literal_eval(raw_sqlite_results)
+    except Exception as e:
+        raise ValueError(f"Failed to parse sqlite result: {e}")
+
+    if not isinstance(rows, list):
+        raise ValueError("Parsed sqlite result is not a list")
+
+    output_dir = workspace_path / "data"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    csv_path = output_dir / f"{last_call_id}.csv"
+
+    with open(csv_path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        writer.writerow(headers)
+        writer.writerows(rows)
+
+    return state
 
 
 # Conditional edge function
-def should_continue(state: MessagesState) -> Literal[END, "check_query"]:
+def should_continue(state: MessagesState) -> Literal[END, "run_query"]:
     messages = state["messages"]
     last_message = messages[-1]
     if not last_message.tool_calls:
         return END
     else:
-        return "check_query"
+        return "run_query"
 
 
 # Build the agent graph
@@ -194,9 +225,9 @@ def build_agent():
     builder.add_node(call_get_schema)
     builder.add_node(get_schema_node, "get_schema")
     builder.add_node(generate_query)
-    builder.add_node(check_query)
     builder.add_node(run_query_node, "run_query")
     builder.add_node(store_query_result)
+    builder.add_node(update_workspace)
 
     builder.add_edge(START, "list_tables")
     builder.add_edge("list_tables", "call_get_schema")
@@ -206,9 +237,9 @@ def build_agent():
         "generate_query",
         should_continue,
     )
-    builder.add_edge("check_query", "run_query")
     builder.add_edge("run_query", "store_query_result")
-    builder.add_edge("store_query_result", "generate_query")
+    builder.add_edge("store_query_result", "update_workspace")
+    builder.add_edge("update_workspace", "generate_query")
 
     return builder.compile()
 
@@ -219,7 +250,7 @@ agent = build_agent()
 
 if __name__ == "__main__":
     # Example usage
-    question = "Plot the number of paintings for each year"
+    question = "Which genre has the oldest painting?"
 
     for step in agent.stream(
         {"messages": [{"role": "user", "content": question}]},
