@@ -11,16 +11,23 @@ from langgraph.prebuilt import ToolNode
 from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.memory import MemorySaver
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, SystemMessage
-from typing import List, Dict, Any, Optional, Literal
+from langchain_core.tools import tool
+from langgraph.types import Command
+from typing import List, Dict, Any, Optional, Literal, Annotated
 import json
 import os
 from datetime import datetime
 import logging
+from langchain_core.runnables import RunnableConfig
+from langgraph.prebuilt import InjectedState
+from langchain_core.tools import InjectedToolCallId
 
 from app.agents.tools.custom_toolkit import CustomToolkit
 from app.agents.state import ExplainableAgentState
-from app.agents.nodes.planner_node import PlannerNode
+from app.agents.nodes.explainable.explainable_planner_node import ExplainablePlannerNode
 from app.agents.nodes.explainer_node import ExplainerNode
+from app.agents.nodes.finalizer_node import FinalizerNode
+from app.agents.assistant_agent import AssistantAgent
 
 logger = logging.getLogger(__name__)
 
@@ -47,9 +54,17 @@ class MainAgent:
         )
         self.tools = self.custom_toolkit.get_tools()
         
-        # Initialize nodes
-        self.planner = PlannerNode(llm, self.tools)
+        self.planner = ExplainablePlannerNode(llm, self.tools)
         self.explainer = ExplainerNode(llm, available_tools=self.tools)
+        self.finalizer = FinalizerNode(llm)
+        
+        # Create handoff tools and assistant agent
+        self.create_handoff_tools()
+        self.assistant_agent_instance = AssistantAgent(
+            llm=llm,
+            transfer_tools=[self.transfer_to_main_agent]
+        )
+        self.assistant_agent = self.assistant_agent_instance
         
         # Setup logs directory
         if logs_dir is None:
@@ -81,6 +96,15 @@ class MainAgent:
         else:
             self.checkpointer = None
         
+        # Setup LangGraph Store for conversation-scoped memories
+        if store is not None:
+            self.store = store
+        else:
+            # Use InMemoryStore for development
+            from langgraph.store.memory import InMemoryStore
+            self.store = InMemoryStore()
+            logger.info("Initialized InMemoryStore for conversation memories")
+        
         # Build the graph
         self.graph = self.create_graph()
         self.save_graph_visualization()
@@ -94,6 +118,76 @@ class MainAgent:
             logger.info(f"Graph visualization saved to: {graph_path}")
         except Exception as e:
             logger.error(f"Failed to generate graph visualization: {e}")
+    
+    def create_handoff_tools(self):
+        """Create handoff tools for assistant agent routing."""
+        @tool("transfer_to_main_agent", description="Transfer to the main agent for data exploration and analysis tasks")
+        def transfer_to_main_agent(
+            state: Annotated[Dict[str, Any], InjectedState],
+            tool_call_id: Annotated[str, InjectedToolCallId],
+            task_description: str = ""
+        ) -> Command:
+            tool_message = {
+                "role": "tool",
+                "content": f"Transferring to main agent: {task_description}",
+                "name": "transfer_to_main_agent",
+                "tool_call_id": tool_call_id,
+            }
+            
+            query = state.get("query", "")
+            status = state.get("status", "approved")
+            
+            # Get latest human message if available
+            if status == "approved" and "messages" in state and state["messages"]:
+                latest_human_msg = self._get_latest_human_message(state["messages"])
+                if latest_human_msg:
+                    query = latest_human_msg
+            
+            update_state = {
+                "messages": state.get("messages", []) + [tool_message],
+                "agent_type": "main_agent",
+                "routing_reason": f"Transferred to main agent: {task_description}",
+                "query": query,
+                "steps": state.get("steps", []),
+                "step_counter": state.get("step_counter", 0),
+                "human_comment": state.get("human_comment"),
+                "status": state.get("status", "approved"),
+                "assistant_response": state.get("assistant_response", ""),
+                "visualizations": state.get("visualizations", []),
+                "data_context": state.get("data_context"),
+            }
+            
+            return Command(
+                goto="main_agent_flow",
+                update=update_state,
+                graph=Command.PARENT,
+            )
+        
+        self.transfer_to_main_agent = transfer_to_main_agent
+    
+    def _get_latest_human_message(self, messages: List[BaseMessage]) -> Optional[str]:
+        """Get the latest human message from message history."""
+        if not messages:
+            return None
+        for msg in reversed(messages):
+            if hasattr(msg, 'content') and hasattr(msg, '__class__') and 'HumanMessage' in str(msg.__class__):
+                return msg.content
+        return None
+    
+    def main_agent_entry(self, state: ExplainableAgentState) -> Dict[str, Any]:
+        status = state.get("status", "approved")
+        messages = state.get("messages", [])
+        current_query = state.get("query", "")
+        
+        if status == "approved":
+            latest_human_msg = self._get_latest_human_message(messages)
+            if latest_human_msg and latest_human_msg != current_query:
+                return {
+                    **state,
+                    "query": latest_human_msg
+                }
+        
+        return state
     
     def process_query(self, state: ExplainableAgentState) -> Dict[str, Any]:
         """
@@ -153,12 +247,6 @@ class MainAgent:
         }
     
     def tools_node(self, state: ExplainableAgentState) -> Dict[str, Any]:
-        """
-        Execute tools and capture step information.
-        
-        Supports multiple tool calls in one message - captures all arguments
-        and all outputs in the step info.
-        """
         messages = state.get("messages", [])
         last_message = messages[-1]
         steps = state.get("steps", [])
@@ -218,16 +306,7 @@ class MainAgent:
             "step_counter": step_counter
         }
     
-    def should_continue(self, state: ExplainableAgentState) -> Literal["tools", "cleanup", "human_feedback", "process_query"]:
-        """
-        Route after process_query.
-        
-        Routes to:
-        - human_feedback: if feedback/comment exists
-        - tools: if last message has tool calls (PRIORITY - check this first!)
-        - cleanup: if all steps completed OR no more work to do
-        - process_query: otherwise (continue to next step)
-        """
+    def should_continue(self, state: ExplainableAgentState) -> Literal["tools", "finalizer", "human_feedback", "process_query"]:
         # Check for feedback/replan request
         if state.get("human_comment"):
             logger.info("Routing to human_feedback for replan")
@@ -248,53 +327,32 @@ class MainAgent:
         
         # If we're at or past the end of the plan and no tool calls, we're done
         if dynamic_plan and current_idx >= len(dynamic_plan.steps):
-            logger.info("All steps completed, routing to cleanup")
-            return "cleanup"
+            logger.info("All steps completed, routing to finalizer")
+            return "finalizer"
         
         # Continue to next step
         logger.info("Continuing to next step")
         return "process_query"
     
-    def cleanup_state(self, state: ExplainableAgentState) -> Dict[str, Any]:
+    def finalizer_node(self, state: ExplainableAgentState) -> Dict[str, Any]:
         """
-        Cleanup planning fields while preserving execution history.
+        Evaluate execution results and generate final response.
         
-        Clears:
-        - plan
-        - dynamic_plan
-        - current_step_index
-        
-        Preserves (for checkpointing):
-        - messages
-        - steps
-        - data_context
-        - visualizations
+        Uses FinalizerNode to:
+        - Build reasoning chain for all executed steps
+        - Provide overall synthesis
+        - Generate final response
+        - Always finishes (no replan/continue)
         """
-        logger.info("Cleaning up planning state while preserving execution history")
-        
-        return {
-            "plan": None,
-            "dynamic_plan": None,
-            "current_step_index": 0
-            # Preserve: messages, steps, data_context, visualizations, etc.
-        }
+        logger.info("Finalizing execution with comprehensive evaluation")
+        return self.finalizer.execute(state)
     
     def human_feedback(self, state: ExplainableAgentState) -> Dict[str, Any]:
-        """
-        Handle human feedback for replanning.
-        
-        Uses existing human_feedback mechanism from data_exploration_agent.
-        """
         from langgraph.types import interrupt
-        
-        logger.info("Entering human_feedback node - pausing for input")
-        
+        logger.info("Entering human_feedback node - pausing for input") 
         feedback_data = interrupt("awaiting_feedback")
-        
         logger.info(f"Received human feedback: {feedback_data}")
-        
-        updates = {}
-        
+        updates = {} 
         if isinstance(feedback_data, dict):
             if "action" in feedback_data:
                 action = feedback_data["action"]
@@ -308,16 +366,16 @@ class MainAgent:
         
         return updates
     
-    def route_after_feedback(self, state: ExplainableAgentState) -> Literal["planner", "cleanup"]:
+    def route_after_feedback(self, state: ExplainableAgentState) -> Literal["planner", "finalizer"]:
         """Route after human feedback."""
         status = state.get("status")
         
         if status == "cancelled":
-            return "cleanup"
+            return "finalizer"
         elif status == "feedback":
             return "planner"
         else:
-            return "cleanup"
+            return "finalizer"
     
     def planner_node(self, state: ExplainableAgentState) -> Dict[str, Any]:
         """Execute planner node."""
@@ -350,14 +408,19 @@ Execute the step instruction and use as many tools as needed to complete it."""
         graph = StateGraph(ExplainableAgentState)
         
         # Add nodes
+        graph.add_node("assistant", self.assistant_agent)
+        graph.add_node("main_agent_flow", self.main_agent_entry)
         graph.add_node("planner", self.planner_node)
         graph.add_node("process_query", self.process_query)
         graph.add_node("tools", self.tools_node)
-        graph.add_node("cleanup", self.cleanup_state)
+        graph.add_node("finalizer", self.finalizer_node)
         graph.add_node("human_feedback", self.human_feedback)
         
-        # Set entry point
-        graph.set_entry_point("planner")
+        # Set entry point to assistant
+        graph.set_entry_point("assistant")
+        
+        # Route from assistant to main agent flow
+        graph.add_edge("main_agent_flow", "planner")
         
         # Add edges
         graph.add_edge("planner", "process_query")
@@ -368,7 +431,7 @@ Execute the step instruction and use as many tools as needed to complete it."""
             self.should_continue,
             {
                 "tools": "tools",
-                "cleanup": "cleanup",
+                "finalizer": "finalizer",
                 "human_feedback": "human_feedback",
                 "process_query": "process_query"
             }
@@ -393,16 +456,17 @@ Execute the step instruction and use as many tools as needed to complete it."""
             self.route_after_feedback,
             {
                 "planner": "planner",
-                "cleanup": "cleanup"
+                "finalizer": "finalizer"
             }
         )
         
-        # Cleanup goes to END
-        graph.add_edge("cleanup", END)
+        # Finalizer goes to END
+        graph.add_edge("finalizer", END)
         
-        # Compile with checkpointer
+        # Compile with checkpointer and store
         if self.checkpointer:
-            return graph.compile(checkpointer=self.checkpointer)
+            return graph.compile(checkpointer=self.checkpointer, store=self.store)
         else:
-            return graph.compile(checkpointer=MemorySaver())
+            return graph.compile(checkpointer=MemorySaver(), store=self.store)
+
 
