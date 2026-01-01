@@ -86,6 +86,41 @@ const ToolHistoryCollapsible: React.FC<ToolHistoryCollapsibleProps> = ({
   );
 };
 
+const ThoughtCollapsible: React.FC<{ content: string }> = ({ content }) => {
+  const [isExpanded, setIsExpanded] = useState(false);
+
+  return (
+    <Collapsible open={isExpanded} onOpenChange={setIsExpanded} className="border border-muted rounded-md bg-muted/30">
+      <CollapsibleTrigger asChild>
+        <button
+          className="flex items-center gap-2 p-2 w-full hover:bg-muted/50 transition-colors rounded-t-md text-left"
+          type="button"
+        >
+          {isExpanded ? (
+            <ChevronDown className="w-4 h-4 text-muted-foreground" />
+          ) : (
+            <ChevronRight className="w-4 h-4 text-muted-foreground" />
+          )}
+          <span className="font-semibold text-sm text-foreground">
+            Thought Process
+          </span>
+        </button>
+      </CollapsibleTrigger>
+
+      <CollapsibleContent className="data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:slide-out-to-top-2 data-[state=open]:slide-in-from-top-2 duration-200">
+        <div className="p-3 pt-0 text-sm text-muted-foreground">
+          <ReactMarkdown
+            components={markdownComponents}
+            remarkPlugins={[remarkGfm]}
+          >
+            {content}
+          </ReactMarkdown>
+        </div>
+      </CollapsibleContent>
+    </Collapsible>
+  );
+};
+
 export const MessageRenderer: React.FC<MessageRendererProps> = ({ message, onAction }) => {
   // Helper function to get border styling based on block status
   const getBlockBorderClass = (block: ContentBlock): string => {
@@ -139,6 +174,40 @@ export const MessageRenderer: React.FC<MessageRendererProps> = ({ message, onAct
               onReject={onAction ? () => onAction('rejectSql', block) : undefined}
               onEdit={onAction ? (newSql) => onAction('editSql', { ...block, metadata: { ...block.metadata, sql: newSql } }) : undefined}
             />
+          </div>
+        );
+      }
+
+      // Check for Thought blocks
+      if (typeof block.data.text === 'string' && block.data.text.includes('Thought: ')) {
+        const parts = block.data.text.split(/(Thought:\s[\s\S]*?(?=\n\n|$))/g);
+
+        return (
+          <div key={block.id} className="content-block text-block mb-4 last:mb-0">
+            {parts.map((part, index) => {
+              if (part.startsWith('Thought: ')) {
+                // Render thought block
+                const thoughtContent = part.replace(/^Thought:\s/, '');
+                return (
+                  <div key={index} className="mb-4">
+                    <ThoughtCollapsible content={thoughtContent} />
+                  </div>
+                );
+              } else if (part.trim()) {
+                // Render regular markdown
+                return (
+                  <div key={index} className="mb-4 last:mb-0">
+                    <ReactMarkdown
+                      components={markdownComponents}
+                      remarkPlugins={[remarkGfm]}
+                    >
+                      {part}
+                    </ReactMarkdown>
+                  </div>
+                );
+              }
+              return null;
+            })}
           </div>
         );
       }
@@ -207,6 +276,7 @@ export const MessageRenderer: React.FC<MessageRendererProps> = ({ message, onAct
     if (isPlanBlock(block)) {
       const borderClass = getBlockBorderClass(block);
       const statusText = getBlockStatusText(block);
+
       return (
         <div key={block.id} className={`content-block plan-block mb-4 ${borderClass}`}>
           <PlanMessage

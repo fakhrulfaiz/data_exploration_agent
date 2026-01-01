@@ -19,8 +19,17 @@ interface PlanStep {
 }
 
 interface ParsedPlan {
+    intent?: {
+        main_intent: string;
+        sub_intents: string[];
+    };
     strategy: string;
     steps: PlanStep[];
+}
+
+interface IntentUnderstanding {
+    main_intent: string;
+    sub_intents: string[];
 }
 
 interface PlanMessageProps {
@@ -44,18 +53,41 @@ export const PlanMessage: React.FC<PlanMessageProps> = ({
     // Parse the new plan format
     const parsePlan = (planText: string): ParsedPlan => {
         const lines = planText.split('\n');
+        let intentMainIntent: string | null = null;
+        const intentSubIntents: string[] = [];
         let strategy = '';
         const steps: PlanStep[] = [];
         let currentStep: PlanStep | null = null;
         let inToolOptions = false;
         let inRequires = false;
+        let inIntent = false;
 
         for (let i = 0; i < lines.length; i++) {
             const line = lines[i];
 
-            // Check for Strategy
+            // Check for Intent header
+            if (line.startsWith('**Intent**:')) {
+                intentMainIntent = line.replace('**Intent**:', '').trim();
+                inIntent = true;
+                continue;
+            }
+
+            // Check for sub-intents (bullet points after Intent)
+            if (inIntent && line.trim().startsWith('•')) {
+                intentSubIntents.push(line.trim().substring(1).trim());
+                continue;
+            }
+
+            // Check for Strategy (ends intent section)
             if (line.startsWith('**Strategy**:')) {
                 strategy = line.replace('**Strategy**:', '').trim();
+                inIntent = false;
+                continue;
+            }
+
+            // Empty line ends intent section
+            if (inIntent && line.trim() === '') {
+                inIntent = false;
                 continue;
             }
 
@@ -110,13 +142,39 @@ export const PlanMessage: React.FC<PlanMessageProps> = ({
             steps.push(currentStep);
         }
 
-        return { strategy, steps };
+        // Build intent object if we found intent data
+        const parsedIntent = intentMainIntent ? {
+            main_intent: intentMainIntent,
+            sub_intents: intentSubIntents
+        } : undefined;
+
+        return { intent: parsedIntent, strategy, steps };
     };
 
-    const { strategy, steps } = parsePlan(plan);
+    const { intent: parsedIntent, strategy, steps } = parsePlan(plan);
 
     return (
         <div className="plan-message">
+            {/* Intent section - minimal, above strategy */}
+            {parsedIntent && (
+                <div className="mb-4 text-foreground">
+                    {/* Main Intent - simple text */}
+                    <p className="mb-2">
+                        <span className="font-medium">Intent: </span>
+                        {parsedIntent.main_intent}
+                    </p>
+
+                    {/* Sub-Intents - simple list, no borders */}
+                    {parsedIntent.sub_intents && parsedIntent.sub_intents.length > 0 && (
+                        <div className="ml-4 text-sm text-muted-foreground space-y-0.5">
+                            {parsedIntent.sub_intents.map((subIntent: string, idx: number) => (
+                                <div key={idx}>• {subIntent}</div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            )}
+
             {/* Strategy header */}
             {strategy && (
                 <div className="mb-4">

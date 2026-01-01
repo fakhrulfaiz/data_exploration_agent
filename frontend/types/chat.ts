@@ -35,6 +35,25 @@ export interface VisualizationsContent {
 
 export interface PlanContent {
   plan: string;
+  dynamic_plan?: {
+    query: string;
+    overall_strategy: string;
+    steps: Array<{
+      step_number: number;
+      goal: string;
+      tool_options: Array<{
+        tool_name: string;
+        use_case: string;
+        priority: number;
+      }>;
+      context_requirements?: string;
+    }>;
+    completed_steps?: string[];
+    intent?: {
+      main_intent: string;
+      sub_intents: string[];
+    };
+  };
 }
 
 export interface ErrorContent {
@@ -260,16 +279,23 @@ export interface ResumeRequest {
   human_comment?: string;
 }
 
+export interface ToolCall {
+  tool_call_id: string;
+  tool_name: string;
+  input: string;  // JSON string
+  output?: string;
+}
+
 export interface StepExplanation {
-  id: string;
-  type: string;
-  input: string;
-  output: string;
+  id: number;
+  plan_step_index: number;
+  decision: string;
+  reasoning: string;
   timestamp: string;
-  decision?: string;
-  reasoning?: string;
-  confidence?: number;
-  why_chosen?: string;
+  tool_justification?: string;
+  data_evidence?: string;
+  counterfactual?: string;
+  tool_calls: ToolCall[];
 }
 
 export interface FinalResult {

@@ -2,7 +2,8 @@
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
-import StepDetails, { ExplorerStep } from '@/components/StepDetails';
+import StepDetails from '@/components/StepDetails';
+import { StepExplanation } from '@/types/chat';
 import { getStatusDisplayName, getStatusColor } from '@/utils/statusHelpers';
 import { markdownComponents } from '@/utils/markdownComponents';
 import remarkGfm from 'remark-gfm';
@@ -15,7 +16,7 @@ export type ExplorerResult = {
   query?: string;
   plan?: string;
   error?: string | null;
-  steps?: ExplorerStep[];
+  steps?: StepExplanation[];
   final_result?: {
     summary?: string;
     details?: string;
