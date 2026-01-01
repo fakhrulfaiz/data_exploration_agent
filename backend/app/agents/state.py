@@ -47,3 +47,4 @@ class ExplainableAgentState(MessagesState):
     error_explanation: Optional[Dict[str, Any]] = None  # User-friendly error explanation
     require_tool_approval: Optional[bool] = False  # Whether tool-level approval is enabled
 
+

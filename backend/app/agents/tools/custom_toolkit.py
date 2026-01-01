@@ -3,17 +3,18 @@ Custom toolkit for the explainable agent project.
 Automatically passes LLM instance and database engine to custom tools.
 """
 
-from langchain.agents.agent_toolkits.base import BaseToolkit
-from langchain.tools import BaseTool
+from langchain_core.tools import BaseTool
+from pydantic import BaseModel
 from typing import List, Any, Optional
 from pydantic import Field
 from .visualization_tools import SmartTransformForVizTool, LargePlottingTool
 from .data_analysis_tools import SecurePythonREPLTool, DataFrameInfoTool
 from .image_QA_tools import ImageQATool
 from .data_exploration_agent_tool import DataExplorationAgentTool
+from .image_qa_mock_tool import image_qa_mock
 
 
-class CustomToolkit(BaseToolkit):
+class CustomToolkit(BaseModel):
     llm: Any = Field(description="Language model instance")
     db_engine: Optional[Any] = Field(default=None, description="Database engine for SQL execution")
     db_path: Optional[str] = Field(default=None, description="Path to SQLite database")
@@ -22,12 +23,11 @@ class CustomToolkit(BaseToolkit):
         super().__init__(llm=llm, db_engine=db_engine, db_path=db_path, **kwargs)
     
     def get_tools(self) -> List[BaseTool]:
-        # Temporarily disabled for faster testing - uncomment when needed
-        # vqa = VisualQA()
         tools = [
             SmartTransformForVizTool(llm=self.llm),
             SecurePythonREPLTool(),
             DataFrameInfoTool(),
+            image_qa_mock, 
             # ImageQATool(vqa=vqa)  # Commented out - loads heavy BLIP model
         ]
         

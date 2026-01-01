@@ -6,7 +6,7 @@ Handles secure file uploads with proper content-type handling and public URL gen
 import os
 import uuid
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Dict, Any
 import logging
 
 logger = logging.getLogger(__name__)
@@ -112,4 +112,108 @@ class SupabaseStorageService:
             
         except Exception as e:
             logger.error(f"Error deleting file {file_path}: {str(e)}")
+            return False
+
+    # ==================== User Profile Management ====================
+
+    def get_user_profile(self, user_id: str) -> Dict[str, Any]:
+        """
+        Fetch user profile and preferences from Supabase.
+        """
+        try:
+            # Select specific columns to ensure we get what we expect
+            response = self.client.table("profiles").select(
+                "id, name, email, nickname, role, about_user, custom_instructions, communication_style"
+            ).eq("id", user_id).single().execute()
+            
+            if not response.data:
+                logger.warning(f"No profile found for user_id: {user_id}")
+                return {}
+                
+            return response.data
+            
+        except Exception as e:
+            logger.error(f"Failed to fetch user profile for {user_id}: {str(e)}")
+            return {}
+
+    def update_user_profile(self, user_id: str, updates: Dict[str, Any]) -> bool:
+        """
+        Update user profile in Supabase.
+        """
+        try:
+            # Whitelist allowed update fields
+            allowed_fields = [
+                "nickname", 
+                "role", 
+                "about_user", 
+                "custom_instructions", 
+                "communication_style"
+            ]
+            
+            safe_updates = {k: v for k, v in updates.items() if k in allowed_fields}
+            
+            if "communication_style" in safe_updates:
+                if safe_updates["communication_style"] not in ["concise", "detailed", "balanced"]:
+                    safe_updates.pop("communication_style") # Ignore invalid values
+            
+            if not safe_updates:
+                logger.warning(f"No valid fields to update for user_id: {user_id}")
+                return False
+                
+            response = self.client.table("profiles").update(safe_updates).eq("id", user_id).execute()
+            
+            if not response.data:
+                logger.warning(f"Failed to update profile for user_id: {user_id}")
+                return False
+                
+            logger.info(f"Successfully updated profile for user_id: {user_id}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error updating user profile for {user_id}: {str(e)}")
+            return False
+
+    # ==================== User Profile Management ====================
+
+    def get_user_profile(self, user_id: str) -> Dict[str, Any]:
+        """
+        Fetch user profile and preferences from Supabase.
+        """
+        try:
+            response = self.client.table("profiles").select("*").eq("id", user_id).single().execute()
+            
+            if not response.data:
+                logger.warning(f"No profile found for user_id: {user_id}")
+                return {}
+                
+            return response.data
+            
+        except Exception as e:
+            logger.error(f"Failed to fetch user profile for {user_id}: {str(e)}")
+            return {}
+
+    def update_user_profile(self, user_id: str, updates: Dict[str, Any]) -> bool:
+        """
+        Update user profile in Supabase.
+        """
+        try:
+            # We only allow updating specific fields to prevent overwriting critical data
+            allowed_fields = ["preferences", "communication_style", "llm_provider", "llm_model"]
+            safe_updates = {k: v for k, v in updates.items() if k in allowed_fields}
+            
+            if not safe_updates:
+                logger.warning(f"No valid fields to update for user_id: {user_id}")
+                return False
+                
+            response = self.client.table("profiles").update(safe_updates).eq("id", user_id).execute()
+            
+            if not response.data:
+                logger.warning(f"Failed to update profile for user_id: {user_id}")
+                return False
+                
+            logger.info(f"Successfully updated profile for user_id: {user_id}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error updating user profile for {user_id}: {str(e)}")
             return False

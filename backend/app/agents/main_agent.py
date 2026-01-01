@@ -15,6 +15,7 @@ from langchain_core.tools import tool
 from langgraph.types import Command
 from typing import List, Dict, Any, Optional, Literal, Annotated
 import json
+import re
 import os
 from datetime import datetime
 import logging
@@ -236,6 +237,38 @@ class MainAgent:
         
         logger.info(f"Agent response has {len(response.tool_calls) if hasattr(response, 'tool_calls') and response.tool_calls else 0} tool calls")
         
+        # NEW: Generate decision/reasoning for tool calls BEFORE tools execute
+        if hasattr(response, 'tool_calls') and response.tool_calls:
+            decision_reasoning = self._generate_tool_decision_reasoning(
+                tool_calls=response.tool_calls,
+                current_step=current_step,
+                state=state
+            )
+            
+            # Create tool_calls array
+            step_counter += 1
+            tool_calls_list = []
+            
+            for tool_call in response.tool_calls:
+                tool_calls_list.append({
+                    "tool_call_id": tool_call['id'],
+                    "tool_name": tool_call.get('name', 'unknown'),
+                    "input": json.dumps(tool_call.get('args', {})),
+                })
+            
+            # Create single step entry with tool_calls array
+            step_entry = {
+                "id": step_counter,
+                "plan_step_index": current_idx,
+                "decision": decision_reasoning.get('decision', ''),
+                "reasoning": decision_reasoning.get('reasoning', ''),
+                "timestamp": datetime.now().isoformat(),
+                "tool_calls": tool_calls_list
+            }
+            steps.append(step_entry)
+            logger.info(f"Created step {step_counter} with {len(tool_calls_list)} tool calls")
+
+        
         # Increment step index
         new_step_index = current_idx + 1
         
@@ -245,6 +278,122 @@ class MainAgent:
             "steps": steps,
             "step_counter": step_counter
         }
+    
+    def _generate_tool_decision_reasoning(
+        self,
+        tool_calls: List[Dict[str, Any]],
+        current_step: Any,
+        state: Dict[str, Any]
+    ) -> Dict[str, str]:
+        context = self._analyze_execution_context(state)
+        
+        tool_names = [tc.get('name', 'unknown') for tc in tool_calls]
+        tool_summary = ", ".join(tool_names)
+        
+        tool_details = []
+        for tool_name in tool_names:
+            tool_obj = next((t for t in self.tools if t.name == tool_name), None)
+            if tool_obj:
+                tool_details.append(f"- {tool_name}: {tool_obj.description}")
+            else:
+                tool_details.append(f"- {tool_name}: (description not available)")
+        
+        tool_details_str = "\n".join(tool_details)
+        
+        # Build context info
+        context_info = f"""- Available Data: {', '.join(context['available_data'])}
+- Data Needed: {current_step.goal}
+- Previous Output: {context.get('previous_output', 'None')}
+- User Query: {state.get('query', 'Unknown')}"""
+        
+        # Generate reasoning via LLM
+        prompt = f"""Explain the tool selection decision for this step.
+
+**Current Step Goal**: {current_step.goal if current_step else 'Execute task'}
+
+**Tool Calls Being Made** ({len(tool_calls)} call(s)):
+{tool_summary}
+
+**Tool Call Details**:
+{chr(10).join([f"- Call {i+1}: {tc.get('name', 'unknown')} with args: {json.dumps(tc.get('args', {}))}" for i, tc in enumerate(tool_calls)])}
+
+**Tool Descriptions**:
+{tool_details_str}
+
+**Available Context**:
+{context_info}
+
+**Alternative Tools from Plan**:
+{self._format_tool_alternatives(current_step, tool_names)}
+
+**Task**: Provide:
+1. **Decision**: What tool(s) are being used (1 sentence, mention if multiple calls)
+2. **Reasoning**: Why this tool and these specific inputs are chosen NOW given the current context (2-3 sentences)
+
+Focus on execution-time factors:
+- What data is currently available?
+- Why is this tool appropriate for the current situation?
+- How do the inputs address the step goal?
+- If multiple calls: Why are multiple calls needed?
+"""
+        
+        try:
+            response = self.llm.invoke([SystemMessage(content=prompt)])
+            content = response.content
+            
+            decision_match = re.search(r'\*\*Decision\*\*:?\s*(.+?)(?=\n\n|\n\d+\.|\*\*Reasoning\*\*|$)', content, re.DOTALL | re.IGNORECASE)
+            decision = decision_match.group(1).strip() if decision_match else f"Using {tool_summary}"
+            
+            reasoning_match = re.search(r'\*\*Reasoning\*\*:?\s*(.+?)(?=\n\n|\n\d+\.|$)', content, re.DOTALL | re.IGNORECASE)
+            reasoning = reasoning_match.group(1).strip() if reasoning_match else content
+            
+            logger.info(f"Parsed decision: {decision[:50]}...")
+            logger.info(f"Parsed reasoning: {reasoning[:50]}...")
+            
+            return {
+                "decision": decision,
+                "reasoning": reasoning
+            }
+        except Exception as e:
+            logger.error(f"Error generating decision reasoning: {e}")
+            return {
+                "decision": f"Using {tool_summary}",
+                "reasoning": "Selected based on step requirements"
+            }
+    
+    def _analyze_execution_context(self, state: Dict[str, Any]) -> Dict[str, Any]:
+        available_data = []
+        steps = state.get('steps', [])
+        
+        # Check what data is available from previous steps
+        for step in steps:
+            output = step.get('output', '')
+            if 'DataFrame' in str(output) or 'stored' in str(output) or 'rows' in str(output).lower():
+                tool_name = step.get('tool_name', 'unknown')
+                available_data.append(f"Data from {tool_name}")
+        
+        # Get previous step output
+        previous_output = None
+        if steps:
+            previous_output = str(steps[-1].get('output', ''))[:200]
+        
+        return {
+            "available_data": available_data if available_data else ["No data in memory"],
+            "previous_output": previous_output
+        }
+    
+    def _format_tool_alternatives(self, current_step: Any, selected_tools: List[str]) -> str:
+        alternatives = []
+        for option in current_step.tool_options:
+            if option.tool_name not in selected_tools:
+                alternatives.append(
+                    f"  - {option.tool_name} (Priority {option.priority}): {option.use_case}"
+                )
+        
+        if alternatives:
+            return "\n".join(alternatives)
+        else:
+            return "  (No alternatives in plan)"
     
     def tools_node(self, state: ExplainableAgentState) -> Dict[str, Any]:
         messages = state.get("messages", [])
@@ -258,47 +407,26 @@ class MainAgent:
         
         logger.info(f"Tool execution completed with {len(result.get('messages', []))} tool messages")
         
-        # Capture step information for ALL tool calls
-        if hasattr(last_message, 'tool_calls') and last_message.tool_calls:
-            # Group all tool calls for this step
-            all_tool_names = []
-            all_tool_inputs = []
-            all_tool_outputs = []
+        # Match outputs to tool_calls within the latest step
+        if hasattr(last_message, 'tool_calls') and last_message.tool_calls and steps:
+            latest_step = steps[-1]  # Get the step we just created in process_query
             
             for tool_call in last_message.tool_calls:
-                tool_name = tool_call.get('name', 'unknown')
-                tool_args = tool_call.get('args', {})
-                
-                all_tool_names.append(tool_name)
-                all_tool_inputs.append(tool_args)
+                tool_call_id = tool_call['id']
                 
                 # Find corresponding output
                 tool_output = None
                 for msg in result.get("messages", []):
-                    if hasattr(msg, 'tool_call_id') and msg.tool_call_id == tool_call['id']:
+                    if hasattr(msg, 'tool_call_id') and msg.tool_call_id == tool_call_id:
                         tool_output = msg.content
                         break
                 
-                all_tool_outputs.append(tool_output or "No output captured")
-            
-            # Create single step info with all tool calls
-            step_counter += 1
-            step_info = {
-                "id": step_counter,
-                "type": "multi_tool" if len(all_tool_names) > 1 else all_tool_names[0],
-                "tool_names": all_tool_names,  # List of all tools called
-                "tool_name": all_tool_names[0] if all_tool_names else "unknown",  # Primary tool for compatibility
-                "inputs": all_tool_inputs,  # List of all inputs
-                "input": json.dumps(all_tool_inputs[0]) if all_tool_inputs else "{}",  # Primary input for compatibility
-                "outputs": all_tool_outputs,  # List of all outputs
-                "output": all_tool_outputs[0] if all_tool_outputs else "No output",  # Primary output for compatibility
-                "context": state.get("query", ""),
-                "timestamp": datetime.now().isoformat(),
-                "tool_call_count": len(all_tool_names)
-            }
-            
-            steps.append(step_info)
-            logger.info(f"Captured step {step_counter} with {len(all_tool_names)} tool calls: {all_tool_names}")
+                # Find corresponding tool_call entry and update with output
+                for tc in latest_step.get('tool_calls', []):
+                    if tc.get('tool_call_id') == tool_call_id:
+                        tc['output'] = tool_output or "No output captured"
+                        logger.info(f"Matched output for {tc.get('tool_name')}: {tool_call_id[:8]}...")
+                        break
         
         return {
             "messages": result.get("messages", []),
@@ -335,15 +463,6 @@ class MainAgent:
         return "process_query"
     
     def finalizer_node(self, state: ExplainableAgentState) -> Dict[str, Any]:
-        """
-        Evaluate execution results and generate final response.
-        
-        Uses FinalizerNode to:
-        - Build reasoning chain for all executed steps
-        - Provide overall synthesis
-        - Generate final response
-        - Always finishes (no replan/continue)
-        """
         logger.info("Finalizing execution with comprehensive evaluation")
         return self.finalizer.execute(state)
     
@@ -381,6 +500,10 @@ class MainAgent:
         """Execute planner node."""
         return self.planner.execute(state)
     
+    def explainer_node(self, state: ExplainableAgentState) -> Dict[str, Any]:
+        """Execute explainer node to generate result explanations."""
+        return self.explainer.execute(state)
+    
     def _build_system_message(self) -> str:
         """Build system message for the execution agent."""
         return """You are a data exploration agent executing a specific step from a plan.
@@ -413,6 +536,7 @@ Execute the step instruction and use as many tools as needed to complete it."""
         graph.add_node("planner", self.planner_node)
         graph.add_node("process_query", self.process_query)
         graph.add_node("tools", self.tools_node)
+        graph.add_node("explainer", self.explainer_node)  # NEW: Add explainer node
         graph.add_node("finalizer", self.finalizer_node)
         graph.add_node("human_feedback", self.human_feedback)
         
@@ -436,9 +560,11 @@ Execute the step instruction and use as many tools as needed to complete it."""
                 "process_query": "process_query"
             }
         )
+          
+        graph.add_edge("tools", "explainer")
         
-        # After tools, go back to process_query
-        graph.add_edge("tools", "process_query")
+        # After explainer, go back to process_query for next step
+        graph.add_edge("explainer", "process_query")
         #  # After tools, check what to do next (don't go directly to process_query)
         # graph.add_conditional_edges(
         #     "tools",

@@ -1,4 +1,4 @@
-from langchain import hub
+from langchain_core import prompts as hub
 from langchain_community.agent_toolkits.sql.toolkit import SQLDatabaseToolkit
 from langchain_community.utilities import SQLDatabase
 from langchain_openai import ChatOpenAI

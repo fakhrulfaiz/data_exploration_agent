@@ -34,7 +34,7 @@ class ToolCallHandler(ContentHandler):
         node_name = metadata.get('langgraph_node', 'unknown')
         
         # Only process tool calls from agent and agent_executor nodes
-        if node_name not in ['agent', 'agent_executor']:
+        if node_name not in ['agent', 'agent_executor', 'process_query']:
             return
         
         chunk = msg.tool_call_chunks[0]

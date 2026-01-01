@@ -103,44 +103,49 @@ class ExplainerNode:
         tool_output: str, 
         context: str,
         row_count: Optional[int] = None,
-        policy_audits: List[PolicyAuditResult] = None
+        policy_audits: List[PolicyAuditResult] = None,
+        existing_decision: Optional[str] = None,
+        existing_reasoning: Optional[str] = None
     ) -> str:
         
         metadata = get_tool_metadata(tool_name)
         alternative = metadata.get("alternative")
         tool_desc = self._get_tool_description(tool_name)
         
-        prompt = f"""You are an AI assistant explaining tool executions for a data exploration agent.
+        # Build prompt focusing on RESULTS (decision/reasoning already provided)
+        prompt = f"""You are an AI assistant explaining tool execution RESULTS for a data exploration agent.
 
-**CONTEXT:**
-User Input: {context}
-Data Evidence: {f"Query returned {row_count} rows" if row_count is not None else "Unknown"}
+**DECISION ALREADY MADE**:
+{existing_decision if existing_decision else "Tool was selected for this step"}
 
-**ACTION TAKEN:**
+**REASONING ALREADY PROVIDED**:
+{existing_reasoning if existing_reasoning else "Tool selection reasoning was provided earlier"}
+
+**EXECUTION RESULT**:
 Tool: {tool_name}
 Description: {tool_desc}
 Input: {tool_input}
 Output Summary: {str(tool_output)[:300]}...
+Data Evidence: {f"Query returned {row_count} rows" if row_count is not None else "Unknown"}
 
-**ALTERNATIVE TOOL:** {alternative if alternative else "None"}
+**YOUR TASK**:
+Generate a structured explanation focusing on WHAT HAPPENED (not why the tool was chosen).
 
-**YOUR TASK:**
-Generate a structured explanation.
+1. **decision**: What the tool accomplished (e.g. "Retrieved 50 rows of patient data").
+2. **reasoning**: Brief context about the execution (e.g. "Filtered by date range as requested").
+3. **tool_justification**: How this tool performed for this specific task (e.g. "SQL query executed efficiently").
+4. **contrastive_explanation**: Why alternative ({alternative if alternative else "other approaches"}) would have been different (if applicable).
+5. **data_evidence**: Specific evidence from the output (row counts, data size, patterns observed).
+6. **counterfactual**: A brief "What-if" scenario (e.g. "If dataset was larger (>1000 rows), we would need to aggregate first").
 
-1. **decision**: What happened? (e.g. "Retrieved 50 rows of patient data").
-2. **reasoning**: Why? (e.g. "User asked for recent patients. Used SQL to filter by date.").
-3. **tool_justification**: Why {tool_name}? (e.g. "Most direct way to query database").
-4. **contrastive_explanation**: Why NOT {alternative}? (If applicable).
-5. **data_evidence**: Mention row counts or data size if relevant.
-6. **counterfactual**: A brief "What-if" (e.g. "If dataset was larger (>1000 rows), we would aggregate first").
-
+DO NOT re-explain why the tool was chosen (already provided above). Focus on the RESULT and what was accomplished.
 """
         if policy_audits:
             prompt += "\n**POLICY CHECK RESULTS**:\n"
             for audit in policy_audits:
                 status = "PASS" if audit.passed else "FAIL"
                 prompt += f"- {status}: {audit.policy_name} ({audit.message})\n"
-            prompt += "\nIncorporated these policy results into your reasoning where relevant.\n"
+            prompt += "\nIncorporate these policy results into your data_evidence or reasoning where relevant.\n"
 
         return prompt
 
@@ -150,6 +155,10 @@ Generate a structured explanation.
             tool_input = step.get("input", "")
             tool_output = step.get("output", "")
             context = step.get("context", "")
+            
+            # Extract existing decision/reasoning from process_query
+            existing_decision = step.get("decision", None)
+            existing_reasoning = step.get("reasoning", None)
             
             # Extract basic evidence
             row_count = self._extract_row_count(messages) if messages else None
@@ -174,9 +183,11 @@ Generate a structured explanation.
                 for pr in policy_results
             ]
             
-            # Build Prompt
+            # Build Prompt with existing decision/reasoning
             prompt = self._build_explanation_prompt(
-                tool_name, tool_input, tool_output, context, row_count, policy_audits
+                tool_name, tool_input, tool_output, context, row_count, policy_audits,
+                existing_decision=existing_decision,
+                existing_reasoning=existing_reasoning
             )
             
             system_msg = SystemMessage(content=prompt)
@@ -197,27 +208,46 @@ Generate a structured explanation.
             ), []
     
     def execute_sync(self, state: Dict[str, Any]) -> Dict[str, Any]:
+        # Check if explainer is enabled
+        use_explainer = state.get("use_explainer", True)
+        if not use_explainer:
+            logger.info("Explainer disabled (use_explainer=False), skipping explanation generation")
+            return state
+        
         steps = state.get("steps", [])
         messages = state.get("messages", [])
         
         # Find steps needing explanation
-        for i, step in enumerate(steps):
-            if "decision" not in step:
-                explanation, audits = self.explain_step(step, messages)
-                
-                # Update step with flattened explanation fields (no policy_audits)
-                steps[i].update(explanation.model_dump())
-                
-                # Create Explanation Message for frontend streaming
-                # Matches ExplanationMessage.tsx props (no policy_audits)
-                explanation_data = explanation.model_dump()
-                
-                from langchain_core.messages import AIMessage
-                msg = AIMessage(
-                    content=json.dumps(explanation_data),
-                    additional_kwargs={"is_explanation": True}
-                )
-                messages.append(msg)
+        for step in steps:
+            # Skip if already has explanation
+            if "tool_justification" in step:
+                continue
+            
+            # Get first tool call to use for explanation
+            tool_calls = step.get('tool_calls', [])
+            if not tool_calls:
+                continue
+            
+            # Aggregate all tool calls for explanation
+            tool_name = tool_calls[0].get('tool_name')  # All tool calls use same tool
+            tool_inputs = [tc.get('input') for tc in tool_calls]
+            tool_outputs = [tc.get('output') for tc in tool_calls]
+            
+            # Build step object for explain_step with all tool calls
+            step_for_explanation = {
+                'tool_name': tool_name,
+                'input': '\n---\n'.join(tool_inputs),  # Combine all inputs
+                'output': '\n---\n'.join(tool_outputs),  # Combine all outputs
+                'decision': step.get('decision', ''),
+                'reasoning': step.get('reasoning', '')
+            }
+            
+            explanation, audits = self.explain_step(step_for_explanation, messages)
+            
+            # Update step with explanation fields
+            step['tool_justification'] = explanation.tool_justification
+            step['data_evidence'] = explanation.data_evidence
+            step['counterfactual'] = explanation.counterfactual
                 
         return {**state, "steps": steps, "messages": messages}
 

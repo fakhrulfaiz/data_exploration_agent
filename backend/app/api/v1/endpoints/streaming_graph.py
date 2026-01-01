@@ -12,9 +12,10 @@ import time as _time
 from app.schemas.graph import StartGraphRequest, GraphResponse, ResumeGraphRequest, ExecutionStatus, ApprovalStatus
 from app.agents.state import ExplainableAgentState
 from langchain_core.messages import HumanMessage
-from app.services.dependencies import get_message_management_service
+from app.services.dependencies import get_message_management_service, get_supabase_storage_service
 from app.services.message_management_service import MessageManagementService
 from app.services.agent_service import AgentService
+from app.services.storage_service import SupabaseStorageService
 from app.models.supabase_user import SupabaseUser
 from app.core.auth import get_current_user
 from app.api.v1.endpoints.streaming.handlers import (
@@ -362,8 +363,8 @@ async def stream_graph(
                         logger.debug(f"Skipping chunk from assistant_keep_agent namespace: {checkpoint_ns}")
                         continue
                 
-                if await tool_handler.can_handle(msg, metadata):
-                    async for event in tool_handler.handle(msg, metadata):
+                if await tool_call_handler.can_handle(msg, metadata):
+                    async for event in tool_call_handler.handle(msg, metadata):
                         yield event
                 elif await explanation_handler.can_handle(msg, metadata):
                      async for event in explanation_handler.handle(msg, metadata):

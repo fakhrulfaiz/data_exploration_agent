@@ -112,18 +112,23 @@ class GraphStatusResponse(BaseResponse[GraphStatusData]):
 
 # ==================== Explorer Schemas ====================
 
+class ToolCallData(BaseModel):
+    tool_call_id: str
+    tool_name: str
+    input: str
+    output: Optional[str] = None
+
+
 class ExplorerStepData(BaseModel):
-    """Explorer step data"""
     id: int
-    type: str
+    plan_step_index: int
     decision: str
     reasoning: str
-    input: str
-    output: str
-    tool_justification: Optional[str] = None
-    contrastive_explanation: Optional[str] = None
-    data_evidence: Optional[str] = None
     timestamp: str
+    tool_justification: Optional[str] = None
+    data_evidence: Optional[str] = None
+    counterfactual: Optional[str] = None
+    tool_calls: List[ToolCallData]
 
 
 class ExplorerResultData(BaseModel):
@@ -136,7 +141,6 @@ class ExplorerResultData(BaseModel):
 
 
 class ExplorerData(BaseModel):
-    """Explorer execution data"""
     thread_id: str
     checkpoint_id: str
     run_status: str

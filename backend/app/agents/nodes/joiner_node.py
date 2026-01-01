@@ -260,7 +260,37 @@ Please provide:
             reasoning = step.get("reasoning", "")
             data_evidence = step.get("data_evidence", "")
             
-            lines.append(f"**Step {idx + 1}: {tool_name}**")
+            # Handle multi-tool steps
+            if step.get("type") == "multi_tool":
+                tool_names = step.get("tool_names", [tool_name])
+                lines.append(f"**Step {idx + 1}: {', '.join(tool_names)}**")
+                
+                # Show inputs and outputs for each tool in multi-tool step
+                inputs = step.get("inputs", [])
+                outputs = step.get("outputs", [])
+                for i, tn in enumerate(tool_names):
+                    tool_input = inputs[i] if i < len(inputs) else {}
+                    tool_output = outputs[i] if i < len(outputs) else "No output"
+                    
+                    # Truncate long outputs
+                    tool_output_str = str(tool_output)[:500] + "..." if len(str(tool_output)) > 500 else str(tool_output)
+                    
+                    lines.append(f"  Tool {i+1} ({tn}):")
+                    lines.append(f"    Input: {json.dumps(tool_input) if isinstance(tool_input, dict) else str(tool_input)}")
+                    lines.append(f"    Output: {tool_output_str}")
+            else:
+                lines.append(f"**Step {idx + 1}: {tool_name}**")
+                
+                # Show input and output for single-tool step
+                tool_input = step.get("input", step.get("inputs", [{}])[0] if step.get("inputs") else {})
+                tool_output = step.get("output", step.get("outputs", ["No output"])[0] if step.get("outputs") else "No output")
+                
+                # Truncate long outputs
+                tool_output_str = str(tool_output)[:500] + "..." if len(str(tool_output)) > 500 else str(tool_output)
+                
+                lines.append(f"  Input: {tool_input if isinstance(tool_input, str) else json.dumps(tool_input) if isinstance(tool_input, dict) else str(tool_input)}")
+                lines.append(f"  Output: {tool_output_str}")
+            
             if decision:
                 lines.append(f"  Decision: {decision}")
             if reasoning:

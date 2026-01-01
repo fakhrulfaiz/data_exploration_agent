@@ -32,45 +32,6 @@ class PlannerNode:
         self.llm = llm
         self.tools = tools
     
-    @staticmethod
-    def _get_tool_selection_guidelines() -> str:
-        """Shared tool selection guidelines for planning and replanning"""
-        return """**TOOL SELECTION GUIDELINES**:
-
-1. **Data Retrieval & SQL**:
-   - ALWAYS use `data_exploration_agent` for database queries
-   - This tool handles: natural language → SQL generation → execution → DataFrame storage
-   - Returns data stored in Redis for further processing
-   - Example: "Get user data" → data_exploration_agent automatically generates and executes SQL
-
-2. **Visualizations** (when charts/graphs are requested):
-   
-   **Use smart_transform_for_viz when**:
-   - Small datasets (≤100 rows)
-   - Interactive frontend charts (bar, line, pie)
-   - Requires DataFrame from data_exploration_agent
-   
-   **Use large_plotting_tool when**:
-   - Large datasets (>100 rows)
-   - User requests "matplotlib", "static image", or "high-quality" plots
-   - Complex statistical plots (histograms, scatter plots, box plots)
-   - Requires DataFrame from data_exploration_agent
-
-3. **Data Analysis**:
-   - Use python_repl for complex calculations, statistics, transformations
-   - Use dataframe_info to check what data is available
-   - python_repl requires DataFrame from data_exploration_agent
-
-4. **Standard Workflows**:
-   - **Simple Query**: data_exploration_agent → (results shown to user)
-   - **With Visualization**: data_exploration_agent → smart_transform_for_viz
-   - **Complex Analysis**: data_exploration_agent → python_repl → large_plotting_tool
-
-5. **Error Prevention**:
-   - data_exploration_agent automatically handles SQL generation and execution
-   - Always call data_exploration_agent BEFORE visualization or analysis tools
-   - Be specific about what data you need in the question parameter"""
-    
     def execute(self, state):
         messages = state["messages"]
         user_query = state.get("query", "")
@@ -227,23 +188,35 @@ When response_type is "replan", follow these comprehensive planning guidelines:
             if "task is not complete" in last_msg_content or "missing" in last_msg_content:
                 is_continuation = True
         
-        planning_prompt = f"""You are a data exploration query planner. Create a CONCISE, FOCUSED execution plan.
+        planning_prompt = f"""You are a data exploration query planner. Create a FOCUSED execution plan that handles dependencies correctly.
 
 **Query**: {user_query}
 
 **CRITICAL INSTRUCTIONS**:
-1. **Be MINIMAL** - Only create steps that are ABSOLUTELY NECESSARY to answer the query
-2. **Ask questions directly to tools** - If a complete sub-agent can answer the question, pass the question directly without breaking it into sub-tasks
-3. **Avoid retrieve-then-analyze patterns** - Don't create separate steps for data retrieval and analysis if a single tool can do both
-4. **Focus on the goal** - Don't add extra steps for "potential" analysis unless explicitly requested
-5. **Write CLEAR step goals** - Each goal will be used as a prompt for the execution agent, so be specific and actionable
-6. **IMPORTANT**: If the task CANNOT be solved with available tools, return an EMPTY plan (no steps) - the system will handle cancellation
+1. **Recognize Dependencies** - If a tool needs data/information from another tool, create separate steps
+2. **Be Minimal BUT Complete** - Only create necessary steps, but don't skip steps that provide required inputs
+3. **Think Through Data Flow** - Ask yourself: "Does this tool have the data it needs to execute?"
+4. **Write CLEAR step goals** - Each goal will be used as a prompt for the execution agent, so be specific and actionable
+5. **IMPORTANT**: If the task CANNOT be solved with available tools, return an EMPTY plan (no steps)
 
-**Step Goal Writing Principles**:
-- Direct questions are better than vague retrieval requests
-- Specific visualization requests are better than generic "create chart" instructions
-- Avoid intermediate steps like "prepare data" or "analyze results" unless truly necessary
-- Each step should have a clear, measurable outcome
+**Dependency Recognition Examples**:
+- BAD: "Use image_qa_mock to analyze the 2 oldest paintings" (Where do the image URLs come from?)
+- GOOD: Step 1: "Query database to get the 2 oldest paintings and their image URLs"
+          Step 2: "Use image_qa_mock to analyze the images from step 1"
+
+- BAD: "Create a visualization of customer distribution" (What data? From where?)
+- GOOD: Step 1: "Query database to get customer distribution data"
+          Step 2: "Create visualization using the data from step 1"
+
+**When to Create Multiple Steps**:
+- Tool needs data that must be retrieved first (database → analysis)
+- Tool needs output from another tool (query → transform → visualize)
+- Sequential operations that can't be done in one call
+
+**When to Use Single Step**:
+- Complete sub-agents that handle entire workflows (e.g., data_exploration_tool can query + store)
+- Tool has all information needed in the user query
+- No dependencies on other tools
 
 {tool_guidelines}
 
@@ -257,7 +230,6 @@ When response_type is "replan", follow these comprehensive planning guidelines:
 - When data characteristics (size, format) affect tool choice
 - When multiple valid approaches exist for the same goal
 - Do NOT for workflows handled by a single complete sub-agent
-- Do NOT for "potential" future steps that aren't requested
 
 **When to provide SINGLE tool option**:
 - When a complete sub-agent handles the entire workflow
@@ -280,8 +252,7 @@ Step 2:
 **Available Tools**:
 {tool_descriptions}
 
-**Your task**: Generate ONLY the steps needed to answer the query. Each step goal should be clear, specific, and actionable - it will be used to instruct the execution agent. Don't over-plan. Be direct and efficient.
-"""
+**Your task**: Generate the steps needed to answer the query. Think through dependencies carefully - if a tool needs data, make sure a previous step provides it. Each step goal should be clear, specific, and actionable."""""
         
         try:
             # Use structured output for reliable parsing

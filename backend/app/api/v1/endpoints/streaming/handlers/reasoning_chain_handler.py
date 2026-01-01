@@ -13,10 +13,9 @@ class ReasoningChainContentHandler(ContentHandler):
         self.reasoning_chain_block_id = f"reasoning_chain-{uuid4().hex[:12]}"
     
     async def can_handle(self, msg: Any, metadata: Dict) -> bool:
-        """Check if this is a reasoning chain message from joiner node."""
         node_name = metadata.get('langgraph_node', 'unknown')
         
-        # Check if it's from joiner node and has is_reasoning_chain flag
+        # Check if it's from joiner/finalizer node and has is_reasoning_chain flag
         is_reasoning_chain = (
             hasattr(msg, 'additional_kwargs') and 
             msg.additional_kwargs.get('is_reasoning_chain', False)
@@ -26,7 +25,7 @@ class ReasoningChainContentHandler(ContentHandler):
             hasattr(msg, 'content') and 
             msg.content and 
             type(msg).__name__ == 'AIMessage' and
-            node_name == 'joiner' and
+            node_name in ['joiner', 'finalizer'] and  # Support both agents
             is_reasoning_chain
         )
     
@@ -65,7 +64,7 @@ class ReasoningChainContentHandler(ContentHandler):
                     "data": {
                         "steps": chain_data.get('steps', [])
                     },
-                    "node": "joiner",
+                    "node": metadata.get('langgraph_node', 'unknown'),  # Use actual node name
                     "stream_id": self._extract_msg_id(msg),
                     "message_id": self.context.assistant_message_id,
                     "action": "add_block"

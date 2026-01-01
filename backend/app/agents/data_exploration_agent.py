@@ -1,4 +1,4 @@
-from langchain import hub
+from langchain_core import prompts as hub
 from langchain_openai import ChatOpenAI
 from sqlalchemy import create_engine
 from langgraph.prebuilt import ToolNode, tools_condition, create_react_agent
@@ -21,9 +21,8 @@ from pydantic import BaseModel, Field
 from app.schemas.chat import DataContext
 from app.agents.tools.custom_toolkit import CustomToolkit
 from app.agents.state import ExplainableAgentState
-from app.agents.nodes.planner_node import PlannerNode
+from app.agents.nodes.explainable.explainable_planner_node import ExplainablePlannerNode
 from app.agents.nodes.explainer_node import ExplainerNode
-from app.agents.nodes.enhanced_explainer_node import EnhancedExplainerNode
 from app.agents.nodes.error_explainer_node import ErrorExplainerNode
 from app.agents.nodes.agent_executor_node import AgentExecutorNode
 from app.agents.nodes.task_scheduler_node import TaskSchedulerNode
@@ -61,7 +60,7 @@ class DataExplorationAgent:
         self.store = store
         self.explainer = ExplainerNode(llm, available_tools=self.tools)
         self.error_explainer = ErrorExplainerNode(llm)
-        self.planner = PlannerNode(llm, self.tools)
+        self.planner = ExplainablePlannerNode(llm, self.tools)
         self.agent_executor = AgentExecutorNode(llm, self.tools)
         self.task_scheduler = TaskSchedulerNode(self.tools)
         self.joiner = JoinerNode(llm)

@@ -22,13 +22,6 @@ from app.schemas.chat import DataContext
 logger = logging.getLogger(__name__)
 
 class DataExplorationAgentTool(BaseTool):
-    """
-    Unified tool that converts natural language to SQL, executes it, 
-    and stores the resulting DataFrame in Redis.
-    
-    Acts as a sub-agent for data retrieval tasks.
-    """
-    
     name: str = "data_exploration_tool"
     description: str = """COMPLETE SUB-AGENT for database exploration and retrieval.
     
@@ -40,20 +33,14 @@ class DataExplorationAgentTool(BaseTool):
     ONE CALL to this tool completes the entire database query process.
     DO NOT split into separate "generate SQL" and "execute SQL" steps.
     
-    IMPORTANT - This tool can ANSWER QUESTIONS DIRECTLY using SQL:
+    This tool can ANSWER QUESTIONS DIRECTLY using SQL:
     - Finding oldest/newest/min/max values (ORDER BY, MIN, MAX)
     - Counting, summing, averaging (COUNT, SUM, AVG)
     - Grouping and aggregating data (GROUP BY)
     - Filtering with conditions (WHERE)
     - Joining multiple tables
     - Complex queries with subqueries and CTEs
-    
-    If the question can be answered with SQL, this tool will RETURN THE ANSWER.
-    You do NOT need additional analysis steps for questions like:
-    - "Which genre has the oldest painting?" → Returns the genre directly
-    - "How many paintings per artist?" → Returns counts directly
-    - "What's the average price by category?" → Returns averages directly
-    
+
     Use this tool for ANY database-related question:
     - Simple data retrieval
     - Complex analytical queries

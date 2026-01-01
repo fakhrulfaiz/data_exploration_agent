@@ -32,20 +32,16 @@ class AgentService:
         use_postgres_checkpointer: bool = True
     ) -> None:
         # Lazy import to avoid circular dependency
-        from ..agents.data_exploration_agent import DataExplorationAgent
-        # from ..agents import DataExplorationAgent
-        # from ..agents.workflows import DataExplorationAgentWF as DataExplorationAgent  # Lazy assignment cause WHY NOT!!!!
-        from ..agents import DataExplorationAgent
+        from ..agents.main_agent import MainAgent
         
         try:
             self._llm = llm
-            self._agent = DataExplorationAgent(
+            self._agent = MainAgent(
                 llm=llm, 
                 db_path=db_path, 
-                use_postgres_checkpointer=use_postgres_checkpointer,
-                require_tool_approval=True 
+                use_postgres_checkpointer=use_postgres_checkpointer
             )
-            logger.info("Agent service initialized successfully")
+            logger.info("Agent service initialized successfully with MainAgent")
         except Exception as e:
             logger.error(f"Failed to initialize agent service: {e}")
             raise
@@ -403,16 +399,6 @@ class AgentService:
         thread_id: str, 
         checkpoint_id: str
     ) -> Optional[Dict[str, Any]]:
-        """
-        Get exploration data from a specific checkpoint.
-        
-        Args:
-            thread_id: Thread identifier
-            checkpoint_id: Checkpoint identifier
-            
-        Returns:
-            Dictionary with explorer data including steps, plan, and results
-        """
         try:
             logger.info(f"Getting explorer data for thread_id: {thread_id}, checkpoint_id: {checkpoint_id}")
             
@@ -430,25 +416,8 @@ class AgentService:
             
             values = state.values
             
-            # Extract steps data
-            steps_data = values.get("steps", [])
-            steps = []
-            
-            for step_data in steps_data:
-                if isinstance(step_data, dict):
-                    step = {
-                        "id": step_data.get("id", 0),
-                        "type": step_data.get("type", "unknown"),
-                        "decision": step_data.get("decision", ""),
-                        "reasoning": step_data.get("reasoning", ""),
-                        "input": step_data.get("input", ""),
-                        "output": step_data.get("output", ""),
-                        "tool_justification": step_data.get("tool_justification"),
-                        "contrastive_explanation": step_data.get("contrastive_explanation"),
-                        "data_evidence": step_data.get("data_evidence"),
-                        "timestamp": step_data.get("timestamp", "")
-                    }
-                    steps.append(step)
+            # Extract steps data - pass through as-is (already in correct format from MainAgent)
+            steps = values.get("steps", [])
             
             # Set default overall confidence (no longer calculated from individual steps)
             overall_confidence = 0.8 if steps else None
