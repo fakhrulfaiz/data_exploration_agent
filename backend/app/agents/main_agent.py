@@ -396,6 +396,7 @@ Focus on execution-time factors:
         last_message = messages[-1]
         steps = state.get("steps", [])
         step_counter = state.get("step_counter", 0)
+        data_context = state.get("data_context")  # Preserve existing data_context
         
         # Execute tools
         tool_node = ToolNode(tools=self.tools)
@@ -403,7 +404,7 @@ Focus on execution-time factors:
         
         logger.info(f"Tool execution completed with {len(result.get('messages', []))} tool messages")
         
-        # Match outputs to tool_calls within the latest step
+        # Match outputs to tool_calls within the latest step AND extract data_context
         if hasattr(last_message, 'tool_calls') and last_message.tool_calls and steps:
             latest_step = steps[-1]  # Get the step we just created in process_query
             
@@ -422,12 +423,25 @@ Focus on execution-time factors:
                     if tc.get('tool_call_id') == tool_call_id:
                         tc['output'] = tool_output or "No output captured"
                         logger.info(f"Matched output for {tc.get('tool_name')}: {tool_call_id[:8]}...")
+                        
+                        # Extract data_context from tool output if present
+                        if tool_output:
+                            try:
+                                output_data = json.loads(tool_output)
+                                if isinstance(output_data, dict) and 'data_context' in output_data:
+                                    from app.schemas.chat import DataContext
+                                    data_context = DataContext(**output_data['data_context'])
+                                    logger.info(f"Extracted data_context from tool output: {data_context.df_id}")
+                            except (json.JSONDecodeError, Exception) as e:
+                                logger.debug(f"Could not extract data_context from tool output: {e}")
+                        
                         break
         
         return {
             "messages": result.get("messages", []),
             "steps": steps,
-            "step_counter": step_counter
+            "step_counter": step_counter,
+            "data_context": data_context 
         }
     
     def should_continue(self, state: ExplainableAgentState) -> Literal["tools", "finalizer", "human_feedback", "process_query"]:
