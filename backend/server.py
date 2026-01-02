@@ -9,7 +9,7 @@ from app.api.v1 import api_router
 from app.core.config import settings
 from app.core.database import db_manager
 from app.core.checkpointer import initialize_checkpointer, checkpointer_manager
-from app.agents import DataExplorationAgent
+from app.agents import MainAgent
 from app.services.agent_service import AgentService
 from app.utils.logger import LoggerManager, get_logger
 
@@ -89,7 +89,7 @@ app.include_router(api_router, prefix="/api/v1")
 
 
 # Dependency functions
-def get_agent(request: Request) -> DataExplorationAgent:
+def get_agent(request: Request) -> MainAgent:
     """Get the initialized agent from app state."""
     return request.app.state.agent
 

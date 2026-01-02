@@ -6,8 +6,7 @@ from datetime import datetime
 from fastapi import APIRouter, HTTPException, Depends, Request, Query
 from langchain_core.messages import HumanMessage
 
-# from app.agents import DataExplorationAgent
-from app.agents.workflows import DataExplorationAgentWF as DataExplorationAgent # Lazy assingment cause WHY NOT!!! remove later
+from app.agents import MainAgent
 from app.services.agent_service import AgentService
 from app.schemas.agent import (
     AgentRequest,
@@ -30,7 +29,7 @@ router = APIRouter()
 # All schemas are now imported from app.schemas.agent
 
 
-def get_agent(request: Request) -> DataExplorationAgent:
+def get_agent(request: Request) -> MainAgent:
     """Get the initialized agent from app state (backward compatibility)."""
     return request.app.state.agent
 
@@ -104,7 +103,7 @@ async def delete_thread(
 @router.get("/threads/{thread_id}/state", response_model=StateResponse)
 async def get_current_state(
     thread_id: str,
-    agent: DataExplorationAgent = Depends(get_agent)
+    agent: MainAgent = Depends(get_agent)
 ) -> StateResponse:
     """Get the current state for a thread."""
     try:
