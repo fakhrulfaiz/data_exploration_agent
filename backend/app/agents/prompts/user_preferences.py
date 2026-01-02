@@ -42,29 +42,34 @@ def _build_prompt(prefs: Optional[Dict[str, Any]]) -> str:
     
     sections = []
     
-    # User context
+    # User context - directive format
     if prefs.get('nickname') or prefs.get('role'):
-        sections.append("USER CONTEXT:")
+        sections.append("**USER PROFILE REQUIREMENTS:**")
         if prefs.get('nickname'):
-            sections.append(f"- User: {prefs['nickname']}")
+            sections.append(f"- Address the user as '{prefs['nickname']}' when appropriate")
         if prefs.get('role'):
-            sections.append(f"- Role: {prefs['role']}")
+            sections.append(f"- Tailor responses for a user with role: {prefs['role']}")
     
-    # About user
+    # About user - convert to actionable context
     if prefs.get('about_user'):
-        sections.append(f"\nABOUT USER:\n{prefs['about_user']}")
+        sections.append(f"\n**CONTEXT AWARENESS:**")
+        sections.append(f"Consider the following about the user when planning and executing tasks:")
+        sections.append(f"{prefs['about_user']}")
     
-    # Communication style
+    # Communication style - imperative directives
     style = prefs.get('communication_style', 'balanced')
     style_map = {
-        'concise': 'Be brief and to-the-point.',
-        'detailed': 'Provide comprehensive explanations.',
-        'balanced': 'Balance brevity with clarity.'
+        'concise': 'ALWAYS be brief and to-the-point. Avoid lengthy explanations unless explicitly requested.',
+        'detailed': 'ALWAYS provide comprehensive explanations with examples and context. Prioritize thoroughness over brevity.',
+        'balanced': 'Balance brevity with clarity. Provide sufficient detail without being verbose.'
     }
-    sections.append(f"\nSTYLE: {style_map.get(style, style_map['balanced'])}")
+    sections.append(f"\n**COMMUNICATION RULES:**")
+    sections.append(f"- {style_map.get(style, style_map['balanced'])}")
     
-    # Custom instructions
+    # Custom instructions - highest priority
     if prefs.get('custom_instructions'):
-        sections.append(f"\nCUSTOM INSTRUCTIONS:\n{prefs['custom_instructions']}")
+        sections.append(f"\n**MANDATORY USER INSTRUCTIONS:**")
+        sections.append(f"You MUST follow these specific user requirements:")
+        sections.append(f"{prefs['custom_instructions']}")
     
     return "\n".join(sections)
