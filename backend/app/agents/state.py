@@ -33,6 +33,7 @@ class ExplainableAgentState(MessagesState):
     routing_reason: str = ""
     visualizations: Optional[List[Dict[str, Any]]] = []
     data_context: Optional[DataContext] = None
+    user_id: Optional[str] = None  # User ID for preference fetching
     
     # ===== DYNAMIC TOOL SELECTION FIELDS =====
     dynamic_plan: Optional[Any] = None  # DynamicPlan object from tool_selection schema

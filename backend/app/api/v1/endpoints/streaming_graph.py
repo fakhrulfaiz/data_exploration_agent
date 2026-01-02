@@ -262,7 +262,8 @@ async def stream_graph(
             use_planning=use_planning_value,
             use_explainer=run_data.get("use_explainer", True),
             agent_type="data_exploration_agent",
-            visualizations=[]
+            visualizations=[],
+            user_id=user_id  # Add user_id for preference fetching
         )
         input_state = initial_state
     elif run_data["type"] == "tool_resume":

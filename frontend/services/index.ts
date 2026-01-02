@@ -16,7 +16,7 @@ export { DataService } from './api/data.service';
 export { GraphService } from './api/graph.service';
 export { ExplorerService } from './api/explorer.service';
 export { VisualizationService } from './api/visualization.service';
-export { ProfileService } from './api/profile.service';
+export { ProfileService, profileService, type ProfileResponse, type ProfileUpdateRequest } from './api/profile.service';
 
 // Re-export types for convenience
 export * from '@/types';

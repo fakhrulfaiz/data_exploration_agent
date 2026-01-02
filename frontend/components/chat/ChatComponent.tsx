@@ -209,7 +209,22 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
         setIsAtBottom(false);
       }
     }
-  }, [messages, streamingActive]);
+  }, [messages, streamingActive]); // Trigger on any messages change
+
+  // Additional effect to handle rapid content updates during streaming
+  // This ensures scroll happens even when messages array reference doesn't change
+  useEffect(() => {
+    if (streamingActive && isAtBottom) {
+      const scrollInterval = setInterval(() => {
+        const nearBottom = checkIfNearBottom();
+        if (nearBottom) {
+          messagesEndRef.current?.scrollIntoView({ behavior: 'instant' });
+        }
+      }, 100); // Check every 100ms during streaming
+
+      return () => clearInterval(scrollInterval);
+    }
+  }, [streamingActive, isAtBottom]);
 
   // Auto-scroll for new non-streaming messages (only if near bottom)
   useEffect(() => {

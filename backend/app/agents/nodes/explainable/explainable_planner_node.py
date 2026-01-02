@@ -17,14 +17,32 @@ logger = logging.getLogger(__name__)
 
 
 class ExplainablePlannerNode(PlannerNode):
-    def _generate_intent_understanding(self, user_query: str, use_explainer: bool):
+    def _generate_intent_understanding(self, user_query: str, use_explainer: bool, state: Dict[str, Any] = None):
         """Returns AIMessage with thought process or None"""
         if not use_explainer:
             logger.debug("Explainer mode disabled, skipping intent generation")
             return None
         
-        # Get context from template
-        context = get_planner_context()
+        # Fetch user preferences if user_id is available
+        user_preferences = ""
+        if state and state.get("user_id"):
+            try:
+                from app.services.dependencies import get_redis_profile_service, get_profile_service
+                from app.agents.prompts.user_preferences import get_user_preference_prompt
+                
+                redis_service = get_redis_profile_service()
+                profile_service = get_profile_service()
+                user_preferences = get_user_preference_prompt(
+                    state["user_id"],
+                    redis_service,
+                    profile_service
+                )
+                logger.info(f"Fetched user preferences for user {state['user_id']}")
+            except Exception as e:
+                logger.warning(f"Failed to fetch user preferences: {e}")
+        
+        # Get context from template with user preferences
+        context = get_planner_context(user_preferences)
         system_message = INTENT_SYSTEM_PROMPT.format(context=context)
 
         user_message = f"""Analyze this query: "{user_query}" """
@@ -75,11 +93,7 @@ Create the plan based on this understanding.
     
     def _handle_dynamic_planning(self, state, messages, user_query):
         use_explainer = state.get("use_explainer", True)
-        thought_response = self._generate_intent_understanding(user_query, use_explainer)
-        
-        # Add thought response to messages for streaming
-        if thought_response:
-            messages = messages
+        thought_response = self._generate_intent_understanding(user_query, use_explainer, state)
         
         # No intent context needed anymore
         intent_context = self._build_intent_context(thought_response)
@@ -163,9 +177,6 @@ Plan and list the tasks in a way that each task can be solved by one of these to
                 SystemMessage(content=planning_prompt)
             ] + conversation_messages
             
-            response = structured_llm.invoke(all_messages)
-            
-            # Step 7: Generate structured plan (no intent attachment needed)
             response = structured_llm.invoke(all_messages)
             
             # Step 8: Format plan for display (WITHOUT intent - it's streamed separately)
