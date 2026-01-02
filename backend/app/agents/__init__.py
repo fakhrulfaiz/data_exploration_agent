@@ -1,11 +1,11 @@
 """Agent components for the application."""
 
-from .simple_agent import SimpleAgent
-from .data_exploration_agent import DataExplorationAgent
 from .state import ExplainableAgentState
+from .main_agent import MainAgent
+from .assistant_agent import AssistantAgent
 
 __all__ = [
-    "SimpleAgent",
-    "DataExplorationAgent",
     "ExplainableAgentState",
+    "MainAgent",
+    "AssistantAgent",
 ]
