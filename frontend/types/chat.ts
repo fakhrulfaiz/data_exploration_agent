@@ -9,6 +9,15 @@ export interface ToolCallsContent {
     input: any;
     output?: any;
     status: 'pending' | 'approved' | 'rejected';
+    internalTools?: Array<{
+      name: string;
+      status: 'completed' | 'running' | 'error';
+    }>;
+    generatedContent?: {
+      type: 'sql' | 'code' | 'text';
+      content: string;
+      editable: boolean;
+    };
   }>;
   content?: string; // Tool explanation text from tool_explanation node
 }
@@ -26,6 +35,25 @@ export interface VisualizationsContent {
 
 export interface PlanContent {
   plan: string;
+  dynamic_plan?: {
+    query: string;
+    overall_strategy: string;
+    steps: Array<{
+      step_number: number;
+      goal: string;
+      tool_options: Array<{
+        tool_name: string;
+        use_case: string;
+        priority: number;
+      }>;
+      context_requirements?: string;
+    }>;
+    completed_steps?: string[];
+    intent?: {
+      main_intent: string;
+      sub_intents: string[];
+    };
+  };
 }
 
 export interface ErrorContent {
@@ -37,12 +65,37 @@ export interface ErrorContent {
   technical_details?: string;
 }
 
+export interface ExplanationContent {
+  decision: string;
+  reasoning?: string;
+  tool_justification?: string;
+  contrastive_explanation?: string;
+  data_evidence?: string;
+  policy_audits?: Array<{
+    policy_name: string;
+    passed: boolean;
+    message: string;
+    severity: 'info' | 'warning' | 'error';
+  }>;
+  counterfactual?: string | null;
+}
+
+export interface ReasoningChainContent {
+  steps: Array<{
+    step_number: number;
+    tool_used: string;
+    what_happened: string;
+    key_finding?: string | null;
+  }>;
+}
+
 export interface ContentBlock {
   id: string;
-  type: 'text' | 'tool_calls' | 'explorer' | 'visualizations' | 'plan' | 'error';
+  type: 'text' | 'tool_calls' | 'explorer' | 'visualizations' | 'plan' | 'error' | 'explanation' | 'reasoning_chain';
   needsApproval?: boolean;
   messageStatus?: 'pending' | 'approved' | 'rejected' | 'error' | 'timeout';
-  data: TextContent | ToolCallsContent | ExplorerContent | VisualizationsContent | PlanContent | ErrorContent;
+  metadata?: any;
+  data: TextContent | ToolCallsContent | ExplorerContent | VisualizationsContent | PlanContent | ErrorContent | ExplanationContent | ReasoningChainContent;
 }
 
 export interface Message {
@@ -63,6 +116,15 @@ export interface Message {
       input: any;
       output?: any;
       status: 'pending' | 'approved' | 'rejected';
+      internalTools?: Array<{
+        name: string;
+        status: 'completed' | 'running' | 'error';
+      }>;
+      generatedContent?: {
+        type: 'sql' | 'code' | 'text';
+        content: string;
+        editable: boolean;
+      };
     }>;
     [key: string]: any;
   };
@@ -131,6 +193,26 @@ export const createErrorBlock = (id: string, errorExplanation: ErrorContent): Co
 export const isErrorBlock = (block: ContentBlock): block is ContentBlock & { data: ErrorContent } =>
   block.type === 'error';
 
+export const createExplanationBlock = (id: string, explanationData: ExplanationContent): ContentBlock => ({
+  id,
+  type: 'explanation',
+  needsApproval: false,
+  data: explanationData
+});
+
+export const isExplanationBlock = (block: ContentBlock): block is ContentBlock & { data: ExplanationContent } =>
+  block.type === 'explanation';
+
+export const createReasoningChainBlock = (id: string, chainData: ReasoningChainContent): ContentBlock => ({
+  id,
+  type: 'reasoning_chain',
+  needsApproval: false,
+  data: chainData
+});
+
+export const isReasoningChainBlock = (block: ContentBlock): block is ContentBlock & { data: ReasoningChainContent } =>
+  block.type === 'reasoning_chain';
+
 // Response object that handlers can return
 export interface HandlerResponse {
   message: string;
@@ -170,6 +252,7 @@ export interface ChatComponentProps {
   hasDataContext?: boolean;
   onOpenDataContext?: () => void;
   onDataFrameDetected?: (dfId: string) => void; // Callback when df_id is detected in tool output
+  onCancelStream?: () => Promise<void>; // Callback to cancel ongoing stream
 }
 
 export interface MessageComponentProps {
@@ -196,16 +279,23 @@ export interface ResumeRequest {
   human_comment?: string;
 }
 
+export interface ToolCall {
+  tool_call_id: string;
+  tool_name: string;
+  input: string;  // JSON string
+  output?: string;
+}
+
 export interface StepExplanation {
-  id: string;
-  type: string;
-  input: string;
-  output: string;
+  id: number;
+  plan_step_index: number;
+  decision: string;
+  reasoning: string;
   timestamp: string;
-  decision?: string;
-  reasoning?: string;
-  confidence?: number;
-  why_chosen?: string;
+  tool_justification?: string;
+  data_evidence?: string;
+  counterfactual?: string;
+  tool_calls: ToolCall[];
 }
 
 export interface FinalResult {

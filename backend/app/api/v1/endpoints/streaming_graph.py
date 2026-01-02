@@ -12,9 +12,10 @@ import time as _time
 from app.schemas.graph import StartGraphRequest, GraphResponse, ResumeGraphRequest, ExecutionStatus, ApprovalStatus
 from app.agents.state import ExplainableAgentState
 from langchain_core.messages import HumanMessage
-from app.services.dependencies import get_message_management_service
+from app.services.dependencies import get_message_management_service, get_supabase_storage_service
 from app.services.message_management_service import MessageManagementService
 from app.services.agent_service import AgentService
+from app.services.storage_service import SupabaseStorageService
 from app.models.supabase_user import SupabaseUser
 from app.core.auth import get_current_user
 from app.api.v1.endpoints.streaming.handlers import (
@@ -22,7 +23,8 @@ from app.api.v1.endpoints.streaming.handlers import (
     ToolCallHandler,
     TextContentHandler,
     PlanContentHandler,
-    ExplanationContentHandler
+    ExplanationContentHandler,
+    ReasoningChainContentHandler
 )
 from app.api.v1.endpoints.streaming.streaming_persistence import StreamingMessagePersistence
 from app.api.v1.endpoints.streaming.streaming_utils import (
@@ -316,12 +318,14 @@ async def stream_graph(
         text_handler = TextContentHandler(context) 
         plan_handler = PlanContentHandler(context, agent)
         explanation_handler = ExplanationContentHandler(context)
+        reasoning_chain_handler = ReasoningChainContentHandler(context)
         tool_call_handler = ToolCallHandler(context)
         persistence = StreamingMessagePersistence(message_service)
 
         handlers = [
             tool_call_handler,
             explanation_handler,  # Check explanations before text
+            reasoning_chain_handler,  # Check reasoning chains before text
             plan_handler,
             text_handler
         ]
@@ -359,12 +363,14 @@ async def stream_graph(
                         logger.debug(f"Skipping chunk from assistant_keep_agent namespace: {checkpoint_ns}")
                         continue
                 
-                # Check handlers in priority order
                 if await tool_call_handler.can_handle(msg, metadata):
                     async for event in tool_call_handler.handle(msg, metadata):
                         yield event
                 elif await explanation_handler.can_handle(msg, metadata):
-                    async for event in explanation_handler.handle(msg, metadata):
+                     async for event in explanation_handler.handle(msg, metadata):
+                        yield event
+                elif await reasoning_chain_handler.can_handle(msg, metadata):
+                    async for event in reasoning_chain_handler.handle(msg, metadata):
                         yield event
                 elif await plan_handler.can_handle(msg, metadata):
                     async for event in plan_handler.handle(msg, metadata):

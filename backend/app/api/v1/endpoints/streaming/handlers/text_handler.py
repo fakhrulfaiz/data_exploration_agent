@@ -12,7 +12,15 @@ from .base_handler import ContentHandler, StreamContext
 class TextContentHandler(ContentHandler): 
     def __init__(self, context: StreamContext, nodes_to_stream: List[str] = None):
         super().__init__(context)
-        self.nodes_to_stream = nodes_to_stream or ['agent', 'agent_executor', 'tool_explanation', 'joiner']
+        # Support both data_exploration_agent and main_agent node names
+        self.nodes_to_stream = nodes_to_stream or [
+            'agent',           # data_exploration_agent execution node
+            'agent_executor',  # data_exploration_agent executor node
+            'tool_explanation',# tool explanation node
+            'joiner',          # data_exploration_agent joiner node
+            'process_query',   # main_agent execution node
+            'finalizer'        # main_agent finalizer node
+        ]
         # Track text per message ID instead of accumulating per node
         self.message_texts: Dict[str, Dict[str, Any]] = {}  # msg_id -> {text, node, block_id}
         self.json_buffer = ""

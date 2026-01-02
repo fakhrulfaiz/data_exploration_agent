@@ -187,27 +187,34 @@ class SecurePythonREPLTool(BaseTool):
             if self.sanitize_input:
                 code = sanitize_input(code)
             
-            # Get DataFrame from state
-            data_context = state.get("data_context")
-            if not data_context or not data_context.df_id:
-                return "Error: No DataFrame available. Please run a SQL query first using sql_db_to_df tool."
+            # Check if code uses 'df' variable - if not, execute standalone
+            uses_df = 'df' in code or 'df.' in code or 'df[' in code
             
-            # Load DataFrame from Redis
-            redis_service = get_redis_dataframe_service()
-            df = redis_service.get_dataframe(data_context.df_id)
+            df = None
+            if uses_df:
+                # Get DataFrame from state only if code uses it
+                data_context = state.get("data_context")
+                if not data_context or not data_context.df_id:
+                    logger.warning("Code references 'df' but no DataFrame available in state")
+                else:
+                    # Load DataFrame from Redis
+                    redis_service = get_redis_dataframe_service()
+                    df = redis_service.get_dataframe(data_context.df_id)
+                    
+                    if df is None:
+                        logger.warning(f"DataFrame {data_context.df_id} not found in Redis")
+                        # Continue anyway - code might define its own df
+                    else:
+                        # Extend TTL since we're using the DataFrame
+                        redis_service.extend_ttl(data_context.df_id)
+                        logger.info(f"Loaded DataFrame {data_context.df_id} for Python execution")
             
-            if df is None:
-                return f"Error: DataFrame {data_context.df_id} not found or expired. Please run the SQL query again."
-            
-            # Extend TTL since we're using the DataFrame
-            redis_service.extend_ttl(data_context.df_id)
-            
-            logger.info(f"Executing Python code in subprocess for DataFrame {data_context.df_id}")
+            logger.info(f"Executing Python code in subprocess (uses_df={uses_df}, df_loaded={df is not None})")
             
             # Execute code in secure subprocess
             result = self._execute_in_subprocess(code, df)
             
-            logger.info(f"Python code executed successfully for DataFrame {data_context.df_id}")
+            logger.info("Python code executed successfully")
             return result
             
         except Exception as e:
@@ -215,10 +222,23 @@ class SecurePythonREPLTool(BaseTool):
             logger.error(error_msg)
             return error_msg
     
-    def _execute_in_subprocess(self, code: str, df: pd.DataFrame) -> str:
+    def _execute_in_subprocess(self, code: str, df: Optional[pd.DataFrame] = None) -> str:
         """Execute Python code in a secure subprocess within the container"""
         
         try:
+            # Prepare DataFrame loading code if df is provided
+            if df is not None:
+                df_load_code = f'''
+    # Decode and load DataFrame
+    df_data = base64.b64decode('{self._encode_dataframe(df)}')
+    df = pickle.loads(df_data)
+'''
+            else:
+                df_load_code = '''
+    # No DataFrame provided - code should define its own data
+    pass
+'''
+            
             # Prepare the Python script with DataFrame and user code
             python_script = f'''
 import pandas as pd
@@ -241,10 +261,7 @@ except AttributeError:
     # Windows doesn't have SIGALRM, skip timeout setup
     pass
 
-try:
-    # Decode and load DataFrame
-    df_data = base64.b64decode('{self._encode_dataframe(df)}')
-    df = pickle.loads(df_data)
+try:{df_load_code}
     
     # Capture output
     output_buffer = StringIO()
@@ -280,14 +297,25 @@ except Exception as e:
     print(f"Error: {{type(e).__name__}}: {{str(e)}}")
 '''
             
-            # Create restricted environment
-            restricted_env = {
-                'PATH': '/usr/local/bin:/usr/bin:/bin',
-                'PYTHONPATH': '',
-                'HOME': '/tmp',
-                'USER': 'nobody',
-                'SHELL': '/bin/sh'
-            }
+            # Create platform-appropriate environment
+            # On Windows, use current environment; on Unix, use restricted environment
+            import platform
+            if platform.system() == 'Windows':
+                # Windows: use current environment but clear sensitive vars
+                restricted_env = os.environ.copy()
+                restricted_env.pop('OPENAI_API_KEY', None)
+                restricted_env.pop('DATABASE_URL', None)
+                temp_dir = tempfile.gettempdir()
+            else:
+                # Unix/Linux: use restricted environment
+                restricted_env = {
+                    'PATH': '/usr/local/bin:/usr/bin:/bin',
+                    'PYTHONPATH': '',
+                    'HOME': '/tmp',
+                    'USER': 'nobody',
+                    'SHELL': '/bin/sh'
+                }
+                temp_dir = '/tmp'
             
             # Execute in subprocess with restrictions
             try:
@@ -297,7 +325,7 @@ except Exception as e:
                     text=True,
                     timeout=35,  # Slightly longer than internal timeout
                     env=restricted_env,
-                    cwd='/tmp'  # Run in temporary directory
+                    cwd=temp_dir  # Use platform-appropriate temp directory
                 )
                 
                 if result.returncode == 0:

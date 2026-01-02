@@ -12,7 +12,7 @@ import {
 } from '@/components/ui/accordion';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
-import { Check, X, Clock, AlertCircle, AlertTriangle, CheckCircle2, XCircle } from 'lucide-react';
+import { Check, X, Clock, AlertCircle, AlertTriangle, CheckCircle2, XCircle, Code, Edit3 } from 'lucide-react';
 
 type ToolCallStatus = 'pending' | 'approved' | 'rejected' | 'error';
 
@@ -33,6 +33,17 @@ interface ToolCallOutput {
   [key: string]: any;
 }
 
+interface InternalTool {
+  name: string;
+  status: 'completed' | 'running' | 'error';
+}
+
+interface GeneratedContent {
+  type: 'sql' | 'code' | 'text';
+  content: string;
+  editable: boolean;
+}
+
 interface ToolCall {
   id: string;
   name: string;
@@ -40,6 +51,9 @@ interface ToolCall {
   status: ToolCallStatus;
   output?: ToolCallOutput | string | null;
   explanation?: string;
+  // NEW: Support for tools with internal sub-agents
+  internalTools?: InternalTool[];
+  generatedContent?: GeneratedContent;
 }
 
 interface ToolCallMessageProps {
@@ -49,6 +63,7 @@ interface ToolCallMessageProps {
   needsApproval?: boolean;
   onApprove?: () => void;
   onReject?: () => void;
+  onEdit?: (toolCallId: string, editedContent: string) => void;
   disabled?: boolean;
 }
 
@@ -58,8 +73,31 @@ export const ToolCallMessage: React.FC<ToolCallMessageProps> = ({
   needsApproval = false,
   onApprove,
   onReject,
+  onEdit,
   disabled = false
 }) => {
+  // Track edited content for each tool call
+  const [editedContent, setEditedContent] = React.useState<Record<string, string>>({});
+  const [isEditing, setIsEditing] = React.useState<Record<string, boolean>>({});
+
+  const handleContentEdit = (toolCallId: string, newContent: string) => {
+    setEditedContent(prev => ({ ...prev, [toolCallId]: newContent }));
+  };
+
+  const toggleEdit = (toolCallId: string) => {
+    setIsEditing(prev => ({ ...prev, [toolCallId]: !prev[toolCallId] }));
+  };
+
+  const handleApproveWithEdit = () => {
+    // If there's edited content, pass it to onEdit callback
+    const firstToolCall = toolCalls[0];
+    if (firstToolCall && editedContent[firstToolCall.id] && onEdit) {
+      onEdit(firstToolCall.id, editedContent[firstToolCall.id]);
+    } else if (onApprove) {
+      onApprove();
+    }
+  };
+
   // Determine effective status: enabled if has content OR output, disabled if neither
   const getEffectiveStatus = (call: ToolCall): ToolCallStatus | 'disabled' => {
     // Check if output contains error
@@ -199,6 +237,69 @@ export const ToolCallMessage: React.FC<ToolCallMessageProps> = ({
                     </div>
                   </div>
 
+                  {/* NEW: Internal Tools Section */}
+                  {call.internalTools && call.internalTools.length > 0 && (
+                    <div className="min-w-0 w-full">
+                      <h3 className="font-semibold text-sm text-muted-foreground mb-1.5">
+                        Internal Tools:
+                      </h3>
+                      <div className="bg-background border border-border rounded p-2 space-y-1">
+                        {call.internalTools.map((tool, idx) => (
+                          <div key={idx} className="flex items-center gap-2 text-sm">
+                            {tool.status === 'completed' && <Check className="w-3 h-3 text-green-500" />}
+                            {tool.status === 'running' && <Clock className="w-3 h-3 text-yellow-500 animate-spin" />}
+                            {tool.status === 'error' && <AlertCircle className="w-3 h-3 text-red-500" />}
+                            <span className="text-foreground">{tool.name}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* NEW: Generated Content Section */}
+                  {call.generatedContent && (
+                    <div className="min-w-0 w-full">
+                      <div className="flex items-center justify-between mb-1.5">
+                        <h3 className="font-semibold text-sm text-muted-foreground">
+                          Generated {call.generatedContent.type.toUpperCase()}:
+                        </h3>
+                        {call.generatedContent.editable && needsApproval && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => toggleEdit(call.id)}
+                            className="h-6 px-2 text-xs"
+                          >
+                            <Edit3 className="w-3 h-3 mr-1" />
+                            {isEditing[call.id] ? 'Preview' : 'Edit'}
+                          </Button>
+                        )}
+                      </div>
+
+                      {isEditing[call.id] ? (
+                        <textarea
+                          className="w-full h-32 p-2 font-mono text-sm bg-background border border-input rounded-md focus:ring-2 focus:ring-ring resize-y"
+                          defaultValue={call.generatedContent.content}
+                          onChange={(e) => handleContentEdit(call.id, e.target.value)}
+                          placeholder={`Edit ${call.generatedContent.type}...`}
+                        />
+                      ) : (
+                        <div className="bg-zinc-900 dark:bg-zinc-950 p-3 rounded-md overflow-x-auto">
+                          <pre className="m-0 text-sm font-mono text-zinc-50 whitespace-pre-wrap break-all">
+                            <code>{editedContent[call.id] || call.generatedContent.content}</code>
+                          </pre>
+                        </div>
+                      )}
+
+                      {editedContent[call.id] && editedContent[call.id] !== call.generatedContent.content && (
+                        <div className="mt-2 text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1">
+                          <AlertCircle className="w-3 h-3" />
+                          Content has been modified
+                        </div>
+                      )}
+                    </div>
+                  )}
+
                   {call.output && (
                     <div className="min-w-0 w-full">
                       <h3 className="font-semibold text-sm text-muted-foreground mb-1.5">
@@ -232,12 +333,12 @@ export const ToolCallMessage: React.FC<ToolCallMessageProps> = ({
         <div className="flex gap-2 mt-3 pt-3 border-t border-border">
           {onApprove && (
             <Button
-              onClick={onApprove}
+              onClick={handleApproveWithEdit}
               disabled={disabled}
               className="flex-1"
             >
               <CheckCircle2 className="w-4 h-4 mr-2" />
-              Approve
+              {Object.keys(editedContent).length > 0 ? 'Approve with Edits' : 'Approve'}
             </Button>
           )}
           {onReject && (

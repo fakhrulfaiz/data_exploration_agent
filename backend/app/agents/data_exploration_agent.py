@@ -1,6 +1,4 @@
-from langchain import hub
-from langchain_community.agent_toolkits.sql.toolkit import SQLDatabaseToolkit
-from langchain_community.utilities import SQLDatabase
+from langchain_core import prompts as hub
 from langchain_openai import ChatOpenAI
 from sqlalchemy import create_engine
 from langgraph.prebuilt import ToolNode, tools_condition, create_react_agent
@@ -18,19 +16,21 @@ import json
 import os
 from datetime import datetime
 import logging
+import uuid
 from pydantic import BaseModel, Field
 from app.schemas.chat import DataContext
 from app.agents.tools.custom_toolkit import CustomToolkit
 from app.agents.state import ExplainableAgentState
-from app.agents.nodes.planner_node import PlannerNode
+from app.agents.nodes.explainable.explainable_planner_node import ExplainablePlannerNode
 from app.agents.nodes.explainer_node import ExplainerNode
-from app.agents.nodes.enhanced_explainer_node import EnhancedExplainerNode
 from app.agents.nodes.error_explainer_node import ErrorExplainerNode
 from app.agents.nodes.agent_executor_node import AgentExecutorNode
 from app.agents.nodes.task_scheduler_node import TaskSchedulerNode
 from app.agents.nodes.joiner_node import JoinerNode
+from app.agents.assistant_agent import AssistantAgent
 
 logger = logging.getLogger(__name__)
+
 
 class DataExplorationAgent:
   
@@ -48,27 +48,19 @@ class DataExplorationAgent:
         self.llm = llm
         self.db_path = db_path
         self.engine = create_engine(f'sqlite:///{db_path}')
-        self.db = SQLDatabase(self.engine)
         self.require_tool_approval = require_tool_approval
-        self.risky_tools = risky_tools or ["sql_db_query", "sql_db_to_df"]
-        self.toolkit = SQLDatabaseToolkit(db=self.db, llm=self.llm)
-        all_sql_tools = self.toolkit.get_tools()
-        self.sql_tools = [
-            tool for tool in all_sql_tools 
-            if tool.name in ["sql_db_query"]
-        ]
+        self.risky_tools = risky_tools or []
         self.custom_toolkit = CustomToolkit(
             llm=self.llm, 
             db_engine=self.engine,
             db_path=self.db_path
         )
-        self.custom_tools = self.custom_toolkit.get_tools()
-        # Use tools directly - approval handled by tool_approval node
-        self.tools = self.sql_tools + self.custom_tools
+        self.tools = self.custom_toolkit.get_tools()
+
         self.store = store
-        self.explainer = EnhancedExplainerNode(llm, self.tools)
+        self.explainer = ExplainerNode(llm, available_tools=self.tools)
         self.error_explainer = ErrorExplainerNode(llm)
-        self.planner = PlannerNode(llm, self.tools)
+        self.planner = ExplainablePlannerNode(llm, self.tools)
         self.agent_executor = AgentExecutorNode(llm, self.tools)
         self.task_scheduler = TaskSchedulerNode(self.tools)
         self.joiner = JoinerNode(llm)
@@ -89,9 +81,7 @@ class DataExplorationAgent:
                 import psycopg
                 
                 if checkpointer_manager.is_initialized():
-                    # Get the database URI and create a persistent connection
                     db_uri = db_manager.get_db_uri()
-                    # Create a connection that will be managed by the checkpointer
                     conn = psycopg.connect(db_uri, autocommit=True)
                     self.checkpointer = PostgresSaver(conn)
                 else:
@@ -102,57 +92,15 @@ class DataExplorationAgent:
                 self.checkpointer = MemorySaver()
         else:
             self.checkpointer = None
+
         
         self.create_handoff_tools()
         
-        base_assistant_agent = create_react_agent(
-            model=llm,
-            tools=[self.transfer_to_data_exploration],
-            prompt=(
-                "You are an assistant that routes tasks to specialized agents.\n\n"
-                "AVAILABLE AGENTS:\n"
-                "- data_exploration_agent: Handles database queries and visualizations, SQL analysis, and data exploration\n"
-                "  Use this for: SQL queries, database analysis, table inspection, data queries, schema questions, visualizations\n\n"
-                "ROUTING LOGIC:\n"
-                "- For DATA EXPLORATION queries: Transfer to data_exploration_agent\n"
-                "- For general conversation: Respond normally without transferring\n\n"
-                "TRANSFER RULES:\n"
-                "- IMPORTANT: Only route to agents when you receive a NEW user message, not for agent responses\n"
-                "- **CRITICAL: ONLY USE ONE TOOL CALL PER USER MESSAGE for transfers. PASS THE FULL TASK IN A SINGLE CALL.**\n"
-                "- **CRITICAL: DO NOT SAY ANYTHING WHEN TRANSFERRING. JUST TRANSFER.**\n"
-                "- **Example: If user asks for '3 different charts', call the transfer tool ONCE with the full request**\n\n"
-                "EXAMPLES:\n"
-                "- 'Show me sales data' → Transfer to data_exploration_agent\n"
-                "- 'What tables are in the database?' → Transfer to data_exploration_agent\n"
-                "- 'Hello, how are you?' → Respond directly\n"
-            ),
-            name="assistant"
+        self.assistant_agent_instance = AssistantAgent(
+            llm=llm,
+            transfer_tools=[self.transfer_to_data_exploration]
         )
-        
-        self._use_planning = None
-        self._use_explainer = None
-        
-        def assistant_agent(state):
-            use_planning = state.get("use_planning", True)
-            use_explainer = state.get("use_explainer", True)
-            agent_type = state.get("agent_type", "data_exploration_agent")
-            query = state.get("query", "")
-            
-            self._use_planning = use_planning
-            self._use_explainer = use_explainer
-            result = base_assistant_agent.invoke(state)
-            
-            if isinstance(result, dict):
-                result["use_planning"] = use_planning
-                result["use_explainer"] = use_explainer
-                result["agent_type"] = agent_type
-                result["query"] = query
-            
-            return result
-        
-        self.assistant_agent = assistant_agent
-        
-        self.task_parser_node = lambda state: self.task_parser.execute(state)
+        self.assistant_agent = self.assistant_agent_instance
         self.agent_executor_node = lambda state: self.agent_executor.execute(state)
         self.joiner_node = lambda state: self.joiner.execute(state)
         
@@ -198,17 +146,17 @@ class DataExplorationAgent:
                 if latest_human_msg:
                     query = latest_human_msg
             
-            use_planning = self._use_planning
+            use_planning = self.assistant_agent_instance.get_planning_flag()
             if use_planning is None:
                 use_planning = state.get("use_planning", True)
             
-            use_explainer = self._use_explainer
+            use_explainer = self.assistant_agent_instance.get_explainer_flag()
             if use_explainer is None:
                 use_explainer = state.get("use_explainer", True)
             
             update_state = {
                 "messages": state.get("messages", []) + [tool_message],
-                "agent_type": "data_exploration_agent",
+                "agent_type": "data_exploration_tool",
                 "routing_reason": f"Transferred to data exploration agent: {task_description}",
                 "query": query,
                 "plan": state.get("plan", ""),
@@ -303,14 +251,6 @@ class DataExplorationAgent:
         
         if not (hasattr(last_message, 'tool_calls') and last_message.tool_calls):
             if self._has_consecutive_errors(messages):
-                return "error_explainer"
-            else:
-                return "end"
-        
-        last_message = messages[-1]
-        
-        if not (hasattr(last_message, 'tool_calls') and last_message.tool_calls):
-            if self._has_consecutive_errors(messages):
                 logger.info("Agent gave up after error - routing to error_explainer")
                 return "error_explainer"
             else:
@@ -385,7 +325,15 @@ class DataExplorationAgent:
             }
         )
         
-        graph.add_edge("planner", "human_feedback")
+        graph.add_conditional_edges(
+            "planner",
+            self.route_after_planner,
+            {
+                "human_feedback": "human_feedback",
+                "task_scheduler": "task_scheduler",
+                "end": END
+            }
+        )
         
         graph.add_conditional_edges(
             "human_feedback",
@@ -417,7 +365,8 @@ class DataExplorationAgent:
             {
                 "agent_executor": "agent_executor",  
                 "explain": "explain",                
-                "agent": "agent"                     
+                "agent": "agent",
+                "error_explainer": "error_explainer"
             }
         )
         
@@ -425,8 +374,8 @@ class DataExplorationAgent:
             "joiner",
             self.after_joiner,
             {
-                "explain": "explain",
                 "planner": "planner",
+                "error_explainer": "error_explainer",
                 "end": END
             }
         )
@@ -474,11 +423,24 @@ class DataExplorationAgent:
         
         if self.checkpointer:
             if self.store:
-                return graph.compile(interrupt_before=["human_feedback"], checkpointer=self.checkpointer, store=self.store)
+                return graph.compile(checkpointer=self.checkpointer, store=self.store)
             else:
-                return graph.compile(interrupt_before=["human_feedback"], checkpointer=self.checkpointer)
+                return graph.compile(checkpointer=self.checkpointer)
         else:
-            return graph.compile(interrupt_before=["human_feedback"], checkpointer=MemorySaver())
+            return graph.compile(checkpointer=MemorySaver())
+    
+    def route_after_planner(self, state: ExplainableAgentState) -> str:
+        response_type = state.get("response_type", "plan")
+        
+        if response_type == "continue":
+            logger.info("Planner generated continuation plan - skipping approval")
+            return "task_scheduler"
+        elif response_type == "cancel":
+            logger.info("Planner determined task cannot be solved - ending")
+            return "end"
+        else:
+            logger.info(f"Planner generated new plan (type: {response_type}) - requiring approval")
+            return "human_feedback"
     
     def route_after_approval(self, state: ExplainableAgentState) -> str:
         status = state.get("status")
@@ -486,8 +448,10 @@ class DataExplorationAgent:
         if status == "cancelled":
             return "end"
         elif status == "feedback":
+             # If providing feedback/comment, maybe replan
             return "planner"
-        
+
+    
         # Always use dynamic planning with task_scheduler
         return "task_scheduler"
     
@@ -505,22 +469,9 @@ class DataExplorationAgent:
             return "joiner"
     
     def route_after_tools(self, state: ExplainableAgentState) -> str:
-        """Route after tools execution - BOTH planning and non-planning modes"""
-        # Check for errors FIRST - if error detected, skip explainer
-        if self._has_consecutive_errors(state.get("messages", [])):
-            dynamic_plan = state.get("dynamic_plan")
-            if dynamic_plan:
-                return "agent_executor"  # Planning mode: continue to next step
-            else:
-                return "agent"  # Non-planning mode: return to agent
-        
-        # No errors - check if explainer is enabled
-        use_explainer = state.get("use_explainer", True)
-        if use_explainer:
-            return "explain"  # Explain this tool execution
-        
-        # Explainer disabled - continue execution
+        # Route based on dynamic planning
         dynamic_plan = state.get("dynamic_plan")
+        
         if dynamic_plan:
             return "agent_executor"  # Planning mode: continue to next step
         else:
@@ -534,11 +485,12 @@ class DataExplorationAgent:
         decision = state.get("joiner_decision")
         
         if decision == "finish":
-            # Check for errors
             if self._has_consecutive_errors(state.get("messages", [])):
                 return "error_explainer"
-            return "end"  # Just end, explainer already ran after each tool
-        elif decision == "replan":
+            if state.get("use_explainer") == True:
+                return "explain"
+            return "end"
+        elif decision in ["continue", "replan"]:
             return "planner"
         else:
             logger.warning(f"Unexpected joiner decision: {decision}, defaulting to end")
@@ -611,7 +563,30 @@ class DataExplorationAgent:
             return "agent"
     
     def human_feedback(self, state: ExplainableAgentState):
-        pass
+        """Node that pauses for human feedback/approval"""
+        logger.info("Entering human_feedback node - pausing for input")
+        
+        # Use interrupt to pause and wait for user input
+        # The value returned will be what's passed in Command(resume=...)
+        feedback_data = interrupt("awaiting_feedback")
+        
+        logger.info(f"Received human feedback: {feedback_data}")
+        
+        updates = {}
+        
+        # Handle standard feedback payload
+        if isinstance(feedback_data, dict):
+            if "action" in feedback_data:
+                action = feedback_data["action"]
+                if action == "cancel":
+                    updates["status"] = "cancelled"
+                    return updates
+                elif action == "feedback":
+                    updates["status"] = "feedback"
+                    updates["human_feedback"] = feedback_data.get("comment")
+                    return updates
+        
+        return updates
     
     def should_execute(self, state: ExplainableAgentState):
         if state.get("status") == "approved":
@@ -647,32 +622,34 @@ class DataExplorationAgent:
     def _has_consecutive_errors(self, messages):
         tool_messages = [msg for msg in messages if type(msg).__name__ == 'ToolMessage']
         
-        logger.info(f"Checking for errors - Total tool messages: {len(tool_messages)}")
-        
         if len(tool_messages) < 1:
-            logger.info("No tool messages found")
             return False
         
         last = tool_messages[-1]
-        logger.info(f"Last tool message type: {type(last).__name__}")
         
         # Check if the ToolMessage has status='error'
         has_status = hasattr(last, 'status')
-        logger.info(f"Last tool message has status attribute: {has_status}")
-        
         if has_status:
             status = getattr(last, 'status', None)
-            logger.info(f"Last tool message status: {status}")
             is_error = status == 'error'
-            logger.info(f"Status is 'error': {is_error}")
-            return is_error
+            if is_error:
+                return True
         
         if hasattr(last, 'content') and last.content:
             content = str(last.content)
-            logger.info(f"Checking content fallback - starts with 'Error:': {content.startswith('Error:')}")
-            return content.startswith("Error:")
+            
+            # 1. Try JSON parsing first
+            try:
+                content_json = json.loads(content)
+                if isinstance(content_json, dict) and "error" in content_json:
+                    return True
+            except json.JSONDecodeError:
+                pass
+            
+            # 2. Fallback to string prefix check
+            is_prefix_error = content.startswith("Error:") or "ERROR:" in content or "error" in content.lower()
+            return is_prefix_error
         
-        logger.info("No error detected")
         return False
     
     def should_explain(self, state: ExplainableAgentState):
@@ -717,6 +694,13 @@ CORE RESPONSIBILITIES:
 2. Avoid making assumptions; verify with data.
 3. Be efficient: Do not repeat successful tool calls.
 
+CRITICAL ANTI-HALLUCINATION RULES:
+- **NEVER invent or guess data** when a tool returns empty output or fails
+- **ALWAYS acknowledge** when a query returns no results or a tool fails
+- **IF a tool output is empty or "None" or blank**: Explicitly tell the user "The query returned no results" or "The table was not found"
+- **DO NOT** fill in plausible-sounding information when you don't have real data
+- **VERIFY FIRST**: If a tool fails or returns empty output, try an alternative approach (e.g., list tables first) or inform the user
+
 RESPONSE STYLE:
 - Be direct and concise - answer only what is asked
 - Use a clear, professional tone
@@ -727,84 +711,57 @@ RESPONSE STYLE:
 """
         db_guidelines = """DATABASE OPERATIONS:
 
-1. **SQL QUERY GENERATION**:
-   - Use `text2SQL` tool to generate SQL queries from natural language questions
-   - The text2SQL tool has access to database schema and will generate correct queries
-   - **IMPORTANT**: text2SQL now returns JSON with `sql` and `row_count` fields:
-     ```json
-     {
-       "sql": "SELECT * FROM ...",
-       "row_count": 150
-     }
-     ```
-   - Parse this JSON to extract the SQL query and row count
-   - You can provide context from previous tasks to help generate better queries
+1. **UNIFIED DATA ACCESS**:
+   - Use `data_exploration_agent` tool for ALL database interactions.
+   - This tool automatically:
+     - Generates correct SQL
+     - Executes the query
+     - Caches results in Redis (as DataFrame)
+     - Returns metadata and samples
+   - **DO NOT** use `text2SQL` or `sql_db_query` manually.
+   - Simply ask `data_exploration_agent` for what you need (e.g., "Retrieve sales data for 2023").
 
-2. **QUERY EXECUTION** (CRITICAL - Choose based on row_count):
-   - **ALWAYS** parse the text2SQL output first to get `row_count`
-   - **If row_count <= 20**: Use `sql_db_query` for quick results (safe for small datasets)
-   - **If row_count > 20**: Use `sql_db_to_df` to avoid token overflow (required for large datasets)
-   - **If row_count == -1**: Count query failed, use `sql_db_to_df` as safe default
-   - Extract the `sql` field from text2SQL output and pass it to the execution tool
-   - **NEVER** execute queries with >100 rows using sql_db_query - this will cause token overflow
-   - Write syntactically correct SQLite queries
-   - **SELECTIVE**: Select only necessary columns
-   - **READ-ONLY**: SELECT statements ONLY. No INSERT/UPDATE/DELETE
-
-3. **ERROR HANDLING**:
-   - If a query fails, check the error message
-   - Common errors: Wrong column name, syntax error
-   - Use text2SQL to regenerate the query with corrections
-   - If it fails again, ask the user for clarification
+2. **HANDLING RESULTS**:
+   - The tool returns a JSON with `data_context` (metadata about the cached DataFrame).
+   - Use this context for subsequent analysis or visualization.
+   - If `data_exploration_agent` returns an error, report it directly (it has built-in retry/refinement).
 """
 
         viz_rules = self._get_visualization_rules()
 
-        tool_rules = """TOOL USAGE & EXECUTION STRATEGY:
+        tool_rules = """TOOL USAGE RULES:
 
-1. **THINK BEFORE ACTING**:
-   - Before calling a tool, check the conversation history
-   - Has this tool been called with these arguments before? If yes, DO NOT call it again. Use the existing output
-   - Do you have enough information to answer? If yes, stop calling tools and answer
+1. **DATA RETRIEVAL**:
+   - **data_exploration_agent**: Unified tool for all database queries.
+     - Input: Natural language question about data
+     - Automatically: Generates SQL → Executes → Stores DataFrame in Redis
+     - Returns: Data preview and Redis storage ID
+     - Example: "Get top 10 users by age" → handles everything automatically
 
-2. **PREVENTING RECURSION & LOOPS**:
-   - You are limited to a small number of tool calls per turn
-   - If a tool fails or returns unexpected results, DO NOT retry immediately with the same arguments
-   - Analyze the error, change your approach, or inform the user
-   - **CRITICAL**: If you find yourself calling the same tool twice with same arguments and still produce error, STOP
+2. **VISUALIZATION**:
+   - **smart_transform_for_viz**: For interactive frontend charts (bar, line, pie).
+     - Requires: Prior usage of `data_exploration_agent` to load data.
+   - **large_plotting_tool**: For static matplotlib plots (complex/large data).
+     - Requires: Prior usage of `data_exploration_agent` to load data.
 
-3. **CHOOSING THE RIGHT TOOL**:
-   - **text2SQL**: Generate SQL queries from natural language questions. Use this FIRST when you need a SQL query
-   - **sql_db_query**: Execute simple SQL queries for quick results
-   - **sql_db_to_df**: Execute SQL queries and store results as DataFrame in Redis for analysis/visualization
-   - **python_repl**: For calculations/analysis on the DataFrame created by `sql_db_to_df`
-   - **large_plotting_tool**: For static matplotlib images, large datasets (>100 rows), or complex statistical plots. Requires DataFrame from `sql_db_to_df`
-   - **smart_transform_for_viz**: For simple, interactive frontend charts (bar, line, pie) with small datasets (≤100 rows). Requires DataFrame from `sql_db_to_df`
+3. **ADVANCED ANALYSIS**:
+   - **python_repl**: Use ONLY for complex transformations not possible with SQL.
+     - Requires: DataFrame from `data_exploration_agent`.
 
-4. **WORKFLOWS**:
-   - **Query Generation**: 
-     1. Call `text2SQL` to get JSON with `sql` and `row_count`
-     2. Parse the JSON output
-     3. If `row_count <= 100`: use `sql_db_query` with the `sql` field
-     4. If `row_count > 100`: use `sql_db_to_df` with the `sql` field
-   - **Analysis**: `text2SQL` -> parse JSON -> `sql_db_to_df` -> `dataframe_info` -> `python_repl`
-   - **Plotting (Matplotlib)**: `text2SQL` -> parse JSON -> `sql_db_to_df` -> `large_plotting_tool` 
-   - **Plotting (Frontend)**: `text2SQL` -> parse JSON -> `sql_db_to_df` -> `smart_transform_for_viz`
-
-5. **DATAFRAME MANAGEMENT**:
-   - Always run `sql_db_to_df` first to execute SQL queries and create DataFrame
-   - Always check if DataFrame is available/expired before using `python_repl`, `large_plotting_tool`, or `smart_transform_for_viz`
-   - If expired/missing, run `sql_db_to_df` again to refresh the DataFrame
+4. **WORKFLOW**:
+   - **Standard**: `data_exploration_agent` → (results shown to user)
+   - **With Viz**: `data_exploration_agent` → `smart_transform_for_viz`
+   - **Deep Analysis**: `data_exploration_agent` → `python_repl` → `large_plotting_tool`
 """
 
         output_rules = """OUTPUT FORMAT - CRITICAL RULES:
-🚫 ABSOLUTELY FORBIDDEN - NEVER DO THESE:
+ ABSOLUTELY FORBIDDEN - NEVER DO THESE:
 - NEVER generate base64 images (data:image/png;base64,...) - THIS IS STRICTLY PROHIBITED
 - NEVER create image data in any format (base64, binary, encoded, etc.)
 - NEVER include markdown image tags with base64 data
 - NEVER generate any image content yourself - ONLY use visualization tools
 
-✅ CORRECT BEHAVIOR:
+CORRECT BEHAVIOR:
 - For frontend visualizations: ONLY use smart_transform_for_viz tool (returns JSON, not images)
 - For matplotlib/static plots: ONLY use large_plotting_tool (it handles image generation and upload)
 - For image URLs from database: use standard markdown format ![Alt](url) - but ONLY for URLs from database queries
@@ -842,8 +799,16 @@ Response:
 2. Call smart_transform_for_viz with viz_type='bar'
 3. Done - no images or extra suggestions
 
+Handling Empty Tool Output - WRONG (HALLUCINATION):
+User: "Explain the scatter_data table"
+Tool: sql_db_query → "" (empty output)
+Response: "The scatter_data table has columns: id (INTEGER), x_value (REAL), y_value (REAL)..." ❌
+NEVER DO THIS - You just invented data!
+
 Things to Avoid:
 - GENERATING BASE64 IMAGES - ABSOLUTELY FORBIDDEN - NEVER DO THIS
+- **INVENTING DATA when tools return empty output** - CRITICAL ISSUE
+- **GUESSING table structure when PRAGMA returns nothing**
 - Creating any image data yourself - tools handle all image generation
 - Including data:image/png;base64,... in any response
 - Creating visualizations without user request
@@ -851,7 +816,7 @@ Things to Avoid:
 - Calling the same tool repeatedly with identical arguments
 - Looping on failed queries
 
-CRITICAL: If you find yourself about to generate base64 or any image data, STOP. Use a visualization tool instead, or provide only a text explanation.
+CRITICAL: If you find yourself about to generate base64 or any image data, STOP. Use a visualization tool instead, or provide only a text explanation. CRITICAL: If a tool returns empty output and you don't know the answer, SAY SO. Never make up plausible-sounding data.
 """
         
         return system_message
@@ -1050,12 +1015,13 @@ Examples:
                             error_type = "ToolExecutionError"
                             # Remove "Error: " prefix if present
                             error_message = content.replace("Error: ", "")
-                            # Take first line or first 200 chars
-                            if '\n' in error_message:
-                                error_message = error_message.split('\n')[0]
-                            if len(error_message) > 200:
-                                error_message = error_message[:200] + "..."
-                        
+                            # Try to extract detailed error from JSON
+                            try:
+                                content_json = json.loads(tool_output)
+                                if isinstance(content_json, dict) and "error" in content_json:
+                                    error_message = content_json["error"]
+                            except:
+                                pass # Keep original string if not JSON
                         error_info = {
                             "error_message": error_message,
                             "error_type": error_type,
@@ -1200,11 +1166,9 @@ Examples:
         }
     
     def explainer_node(self, state: ExplainableAgentState):
-        """Generate explanations for steps using EnhancedExplainerNode"""
         return self.explainer.execute(state)
     
     def continue_with_feedback(self, user_feedback: str, status: str = "feedback", config=None):
-        """Continue execution with user feedback"""
         if config is None:
             config = {"configurable": {"thread_id": "main_thread"}}
         
@@ -1215,7 +1179,6 @@ Examples:
         return events
     
     def approve_and_continue(self, config=None):
-        """Approve plan and continue execution"""
         if config is None:
             config = {"configurable": {"thread_id": "main_thread"}}
         state_update = {"status": "approved"}

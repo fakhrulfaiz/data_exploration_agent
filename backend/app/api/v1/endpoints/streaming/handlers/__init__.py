@@ -7,6 +7,7 @@ from .tool_call_handler import ToolCallHandler
 from .text_handler import TextContentHandler
 from .plan_handler import PlanContentHandler
 from .explanation_handler import ExplanationContentHandler
+from .reasoning_chain_handler import ReasoningChainContentHandler
 
 __all__ = [
     "ContentHandler",
@@ -16,4 +17,5 @@ __all__ = [
     "TextContentHandler",
     "PlanContentHandler",
     "ExplanationContentHandler",
+    "ReasoningChainContentHandler",
 ]

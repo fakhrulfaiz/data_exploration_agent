@@ -34,7 +34,7 @@ class ToolCallHandler(ContentHandler):
         node_name = metadata.get('langgraph_node', 'unknown')
         
         # Only process tool calls from agent and agent_executor nodes
-        if node_name not in ['agent', 'agent_executor']:
+        if node_name not in ['agent', 'agent_executor', 'process_query']:
             return
         
         chunk = msg.tool_call_chunks[0]
@@ -153,19 +153,42 @@ class ToolCallHandler(ContentHandler):
             except json.JSONDecodeError:
                 parsed_args = {}
         
+        # NEW: Check if tool output signals approval needed
+        needs_approval = False
+        internal_tools = None
+        generated_content = None
+        
+        try:
+            if isinstance(msg.content, str):
+                output_data = json.loads(msg.content)
+                if output_data.get("status") == "awaiting_approval":
+                    needs_approval = True
+                    internal_tools = output_data.get("internal_tools", [])
+                    generated_content = output_data.get("generated_content")
+                    logger.info(f"Tool {tool_name} requires approval. Type: {output_data.get('approval_type')}")
+        except (json.JSONDecodeError, AttributeError):
+            pass
+        
         tool_call_object = {
             "name": tool_name,
             "input": parsed_args,
             "output": msg.content,
-            "status": "approved"
+            "status": "pending" if needs_approval else "approved"
         }
+        
+        # Add internal tools and generated content if present
+        if internal_tools:
+            tool_call_object["internalTools"] = internal_tools
+        if generated_content:
+            tool_call_object["generatedContent"] = generated_content
+
         
         if tool_call_id not in self.completed_tools:
             self.completed_tools[tool_call_id] = {
                 "id": f"tool_{tool_call_id}",
                 "type": "tool_calls",
                 "sequence": tool_state.sequence,
-                "needsApproval": False,
+                "needsApproval": needs_approval,  # Set based on detection
                 "data": {
                     "toolCalls": [tool_call_object],
                     "content": tool_state.content
@@ -173,6 +196,10 @@ class ToolCallHandler(ContentHandler):
             }
         else:
             self.completed_tools[tool_call_id]["data"]["toolCalls"].append(tool_call_object)
+            # Update needsApproval if any tool call needs it
+            if needs_approval:
+                self.completed_tools[tool_call_id]["needsApproval"] = True
+
         
         tool_state.saved = True
         

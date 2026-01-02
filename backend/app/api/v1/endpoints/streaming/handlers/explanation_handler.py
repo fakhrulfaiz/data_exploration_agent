@@ -1,6 +1,6 @@
 from typing import Dict, Any, AsyncGenerator, List
 import json
-import time as _time
+from uuid import uuid4
 
 from .base_handler import ContentHandler, StreamContext
 
@@ -10,15 +10,20 @@ class ExplanationContentHandler(ContentHandler):
     
     def __init__(self, context: StreamContext):
         super().__init__(context)
-        self.explanation_block_id = f"explanation-{int(_time.time() * 1000)}"
     
     async def can_handle(self, msg: Any, metadata: Dict) -> bool:
         node_name = metadata.get('langgraph_node', 'unknown')
+        
+        # Check specifically for is_explanation flag from ExplainerNode
+        is_marked_explanation = False
+        if hasattr(msg, 'additional_kwargs'):
+            is_marked_explanation = msg.additional_kwargs.get('is_explanation', False)
+
         return (
             hasattr(msg, 'content') and 
             msg.content and 
-            type(msg).__name__ == 'AIMessage' and  # Only accept complete messages, not chunks
-            node_name == 'explain'
+            type(msg).__name__ == 'AIMessage' and
+            (node_name == 'explain' or is_marked_explanation)
         )
     
     async def handle(self, msg: Any, metadata: Dict) -> AsyncGenerator[Dict, None]:
@@ -27,12 +32,15 @@ class ExplanationContentHandler(ContentHandler):
             # Parse the explanation JSON (should be complete in one message)
             explanation_data = json.loads(msg.content)
             
+            # Generate unique block ID for this specific explanation
+            block_id = f"explanation-{uuid4().hex[:12]}"
+            
             # Yield as content_block event with type 'explanation'
             yield {
                 "event": "content_block",
                 "data": json.dumps({
                     "block_type": "explanation",
-                    "block_id": self.explanation_block_id,
+                    "block_id": block_id,
                     "data": explanation_data,
                     "node": "explain",
                     "stream_id": self._extract_msg_id(msg),

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Message, ContentBlock, isTextBlock, isToolCallsBlock, isExplorerBlock, isVisualizationsBlock, isPlanBlock, isErrorBlock, isExplanationBlock } from '@/types/chat';
+import { Message, ContentBlock, isTextBlock, isToolCallsBlock, isExplorerBlock, isVisualizationsBlock, isPlanBlock, isErrorBlock, isExplanationBlock, isReasoningChainBlock } from '@/types/chat';
 import { ExplorerMessage } from '@/components/messages/ExplorerMessage';
 import { markdownComponents } from '@/utils/markdownComponents';
 import VisualizationMessage from '@/components/messages/VisualizationMessage';
@@ -9,6 +9,8 @@ import { ToolCallMessage } from '@/components/messages/ToolCallMessage';
 import { PlanMessage } from '@/components/messages/PlanMessage';
 import { ErrorMessage } from '@/components/messages/ErrorMessage';
 import { ExplanationMessage } from '@/components/messages/ExplanationMessage';
+import { ReasoningChainMessage } from '@/components/messages/ReasoningChainMessage';
+import { SqlApprovalMessage } from '@/components/messages/SqlApprovalMessage';
 import {
   Collapsible,
   CollapsibleContent,
@@ -84,6 +86,41 @@ const ToolHistoryCollapsible: React.FC<ToolHistoryCollapsibleProps> = ({
   );
 };
 
+const ThoughtCollapsible: React.FC<{ content: string }> = ({ content }) => {
+  const [isExpanded, setIsExpanded] = useState(false);
+
+  return (
+    <Collapsible open={isExpanded} onOpenChange={setIsExpanded} className="border border-muted rounded-md bg-muted/30">
+      <CollapsibleTrigger asChild>
+        <button
+          className="flex items-center gap-2 p-2 w-full hover:bg-muted/50 transition-colors rounded-t-md text-left"
+          type="button"
+        >
+          {isExpanded ? (
+            <ChevronDown className="w-4 h-4 text-muted-foreground" />
+          ) : (
+            <ChevronRight className="w-4 h-4 text-muted-foreground" />
+          )}
+          <span className="font-semibold text-sm text-foreground">
+            Thought Process
+          </span>
+        </button>
+      </CollapsibleTrigger>
+
+      <CollapsibleContent className="data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:slide-out-to-top-2 data-[state=open]:slide-in-from-top-2 duration-200">
+        <div className="p-3 pt-0 text-sm text-muted-foreground">
+          <ReactMarkdown
+            components={markdownComponents}
+            remarkPlugins={[remarkGfm]}
+          >
+            {content}
+          </ReactMarkdown>
+        </div>
+      </CollapsibleContent>
+    </Collapsible>
+  );
+};
+
 export const MessageRenderer: React.FC<MessageRendererProps> = ({ message, onAction }) => {
   // Helper function to get border styling based on block status
   const getBlockBorderClass = (block: ContentBlock): string => {
@@ -123,6 +160,58 @@ export const MessageRenderer: React.FC<MessageRendererProps> = ({ message, onAct
 
   const renderContentBlock = (block: ContentBlock) => {
     if (isTextBlock(block)) {
+      // Check for SQL approval metadata
+      if (block.metadata?.type === 'sql_approval' && block.metadata?.sql) {
+        return (
+          <div key={block.id} className="content-block sql-approval-block mb-4">
+            <SqlApprovalMessage
+              data={{
+                sql: block.metadata.sql,
+                type: 'sql_approval',
+                tool_call_id: block.metadata.tool_call_id
+              }}
+              onApprove={onAction ? () => onAction('approveSql', block) : undefined}
+              onReject={onAction ? () => onAction('rejectSql', block) : undefined}
+              onEdit={onAction ? (newSql) => onAction('editSql', { ...block, metadata: { ...block.metadata, sql: newSql } }) : undefined}
+            />
+          </div>
+        );
+      }
+
+      // Check for Thought blocks
+      if (typeof block.data.text === 'string' && block.data.text.includes('Thought: ')) {
+        const parts = block.data.text.split(/(Thought:\s[\s\S]*?(?=\n\n|$))/g);
+
+        return (
+          <div key={block.id} className="content-block text-block mb-4 last:mb-0">
+            {parts.map((part, index) => {
+              if (part.startsWith('Thought: ')) {
+                // Render thought block
+                const thoughtContent = part.replace(/^Thought:\s/, '');
+                return (
+                  <div key={index} className="mb-4">
+                    <ThoughtCollapsible content={thoughtContent} />
+                  </div>
+                );
+              } else if (part.trim()) {
+                // Render regular markdown
+                return (
+                  <div key={index} className="mb-4 last:mb-0">
+                    <ReactMarkdown
+                      components={markdownComponents}
+                      remarkPlugins={[remarkGfm]}
+                    >
+                      {part}
+                    </ReactMarkdown>
+                  </div>
+                );
+              }
+              return null;
+            })}
+          </div>
+        );
+      }
+
       return (
         <div key={block.id} className="content-block text-block mb-4 last:mb-0">
           <ReactMarkdown
@@ -141,7 +230,9 @@ export const MessageRenderer: React.FC<MessageRendererProps> = ({ message, onAct
         name: toolCall.name,
         input: toolCall.input,
         output: toolCall.output,
-        status: toolCall.status
+        status: toolCall.status,
+        internalTools: toolCall.internalTools,
+        generatedContent: toolCall.generatedContent
       }));
 
       return (
@@ -152,6 +243,7 @@ export const MessageRenderer: React.FC<MessageRendererProps> = ({ message, onAct
             needsApproval={block.needsApproval}
             onApprove={onAction ? () => onAction('approveToolCall', block) : undefined}
             onReject={onAction ? () => onAction('rejectToolCall', block) : undefined}
+            onEdit={onAction ? (toolCallId, editedContent) => onAction('editToolCall', { block, toolCallId, editedContent }) : undefined}
           />
         </div>
       );
@@ -184,6 +276,7 @@ export const MessageRenderer: React.FC<MessageRendererProps> = ({ message, onAct
     if (isPlanBlock(block)) {
       const borderClass = getBlockBorderClass(block);
       const statusText = getBlockStatusText(block);
+
       return (
         <div key={block.id} className={`content-block plan-block mb-4 ${borderClass}`}>
           <PlanMessage
@@ -213,6 +306,13 @@ export const MessageRenderer: React.FC<MessageRendererProps> = ({ message, onAct
       );
     }
 
+    if (isReasoningChainBlock(block)) {
+      return (
+        <div key={block.id} className="content-block reasoning-chain-block mb-4">
+          <ReasoningChainMessage data={block.data} />
+        </div>
+      );
+    }
     return null;
   };
 

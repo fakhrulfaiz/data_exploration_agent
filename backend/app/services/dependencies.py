@@ -15,6 +15,8 @@ from app.services.message_management_service import MessageManagementService
 from app.services.agent_service import AgentService
 from app.services.redis_dataframe_service import RedisDataFrameService
 from app.services.storage_service import SupabaseStorageService
+from app.services.profile_service import ProfileService
+from app.services.memory_service import MemoryService
 
 
 # ==================== Repository Dependencies ====================
@@ -64,6 +66,8 @@ async def get_message_management_service(
 _agent_service: Optional[AgentService] = None
 _redis_df_service: Optional[RedisDataFrameService] = None
 _storage_service: Optional[SupabaseStorageService] = None
+_profile_service: Optional[ProfileService] = None
+_memory_service: Optional[MemoryService] = None
 
 
 def get_agent_service() -> AgentService:
@@ -96,6 +100,24 @@ def get_supabase_storage_service() -> SupabaseStorageService:
     return _storage_service
 
 
+def get_profile_service() -> ProfileService:
+    global _profile_service
+    
+    if _profile_service is None:
+        _profile_service = ProfileService()
+    
+    return _profile_service
+
+
+def get_memory_service() -> MemoryService:
+    global _memory_service
+    
+    if _memory_service is None:
+        _memory_service = MemoryService()
+    
+    return _memory_service
+
+
 
 def initialize_agent_service(llm, db_path: str, use_postgres_checkpointer: bool = True) -> AgentService:
     global _agent_service
@@ -108,8 +130,10 @@ def initialize_agent_service(llm, db_path: str, use_postgres_checkpointer: bool 
 
 
 def reset_services() -> None:
-    global _agent_service, _redis_df_service, _storage_service
+    global _agent_service, _redis_df_service, _storage_service, _profile_service, _memory_service
     
     _agent_service = None
     _redis_df_service = None
     _storage_service = None
+    _profile_service = None
+    _memory_service = None

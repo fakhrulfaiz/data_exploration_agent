@@ -36,13 +36,6 @@ class ErrorExplainerNode:
     ) -> ErrorExplanation:
         """
         Generate a user-friendly error explanation.
-        
-        Args:
-            error_info: Dictionary containing error details (error_message, error_type, tool_name, tool_input)
-            conversation_messages: Recent conversation messages for context
-            
-        Returns:
-            ErrorExplanation object with user-friendly explanation
         """
         try:
             error_message = error_info.get("error_message", "Unknown error")
@@ -52,17 +45,25 @@ class ErrorExplainerNode:
             
             # Extract recent user messages for context
             recent_context = ""
+            logger.info(f"Extracting context from {len(conversation_messages)} messages")
             for msg in reversed(conversation_messages[-5:]):  # Last 5 messages
                 if hasattr(msg, 'content') and msg.content:
                     msg_type = type(msg).__name__
+                    logger.info(f"Processing message type: {msg_type}, content: {str(msg.content)[:50]}")
                     if 'HumanMessage' in msg_type:
                         recent_context += f"User: {msg.content}\n"
                     elif 'AIMessage' in msg_type and not hasattr(msg, 'tool_calls'):
                         recent_context += f"Assistant: {msg.content[:100]}...\n"
             
-            prompt = f"""You are an AI assistant helping users understand what went wrong when an error occurs.
+            system_prompt = """You are an AI assistant helping users understand what went wrong when an error occurs.
+            
+Your Role:
+- Analyze technical errors and translate them into simple, non-technical language.
+- Provide actionable solutions and guidance.
+- Be empathetic and helpful.
+- Keep explanations concise but complete."""
 
-**Error Details:**
+            human_prompt = f"""**Error Details:**
 - Error Type: {error_type}
 - Error Message: {error_message}
 - Tool That Failed: {tool_name}
@@ -85,11 +86,14 @@ Generate a helpful, user-friendly error explanation that:
 - Provide actionable suggestions
 - If it's a SQL error, suggest checking table names, column names, or query syntax
 - If it's a tool error, suggest alternative tools or approaches
-- Keep explanations concise but complete
 
 Generate a structured explanation following the ErrorExplanation model."""
 
-            messages = [SystemMessage(content=prompt)]
+            from langchain_core.messages import HumanMessage
+            messages = [
+                SystemMessage(content=system_prompt),
+                HumanMessage(content=human_prompt)
+            ]
             
             llm_with_structure = self.llm.with_structured_output(ErrorExplanation)
             explanation = llm_with_structure.invoke(messages)
@@ -116,35 +120,63 @@ Generate a structured explanation following the ErrorExplanation model."""
             )
     
     def execute(self, state: Dict[str, Any]) -> Dict[str, Any]:
-        error_info = state.get("error_info")
-        if not error_info:
-            logger.warning("Error explainer called but no error_info in state")
-            return state
-        
         messages = state.get("messages", [])
+        
+        # 1. Try to get explicit error info from state
+        error_info = state.get("error_info")
+        
+        # 2. If missing, try to extract from the last ToolMessage (robust fallback)
+        if not error_info and messages:
+             # Find the last tool message
+            tool_messages = [msg for msg in messages if type(msg).__name__ == "ToolMessage"]
+            if tool_messages:
+                last_tool_msg = tool_messages[-1]
+                content = str(last_tool_msg.content)
+                tool_name = getattr(last_tool_msg, "name", "unknown_tool")
+                
+                extracted_error = None
+                
+                # Check JSON
+                import json
+                try:
+                    content_json = json.loads(content)
+                    if isinstance(content_json, dict) and "error" in content_json:
+                        extracted_error = content_json["error"]
+                except json.JSONDecodeError:
+                    pass
+                
+                # Check String Prefix
+                if not extracted_error:
+                    if content.startswith("Error:") or "error" in content.lower():
+                        extracted_error = content
+                
+                if extracted_error:
+                    error_info = {
+                        "error_message": extracted_error,
+                        "error_type": "ToolExecutionError",
+                        "tool_name": tool_name,
+                        "tool_input": "See conversation history"
+                    }
+                    logger.info(f"Extracted error info from tool message: {extracted_error[:100]}...")
+
+        if not error_info:
+            logger.warning("Error explainer called but could not find error info")
+            # Create a generic error placeholder so we still explain *something*
+            error_info = {
+                "error_message": "An unspecified error occurred during execution.",
+                "error_type": "UnknownError",
+                "tool_name": "Agent System",
+                "tool_input": "N/A"
+            }
         
         explanation = self.explain_error(error_info, messages)
         
         explanation_dict = explanation.model_dump()
-    
-        from langchain_core.messages import ToolMessage
-        
-        messages = state.get("messages", [])
-        last_message = messages[-1] if messages else None
-        
-        # tool_call_id = None
-        # if last_message and hasattr(last_message, 'tool_calls') and last_message.tool_calls:
-        #     tool_call_id = last_message.tool_calls[0].get('id')
-        
-        # if tool_call_id:
-        #     error_tool_message = ToolMessage(
-        #         content=f"Error: {error_info.get('error_message', 'Unknown error')}",
-        #         tool_call_id=tool_call_id,
-        #         name=error_info.get('tool_name', 'unknown')
-        #     )
-        #     messages = messages + [error_tool_message]
         
         return {
             "error_explanation": explanation_dict,
-            "messages": messages
+            # We do NOT append a new message here to avoid cluttering history with duplicate error text,
+            # as the original tool error message is already in history.
+            # But we might need to if the frontend expects it.
+            # "messages": messages 
         }

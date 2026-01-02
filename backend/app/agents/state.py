@@ -28,8 +28,8 @@ class ExplainableAgentState(MessagesState):
     assistant_response: str
     use_planning: bool = True
     use_explainer: bool = True
-    response_type: Optional[Literal["answer", "replan", "cancel"]] = None
-    agent_type: str = "data_exploration_agent"
+    response_type: Optional[Literal["answer", "replan", "cancel", "continue", "plan"]] = None
+    agent_type: str = "data_exploration_tool"
     routing_reason: str = ""
     visualizations: Optional[List[Dict[str, Any]]] = []
     data_context: Optional[DataContext] = None
@@ -39,8 +39,12 @@ class ExplainableAgentState(MessagesState):
     current_step_index: int = 0  # Track which step is currently executing
     continue_execution: bool = False  # Flag to continue to next step
     
+    # ===== JOINER FIELDS =====
+    joiner_decision: Optional[Literal["finish", "replan", "continue"]] = None
+    
     # ===== ERROR HANDLING FIELDS =====
     error_info: Optional[Dict[str, Any]] = None  # Error details (error_message, error_type, tool_name, tool_input)
     error_explanation: Optional[Dict[str, Any]] = None  # User-friendly error explanation
     require_tool_approval: Optional[bool] = False  # Whether tool-level approval is enabled
+
 

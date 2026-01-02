@@ -8,6 +8,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import DeleteThreadDialog from './DeleteThreadDialog';
+import SettingsDialog from './SettingsDialog';
 import DarkModeToggle from './DarkModeToggle';
 import { useAuth } from '@/lib/contexts/AuthContext';
 import {
@@ -670,10 +671,11 @@ const Sidebar: React.FC<SidebarProps> = ({
               </Button>
             )}
 
-            {/* Settings Collapsible */}
+            {/* Settings Button */}
             {isExpanded ? (
-              <Collapsible className="w-full" open={isSettingsOpen} onOpenChange={setIsSettingsOpen}>
-                <CollapsibleTrigger
+              <>
+                <button
+                  onClick={() => setIsSettingsOpen(true)}
                   className="w-full h-10 flex items-center pl-3 bg-transparent hover:bg-accent rounded-md transition-colors"
                   title="Settings"
                 >
@@ -681,29 +683,26 @@ const Sidebar: React.FC<SidebarProps> = ({
                   <span className="ml-2 text-xs font-medium whitespace-nowrap overflow-hidden">
                     Settings
                   </span>
-                  <ChevronDown className="w-4 h-4 mr-2 ml-auto transition-transform duration-200 data-[state=open]:rotate-180" />
-                </CollapsibleTrigger>
-                <CollapsibleContent className="mt-1 border border-border rounded-md shadow-sm bg-card overflow-hidden data-[state=closed]:animate-accordion-up data-[state=open]:animate-accordion-down">
-                  {/* Dark Mode Toggle */}
-                  <div className="flex items-center justify-between px-3 py-2">
-                    <span className="text-sm text-foreground">Dark Mode</span>
-                    <DarkModeToggle size="sm" />
-                  </div>
-                  <div className="border-t border-border my-1" />
-                  <button
-                    onClick={async () => { await signOut(); }}
-                    className="w-full h-10 flex items-center gap-2 px-3 text-sm text-muted-foreground hover:text-foreground bg-transparent hover:bg-accent rounded min-w-0"
-                  >
-                    <LogOut className="w-4 h-4 flex-shrink-0" />
-                    <span className="truncate min-w-0 flex-1">
-                      Sign out{user?.email ? ` (${user.email})` : ''}
-                    </span>
-                  </button>
-                </CollapsibleContent>
-              </Collapsible>
+                </button>
+
+                {/* Logout Button */}
+                <button
+                  onClick={async () => { await signOut(); }}
+                  className="w-full h-10 flex items-center gap-2 px-3 text-xs text-muted-foreground hover:text-foreground bg-transparent hover:bg-accent rounded-md min-w-0"
+                >
+                  <LogOut className="w-4 h-4 flex-shrink-0" />
+                  <span className="truncate min-w-0 flex-1">
+                    Sign out{user?.email ? ` (${user.email})` : ''}
+                  </span>
+                </button>
+              </>
             ) : (
               <button
-                onClick={handleSettingsClick}
+                onClick={() => {
+                  setIsExpanded(true);
+                  setIsSettingsOpen(true);
+                  onExpandedChange?.(true);
+                }}
                 className="w-full h-10 flex items-center pl-3 bg-transparent hover:bg-accent rounded-md transition-colors"
                 title="Settings"
               >
@@ -713,6 +712,12 @@ const Sidebar: React.FC<SidebarProps> = ({
           </div>
         </div>
       </aside>
+
+      {/* Settings Dialog */}
+      <SettingsDialog
+        open={isSettingsOpen}
+        onOpenChange={setIsSettingsOpen}
+      />
 
       {/* Delete Thread Dialog */}
       <DeleteThreadDialog
