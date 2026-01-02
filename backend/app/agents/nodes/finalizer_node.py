@@ -30,69 +30,166 @@ class FinalizerNode:
         query = state.get("query", "")
         steps = state.get("steps", [])
         messages = state.get("messages", [])
+        use_explainer = state.get("use_explainer", True)
         
         # Build steps summary for LLM
         steps_summary = self._build_steps_summary(steps)
         
-        # Build system instructions and analysis request
-        system_instructions = self._build_system_instructions()
-        analysis_request = self._build_analysis_request(query, steps_summary)
-
-
+        if use_explainer:
+            # Two-step process: thought + reasoning chain, then final response
+            return self._execute_with_explainer(query, steps, steps_summary, messages)
+        else:
+            # Simple process: just final response
+            return self._execute_simple(query, steps_summary, messages)
+    
+    def _execute_with_explainer(
+        self, 
+        query: str, 
+        steps: List[Dict[str, Any]], 
+        steps_summary: str, 
+        messages: List
+    ) -> Dict[str, Any]:
+        """Execute with full explainability: thought + reasoning chain + final response"""
         
-        llm_with_structure = self.llm.with_structured_output(FinalizerDecision)
+        # Step 1: Generate thought and reasoning chain
+        thought_prompt = self._build_thought_prompt(query, steps_summary)
         
-        logger.info(f"Finalizer received {len(messages)} messages")
-        for i, msg in enumerate(messages):
-            msg_type = type(msg).__name__
-            content_preview = str(msg.content)[:100] if hasattr(msg, 'content') else "no content"
-            logger.info(f"  Message {i}: {msg_type} - {content_preview}")
+        class ThoughtAndReasoning(BaseModel):
+            thought: str = Field(description="Overall synthesis of all steps and whether ready for final response")
+            reasoning_chain: List[ReasoningStep] = Field(description="Step-by-step breakdown of what happened")
         
-        # Filter messages similar to joiner_node
-        tool_call_ids_to_skip = set()
-        for msg in messages:
-            if isinstance(msg, AIMessage) and msg.tool_calls:
-                for tool_call in msg.tool_calls:
-                    tool_call_ids_to_skip.add(tool_call['id'])
+        llm_with_thought = self.llm.with_structured_output(ThoughtAndReasoning)
+        thought_result = llm_with_thought.invoke([
+            SystemMessage(content=self._get_thought_system_prompt()),
+            HumanMessage(content=thought_prompt)
+        ])
         
-        filtered_messages = []
-        for msg in messages:
-            if hasattr(msg, 'type') and msg.type == 'system':
-                continue
-                
-            if isinstance(msg, AIMessage) and msg.tool_calls:
-                continue
-                
-            if isinstance(msg, ToolMessage) and msg.tool_call_id in tool_call_ids_to_skip:
-                continue
-                
-            filtered_messages.append(msg)
+        logger.info(f"Generated thought: {thought_result.thought[:100]}...")
         
-        decision_messages = [
-            SystemMessage(content=system_instructions)
-        ] + filtered_messages + [
-            HumanMessage(content=analysis_request)
-        ]
+        # Format reasoning chain as JSON
+        reasoning_chain_json = self._format_reasoning_chain(thought_result.reasoning_chain)
         
-        decision = llm_with_structure.invoke(decision_messages)
+        # Create thought and reasoning messages FIRST (so they stream first)
+        thought_message = AIMessage(content="Thought: " + thought_result.thought)
+        reasoning_message = AIMessage(
+            content=reasoning_chain_json,
+            additional_kwargs={"is_reasoning_chain": True}
+        )
         
-        # Format reasoning chain as JSON for frontend
-        reasoning_chain_json = self._format_reasoning_chain(decision.reasoning_chain)
+        # Step 2: Generate final response AFTER creating thought/reasoning messages
+        # This ensures thought and reasoning stream before final response
+        final_response_text = self._generate_final_response(
+            query=query,
+            thought=thought_result.thought,
+            steps_summary=steps_summary
+        )
         
-        logger.info(f"Finalizer completed evaluation with {len(decision.reasoning_chain)} reasoning steps")
+        logger.info(f"Finalizer completed with {len(thought_result.reasoning_chain)} reasoning steps")
         
-        # Always finish - return final response with reasoning chain
+        # Return only the NEW messages: thought, reasoning chain, final response (in order)
         return {
-            "assistant_response": decision.final_response,
+            "assistant_response": final_response_text,
             "messages": [
-                AIMessage(content= "Thought: " + decision.thought),
-                AIMessage(
-                    content=reasoning_chain_json,
-                    additional_kwargs={"is_reasoning_chain": True}
-                ),
-                AIMessage(content=decision.final_response)
+                thought_message, 
+                reasoning_message, 
+                AIMessage(content=final_response_text)
             ]
         }
+    
+    def _execute_simple(
+        self, 
+        query: str, 
+        steps_summary: str, 
+        messages: List
+    ) -> Dict[str, Any]:
+        """Execute without explainer: just generate final response"""
+        
+        final_response_text = self._generate_final_response(
+            query=query,
+            thought=None,  # No thought when explainer is off
+            steps_summary=steps_summary
+        )
+        
+        logger.info("Finalizer completed (simple mode)")
+        
+        return {
+            "assistant_response": final_response_text,
+            "messages": [
+                AIMessage(content=final_response_text)
+            ]
+        }
+    
+    def _get_thought_system_prompt(self) -> str:
+        """System prompt for thought generation"""
+        return """You are analyzing the execution of a multi-step data exploration task.
+
+Your job is to:
+1. Identify the main goal from the user's query
+2. Review ALL steps that were executed
+3. Assess whether the goal was achieved
+4. Synthesize how the steps work together to accomplish the goal
+5. Create a reasoning chain showing what happened in each step
+
+Focus on:
+- What was the user's goal/intent?
+- What was accomplished in each step?
+- How do steps connect to achieve the goal?
+- Was the original query fully answered?
+- Are we ready for a final response?
+- Any key findings or insights"""
+    
+    def _build_thought_prompt(self, query: str, steps_summary: str) -> str:
+        """Build prompt for thought generation"""
+        return f"""Analyze the following execution:
+
+**Original User Query:** {query}
+
+**Executed Steps:**
+{steps_summary}
+
+Provide:
+1. **thought**: Overall synthesis of all steps - how they work together, whether we successfully answered the query, and if we're ready for final response
+2. **reasoning_chain**: For each step, create a ReasoningStep with specific details about what happened and key findings"""
+    
+    def _generate_final_response(
+        self, 
+        query: str, 
+        thought: Optional[str], 
+        steps_summary: str
+    ) -> str:
+        """Generate final response to user - returns string (not AIMessage for now)"""
+        
+        # Use placeholder if no thought provided
+        thought_text = thought if thought else "No detailed thought process available."
+        
+        # Simple, direct prompt
+        prompt = f"""Answer the user's query based on the execution results.
+
+**UserQuery:** {query}
+
+**Thought:** {thought_text}
+
+**Results:**
+{steps_summary}
+
+Generate a clear answer in markdown format. Focus on what the user asked for and include specific findings from the results.
+
+**Important:** 
+- If a thought process is provided, use it to guide your answer and ensure your response aligns with the analysis.
+- For image URLs: You may embed a single image using `![](url)` if there's only ONE image. However, if there are multiple images (e.g., in tables or lists), use plain text links `[link](url)` instead to avoid loading many images."""
+        
+        # Use structured output for consistency
+        class FinalResponse(BaseModel):
+            final_response: str = Field(description="Clear, direct answer to the user's query in markdown format")
+        
+        llm_with_structure = self.llm.with_structured_output(FinalResponse)
+        response = llm_with_structure.invoke([
+            SystemMessage(content="You are a helpful assistant providing final responses to user queries."),
+            HumanMessage(content=prompt)
+        ])
+        
+        # Return just the string content
+        return response.final_response
     
     def _build_steps_summary(self, steps: List[Dict[str, Any]]) -> str:
         """Build a summary of executed steps for the LLM to analyze"""

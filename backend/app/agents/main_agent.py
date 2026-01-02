@@ -207,7 +207,6 @@ class MainAgent:
         
         logger.info(f"Executing step {current_idx + 1}/{len(dynamic_plan.steps)}: {step_instruction}")
         
-        # Build system message for the agent
         system_message = self._build_system_message()
         
         # Create instruction message
@@ -229,11 +228,13 @@ class MainAgent:
         
         # NEW: Generate decision/reasoning for tool calls BEFORE tools execute
         if hasattr(response, 'tool_calls') and response.tool_calls:
-            decision_reasoning = self._generate_tool_decision_reasoning(
-                tool_calls=response.tool_calls,
-                current_step=current_step,
-                state=state
-            )
+            decision_reasoning = dict()
+            if state.get("use_explainer", True):
+                decision_reasoning = self._generate_tool_decision_reasoning(
+                    tool_calls=response.tool_calls,
+                    current_step=current_step,
+                    state=state
+                )
             
             # Create tool_calls array
             step_counter += 1
@@ -247,11 +248,16 @@ class MainAgent:
                 })
             
             # Create single step entry with tool_calls array
+            # Build default decision text from tool names
+            tool_names = [tc.get('name', 'unknown') for tc in response.tool_calls]
+            default_decision = f"Using {', '.join(tool_names)}" if tool_names else "Executing step"
+            default_reasoning = current_step.goal if current_step else "Executing planned step"
+            
             step_entry = {
                 "id": step_counter,
                 "plan_step_index": current_idx,
-                "decision": decision_reasoning.get('decision', ''),
-                "reasoning": decision_reasoning.get('reasoning', ''),
+                "decision": decision_reasoning.get('decision', default_decision),
+                "reasoning": decision_reasoning.get('reasoning', default_reasoning),
                 "timestamp": datetime.now().isoformat(),
                 "tool_calls": tool_calls_list
             }
