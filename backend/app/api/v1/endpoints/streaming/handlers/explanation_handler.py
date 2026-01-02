@@ -23,7 +23,7 @@ class ExplanationContentHandler(ContentHandler):
             hasattr(msg, 'content') and 
             msg.content and 
             type(msg).__name__ == 'AIMessage' and
-            (node_name == 'explain' or is_marked_explanation)
+            (node_name == 'explainer' or is_marked_explanation)
         )
     
     async def handle(self, msg: Any, metadata: Dict) -> AsyncGenerator[Dict, None]:

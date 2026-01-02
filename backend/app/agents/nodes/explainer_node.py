@@ -3,7 +3,7 @@ Explainer Node for generating step explanations.
 Provides reasoning, confidence scores, and justifications for tool executions.
 """
 
-from langchain_core.messages import SystemMessage
+from langchain_core.messages import SystemMessage, AIMessage
 from pydantic import BaseModel, Field
 from typing import Dict, Any, Optional, List
 import logging
@@ -51,20 +51,16 @@ class PolicyAuditResult(BaseModel):
 
 class DomainExplanation(BaseModel):
     """
-    Explanation schema aligned with frontend ExplanationMessage.tsx
+    Explanation schema for supplementary details (decision/reasoning from process_query)
     """
-    decision: str = Field(description="What action was taken (1-2 user-friendly sentences)")
-    reasoning: Optional[str] = Field(description="Why this action was necessary")
-    
-    # Optional fields for detailed view
-    tool_justification: Optional[str] = Field(description="Why this specific tool was chosen")
+    # Supplementary fields only
+    tool_justification: Optional[str] = Field(description="How this tool performed for this specific task")
     contrastive_explanation: Optional[str] = Field(description="Why the alternative was NOT chosen")
     data_evidence: Optional[str] = Field(description="Data supporting the decision (e.g. row counts)")
     counterfactual: Optional[str] = Field(description="What-if scenario (e.g. if conditions were different)")
     
-    # Policy audits (handled separately in execution, but kept in model for completeness if needed)
-    # Note: Frontend renders these from a separate prop, or we can include them here if strict mode allows.
-    # For now, we'll keep them out of the LLM prompt to identify them separately.
+    # Policy audits (handled separately in execution)
+    # Note: Frontend renders these from a separate prop
 
 
 class ExplainerNode:
@@ -112,14 +108,12 @@ class ExplainerNode:
         alternative = metadata.get("alternative")
         tool_desc = self._get_tool_description(tool_name)
         
-        # Build prompt focusing on RESULTS (decision/reasoning already provided)
-        prompt = f"""You are an AI assistant explaining tool execution RESULTS for a data exploration agent.
+        # Build prompt focusing on SUPPLEMENTARY FIELDS ONLY (decision/reasoning already exist)
+        prompt = f"""You are an AI assistant providing supplementary explanation details for a data exploration agent.
 
-**DECISION ALREADY MADE**:
-{existing_decision if existing_decision else "Tool was selected for this step"}
-
-**REASONING ALREADY PROVIDED**:
-{existing_reasoning if existing_reasoning else "Tool selection reasoning was provided earlier"}
+**CONTEXT** (Decision and reasoning already generated):
+- Decision: {existing_decision if existing_decision else "Tool was selected for this step"}
+- Reasoning: {existing_reasoning if existing_reasoning else "Tool selection reasoning was provided earlier"}
 
 **EXECUTION RESULT**:
 Tool: {tool_name}
@@ -129,16 +123,14 @@ Output Summary: {str(tool_output)[:300]}...
 Data Evidence: {f"Query returned {row_count} rows" if row_count is not None else "Unknown"}
 
 **YOUR TASK**:
-Generate a structured explanation focusing on WHAT HAPPENED (not why the tool was chosen).
+Generate ONLY the following supplementary fields (DO NOT regenerate decision/reasoning):
 
-1. **decision**: What the tool accomplished (e.g. "Retrieved 50 rows of patient data").
-2. **reasoning**: Brief context about the execution (e.g. "Filtered by date range as requested").
-3. **tool_justification**: How this tool performed for this specific task (e.g. "SQL query executed efficiently").
-4. **contrastive_explanation**: Why alternative ({alternative if alternative else "other approaches"}) would have been different (if applicable).
-5. **data_evidence**: Specific evidence from the output (row counts, data size, patterns observed).
-6. **counterfactual**: A brief "What-if" scenario (e.g. "If dataset was larger (>1000 rows), we would need to aggregate first").
+1. **tool_justification**: How this tool performed for this specific task (e.g. "SQL query executed efficiently, returning results in <100ms").
+2. **contrastive_explanation**: Why alternative ({alternative if alternative else "other approaches"}) would have been different or less suitable (if applicable).
+3. **data_evidence**: Specific evidence from the output (row counts, data size, patterns observed, performance metrics).
+4. **counterfactual**: A brief "What-if" scenario (e.g. "If dataset was larger (>1000 rows), we would need pagination or aggregation").
 
-DO NOT re-explain why the tool was chosen (already provided above). Focus on the RESULT and what was accomplished.
+Focus on providing ADDITIONAL context beyond the decision/reasoning that already exists.
 """
         if policy_audits:
             prompt += "\n**POLICY CHECK RESULTS**:\n"
@@ -156,9 +148,8 @@ DO NOT re-explain why the tool was chosen (already provided above). Focus on the
             tool_output = step.get("output", "")
             context = step.get("context", "")
             
-            # Extract existing decision/reasoning from process_query
-            existing_decision = step.get("decision", None)
-            existing_reasoning = step.get("reasoning", None)
+            # Note: decision/reasoning are in the step from process_query
+            # We only generate supplementary fields here
             
             # Extract basic evidence
             row_count = self._extract_row_count(messages) if messages else None
@@ -183,16 +174,14 @@ DO NOT re-explain why the tool was chosen (already provided above). Focus on the
                 for pr in policy_results
             ]
             
-            # Build Prompt with existing decision/reasoning
+            # Build Prompt for supplementary fields only
             prompt = self._build_explanation_prompt(
-                tool_name, tool_input, tool_output, context, row_count, policy_audits,
-                existing_decision=existing_decision,
-                existing_reasoning=existing_reasoning
+                tool_name, tool_input, tool_output, context, row_count, policy_audits
             )
             
             system_msg = SystemMessage(content=prompt)
             
-            # Invoke LLM
+            # Invoke LLM to get supplementary fields
             llm_with_structure = self.llm.with_structured_output(DomainExplanation)
             explanation = llm_with_structure.invoke([system_msg])
             
@@ -203,8 +192,8 @@ DO NOT re-explain why the tool was chosen (already provided above). Focus on the
             logger.error(f"Error generating explanation: {e}")
             # Fallback
             return DomainExplanation(
-                decision=f"Executed {step.get('tool_name', 'tool')}",
-                reasoning="Required to process the user's request"
+                tool_justification=f"Executed {step.get('tool_name', 'tool')}",
+                data_evidence="Unable to generate detailed explanation"
             ), []
     
     def execute_sync(self, state: Dict[str, Any]) -> Dict[str, Any]:
@@ -248,6 +237,30 @@ DO NOT re-explain why the tool was chosen (already provided above). Focus on the
             step['tool_justification'] = explanation.tool_justification
             step['data_evidence'] = explanation.data_evidence
             step['counterfactual'] = explanation.counterfactual
+            
+            # Emit explanation as AIMessage for streaming
+            explanation_json = {
+                'tool_justification': explanation.tool_justification,
+                'contrastive_explanation': explanation.contrastive_explanation,
+                'data_evidence': explanation.data_evidence,
+                'counterfactual': explanation.counterfactual,
+                'policy_audits': [
+                    {
+                        'policy_name': audit.policy_name,
+                        'passed': audit.passed,
+                        'message': audit.message,
+                        'severity': audit.severity
+                    }
+                    for audit in audits
+                ]
+            }
+            
+            # Create AIMessage with explanation JSON for streaming handler
+            explanation_message = AIMessage(
+                content=json.dumps(explanation_json),
+                additional_kwargs={'is_explanation': True}
+            )
+            messages.append(explanation_message)
                 
         return {**state, "steps": steps, "messages": messages}
 

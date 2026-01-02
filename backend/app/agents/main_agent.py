@@ -191,16 +191,6 @@ class MainAgent:
         return state
     
     def process_query(self, state: ExplainableAgentState) -> Dict[str, Any]:
-        """
-        Execute the current step from the plan.
-        
-        This node:
-        1. Gets the current step from dynamic_plan
-        2. Uses the step's goal as instruction
-        3. Lets the agent make multiple tool calls if needed
-        4. Captures all tool call arguments and outputs in step info
-        5. Increments current_step_index
-        """
         dynamic_plan = state.get("dynamic_plan")
         current_idx = state.get("current_step_index", 0)
         messages = state.get("messages", [])
@@ -435,13 +425,10 @@ Focus on execution-time factors:
         }
     
     def should_continue(self, state: ExplainableAgentState) -> Literal["tools", "finalizer", "human_feedback", "process_query"]:
-        # Check for feedback/replan request
         if state.get("human_comment"):
             logger.info("Routing to human_feedback for replan")
             return "human_feedback"
         
-        # IMPORTANT: Check for tool calls FIRST before checking step completion
-        # This prevents skipping tool execution when we're on the last step
         messages = state.get("messages", [])
         if messages:
             last_message = messages[-1]
