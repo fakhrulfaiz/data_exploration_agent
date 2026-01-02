@@ -155,25 +155,7 @@ export const PlanMessage: React.FC<PlanMessageProps> = ({
 
     return (
         <div className="plan-message">
-            {/* Intent section - minimal, above strategy */}
-            {parsedIntent && (
-                <div className="mb-4 text-foreground">
-                    {/* Main Intent - simple text */}
-                    <p className="mb-2">
-                        <span className="font-medium">Intent: </span>
-                        {parsedIntent.main_intent}
-                    </p>
-
-                    {/* Sub-Intents - simple list, no borders */}
-                    {parsedIntent.sub_intents && parsedIntent.sub_intents.length > 0 && (
-                        <div className="ml-4 text-sm text-muted-foreground space-y-0.5">
-                            {parsedIntent.sub_intents.map((subIntent: string, idx: number) => (
-                                <div key={idx}>• {subIntent}</div>
-                            ))}
-                        </div>
-                    )}
-                </div>
-            )}
+            {/* Intent removed - will be streamed as "Thought: " text block */}
 
             {/* Strategy header */}
             {strategy && (

@@ -87,7 +87,7 @@ const ToolHistoryCollapsible: React.FC<ToolHistoryCollapsibleProps> = ({
 };
 
 const ThoughtCollapsible: React.FC<{ content: string }> = ({ content }) => {
-  const [isExpanded, setIsExpanded] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(true); // Changed to true - visible by default
 
   return (
     <Collapsible open={isExpanded} onOpenChange={setIsExpanded} className="border border-muted rounded-md bg-muted/30">

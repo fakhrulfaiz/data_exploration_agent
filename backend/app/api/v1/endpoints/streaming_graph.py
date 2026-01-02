@@ -387,9 +387,7 @@ async def stream_graph(
                         async for event in tool_call_handler.handle_explanation(msg, metadata):
                             yield event
                     else:
-                        # Regular text content
-                        if context.node_name == 'planner':
-                            continue
+                        # Regular text content (including planner thought process)
                         async for event in text_handler.handle(msg, metadata):
                             yield event
             

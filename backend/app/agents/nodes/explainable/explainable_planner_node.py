@@ -11,27 +11,21 @@ import logging
 
 from app.agents.nodes.planner_node import PlannerNode
 from app.agents.schemas.tool_selection import IntentUnderstanding, DynamicPlan
+from app.agents.prompts.planner_context_template import get_planner_context, INTENT_SYSTEM_PROMPT
 
 logger = logging.getLogger(__name__)
 
 
 class ExplainablePlannerNode(PlannerNode):
-    def _generate_intent_understanding(self, user_query: str, use_explainer: bool) -> Optional[IntentUnderstanding]:
+    def _generate_intent_understanding(self, user_query: str, use_explainer: bool):
+        """Returns AIMessage with thought process or None"""
         if not use_explainer:
             logger.debug("Explainer mode disabled, skipping intent generation")
             return None
         
-        system_message = """You are an intent understanding agent.
-Your goal is to providing a "Thinking Process" narrative for the user's query.
-
-Instructions:
-1. Analyze the user's request.
-2. Output a single, coherent paragraph written in first-person ("I need to...", "The goal is...").
-3. Explain the constraints, what data is needed, and the logical approach.
-4. DO NOT use bullet points or lists. Just a clear thought process.
-
-Answer with Thought: [Your thought process here]
-"""
+        # Get context from template
+        context = get_planner_context()
+        system_message = INTENT_SYSTEM_PROMPT.format(context=context)
 
         user_message = f"""Analyze this query: "{user_query}" """
         
@@ -42,39 +36,29 @@ Answer with Thought: [Your thought process here]
                 HumanMessage(content=user_message)
             ])
             
-            thought_process = response.content.strip()
+            logger.info(f"Generated thought process: {response.content.strip()}")
             
-            logger.info(f"Generated thought process: {thought_process}")
-            
-            return IntentUnderstanding(
-                main_intent=thought_process,
-                sub_intents=[]  # Empty list as requested (thought only)
-            )
+            # Return only the response message for streaming
+            return response
             
         except Exception as e:
             logger.error(f"Error generating intent understanding: {e}", exc_info=True)
             return None
     
-    def _build_intent_context(self, intent: Optional[IntentUnderstanding]) -> str:
+    def _build_intent_context(self, intent: str) -> str:
         if not intent:
             return ""
         
         return f"""
 **Agent Thinking Process**:
-{intent.main_intent}
+{intent}
 
 Create the plan based on this understanding.
 """
         
-       
     
     def _format_dynamic_plan(self, plan: DynamicPlan) -> str:
         lines = []
-        
-        if plan.intent:
-            lines.append(f"**Intent**: {plan.intent.main_intent}\n")
-            lines.append("")
-        
         lines.append(f"**Strategy**: {plan.overall_strategy}\n")
         
         for step in plan.steps:
@@ -91,9 +75,14 @@ Create the plan based on this understanding.
     
     def _handle_dynamic_planning(self, state, messages, user_query):
         use_explainer = state.get("use_explainer", True)
-        intent = self._generate_intent_understanding(user_query, use_explainer)
+        thought_response = self._generate_intent_understanding(user_query, use_explainer)
         
-        intent_context = self._build_intent_context(intent)
+        # Add thought response to messages for streaming
+        if thought_response:
+            messages = messages
+        
+        # No intent context needed anymore
+        intent_context = self._build_intent_context(thought_response)
         
         tool_descriptions = "\n".join([f"- {tool.name}: {tool.description}" for tool in self.tools])
         
@@ -105,7 +94,7 @@ Create the plan based on this understanding.
         
         planning_prompt = f"""You are an efficient task planner. Your job is to plan tasks that handle dependencies correctly.
     You are given a user query/task and a list of tools.
-
+ 
 {intent_context}
 
 **Query**: {user_query}
@@ -176,14 +165,16 @@ Plan and list the tasks in a way that each task can be solved by one of these to
             
             response = structured_llm.invoke(all_messages)
             
-            # Step 7: Attach intent to plan
-            if intent:
-                response.intent = intent
+            # Step 7: Generate structured plan (no intent attachment needed)
+            response = structured_llm.invoke(all_messages)
             
-            # Step 8: Format plan for display
+            # Step 8: Format plan for display (WITHOUT intent - it's streamed separately)
             plan_text = self._format_dynamic_plan(response)
             
-            # Step 9: Determine response type
+            # Step 9: Add plan message
+            # (Thought was already added to messages earlier)
+            
+            # Step 10: Determine response type
             if len(response.steps) == 0:
                 response_type = "cancel"
             elif is_continuation:
@@ -203,7 +194,7 @@ Plan and list the tasks in a way that each task can be solved by one of these to
                         logger.info("Continuation plan has same or fewer steps - starting from index 0")
             
             return {
-                "messages": messages + [AIMessage(content=plan_text)],
+                "messages": messages + [AIMessage(content=plan_text)],  # Thought already in messages
                 "query": user_query,
                 "plan": plan_text,
                 "dynamic_plan": response,  # Includes intent if available

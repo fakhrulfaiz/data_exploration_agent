@@ -19,7 +19,8 @@ class TextContentHandler(ContentHandler):
             'tool_explanation',# tool explanation node
             'joiner',          # data_exploration_agent joiner node
             'process_query',   # main_agent execution node
-            'finalizer'        # main_agent finalizer node
+            'finalizer',        # main_agent finalizer node
+            'planner'
         ]
         # Track text per message ID instead of accumulating per node
         self.message_texts: Dict[str, Dict[str, Any]] = {}  # msg_id -> {text, node, block_id}
