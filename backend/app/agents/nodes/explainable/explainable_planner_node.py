@@ -119,6 +119,7 @@ Create the plan based on this understanding.
 2. **Be Minimal BUT Complete** - Only create necessary steps, but don't skip steps that provide required inputs
 3. **Think Through Data Flow** - Ask yourself: "Does this tool have the data it needs to execute?"
 4. **Write CLEAR step goals** - Each goal will be used as a prompt for the execution agent, so be specific and actionable
+5. **One Step Can Mean Multiple Tool Calls** - The execution agent can call the same tool multiple times with different arguments for a single step
 
 **Dependency Recognition Examples**:
 - BAD: "Use image_qa_mock to analyze the 2 oldest paintings" (Where do the image URLs come from?)
@@ -139,6 +140,11 @@ Create the plan based on this understanding.
 - Tool has all information needed in the user query
 - No dependencies on other tools
 
+**IMPORTANT - Single Step with Multiple Tool Calls**:
+- The execution agent can generate MULTIPLE tool calls for a SINGLE step if needed
+- Don't artificially split steps when the same tool can handle multiple variations in parallel
+- Example: "Create bar, line, and pie charts" → execution agent calls the viz tool 3 times with different args
+
 **Plan Template**:
 
 Step 1:
@@ -148,7 +154,7 @@ Step 1:
   * [alternative_tool] (Priority 2): [When to use this alternative] (only if genuinely needed)
 
 Step 2:
-- Goal: [Clear, specific description of what this step accomplishes]
+- Goal: [Clear, specific description - can mention multiple outputs if they use the same tool]
 - Tool Options:
   * [tool_name] (Priority 1): [When to use this tool for this specific step]
 

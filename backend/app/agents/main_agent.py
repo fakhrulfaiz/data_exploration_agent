@@ -397,6 +397,7 @@ Focus on execution-time factors:
         steps = state.get("steps", [])
         step_counter = state.get("step_counter", 0)
         data_context = state.get("data_context")  # Preserve existing data_context
+        visualizations = state.get("visualizations", [])  # Preserve existing visualizations
         
         # Execute tools
         tool_node = ToolNode(tools=self.tools)
@@ -404,12 +405,13 @@ Focus on execution-time factors:
         
         logger.info(f"Tool execution completed with {len(result.get('messages', []))} tool messages")
         
-        # Match outputs to tool_calls within the latest step AND extract data_context
+        # Match outputs to tool_calls within the latest step AND extract data_context/visualizations
         if hasattr(last_message, 'tool_calls') and last_message.tool_calls and steps:
             latest_step = steps[-1]  # Get the step we just created in process_query
             
             for tool_call in last_message.tool_calls:
                 tool_call_id = tool_call['id']
+                tool_name = tool_call.get('name', 'unknown')
                 
                 # Find corresponding output
                 tool_output = None
@@ -424,16 +426,25 @@ Focus on execution-time factors:
                         tc['output'] = tool_output or "No output captured"
                         logger.info(f"Matched output for {tc.get('tool_name')}: {tool_call_id[:8]}...")
                         
-                        # Extract data_context from tool output if present
+                        # Extract data_context and visualizations from tool output if present
                         if tool_output:
                             try:
                                 output_data = json.loads(tool_output)
-                                if isinstance(output_data, dict) and 'data_context' in output_data:
-                                    from app.schemas.chat import DataContext
-                                    data_context = DataContext(**output_data['data_context'])
-                                    logger.info(f"Extracted data_context from tool output: {data_context.df_id}")
+                                if isinstance(output_data, dict):
+                                    # Extract data_context
+                                    if 'data_context' in output_data:
+                                        from app.schemas.chat import DataContext
+                                        data_context = DataContext(**output_data['data_context'])
+                                        logger.info(f"Extracted data_context from tool output: {data_context.df_id}")
+                                    
+                                    # Extract visualization (from smart_transform_for_viz)
+                                    if tool_name == 'smart_transform_for_viz' and 'type' in output_data:
+                                        # This is a visualization output
+                                        visualizations.append(output_data)
+                                        logger.info(f"Extracted {output_data.get('type')} visualization from tool output")
+                                    
                             except (json.JSONDecodeError, Exception) as e:
-                                logger.debug(f"Could not extract data_context from tool output: {e}")
+                                logger.debug(f"Could not extract data_context/visualization from tool output: {e}")
                         
                         break
         
@@ -441,7 +452,8 @@ Focus on execution-time factors:
             "messages": result.get("messages", []),
             "steps": steps,
             "step_counter": step_counter,
-            "data_context": data_context 
+            "data_context": data_context,
+            "visualizations": visualizations  # Include visualizations in state update
         }
     
     def should_continue(self, state: ExplainableAgentState) -> Literal["tools", "finalizer", "human_feedback", "process_query"]:

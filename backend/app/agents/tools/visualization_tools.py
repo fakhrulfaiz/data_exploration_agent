@@ -76,23 +76,20 @@ Format:
 class SmartTransformForVizTool(BaseTool):
     """
     Tool that uses LLM to intelligently transform database query results into visualization format.
-    Dynamically fetches appropriate format schemas based on allowed visualization types.
+    Uses structured output for reliability and proper type conversion for JSON serialization.
     """
     
     name: str = "smart_transform_for_viz"
     description: str = """ONLY use when user explicitly requests a chart, graph, or visualization.
-    Transforms DataFrame data (from sql_db_to_df) into visualization format for frontend rendering.
-    Uses intelligent column mapping to minimize LLM usage - attempts direct extraction first.
+    Transforms DataFrame data (from Redis) into visualization format for frontend rendering.
+    Uses structured output for reliable transformation.
     
     Prerequisites:
-    - A DataFrame must be available (created by sql_db_to_df tool)
-    - Use for small datasets (≤100 rows) with interactive frontend charts
+    - A DataFrame must be available in Redis (created by data_exploration_tool)
     
     Parameters:
-    - reasoning (str): Reasoning about why the tool was selected
     - viz_type (optional string): Type of visualization (bar, line, pie)
     - config (optional dict): Override specific visualization settings
-    - columns (optional list of strings): Specific columns to use from DataFrame. If provided, uses these directly without LLM.
     
     Returns visualization-ready JSON with chart type and formatted data.
     DO NOT use for regular data queries - use only when user asks for visualizations.
@@ -100,29 +97,38 @@ class SmartTransformForVizTool(BaseTool):
     
     llm: Any = Field(description="Language model instance for intelligent transformation")
     
+    def _get_structured_llm(self, viz_type: str):
+        from app.schemas.visualization import BarChartOutput, LineChartOutput, PieChartOutput
+        
+        schema_map = {
+            "bar": BarChartOutput,
+            "line": LineChartOutput,
+            "pie": PieChartOutput
+        }
+        schema = schema_map.get(viz_type, BarChartOutput)
+        # Use function_calling method to avoid schema compatibility issues with json_schema
+        return self.llm.with_structured_output(schema, method="function_calling")
+    
     def _run(
         self,
-        reasoning: str = Field(..., description="Reasoning about why the tool was selected"),
         viz_type: Optional[str] = None,
         config: Optional[Dict[str, Any]] = None,
-        columns: Optional[List[str]] = None,
         state: Annotated[Dict[str, Any], InjectedState] = None,
         tool_call_id: Annotated[Optional[str], InjectedToolCallId] = None,
     ) -> str:
         """Execute the smart transform tool using DataFrame from Redis.
         
         Args:
-            reasoning: Reasoning about why the tool was selected
             viz_type: Type of visualization (bar, line, pie)
             config: Optional configuration overrides for the visualization
-            columns: Optional list of column names to use from DataFrame (if provided, uses directly)
             state: Injected state containing data_context
             tool_call_id: Optional tool call ID
         """
         try:
             import pandas as pd
-            from app.services.redis_dataframe_service import get_redis_dataframe_service
             import logging
+            from app.services.redis_dataframe_service import get_redis_dataframe_service
+            from app.utils.serialization_utils import serialize_dataframe, safe_json_dumps
             
             logger = logging.getLogger(__name__)
             
@@ -132,14 +138,15 @@ class SmartTransformForVizTool(BaseTool):
             # 1. GET DATAFRAME FROM REDIS
             data_context = state.get("data_context")
             if not data_context or not data_context.df_id:
-                return json.dumps({"error": "No DataFrame available. Please run a SQL query first using sql_db_to_df tool."})
+                return json.dumps({"error": "No DataFrame available. Please run a SQL query first using data_exploration_tool."})
             
             # Load DataFrame from Redis
             redis_service = get_redis_dataframe_service()
             df = redis_service.get_dataframe(data_context.df_id)
             
+            # If DataFrame not found in Redis, try to regenerate from SQL query
             if df is None:
-                return json.dumps({"error": f"DataFrame {data_context.df_id} not found or expired. Please run the SQL query again using sql_db_to_df tool."})
+                return json.dumps({"error": f"DataFrame {data_context.df_id} not found or expired. Please run the SQL query again using data_exploration_tool."})
             
             # Extend TTL since we're using the DataFrame
             redis_service.extend_ttl(data_context.df_id)
@@ -149,157 +156,137 @@ class SmartTransformForVizTool(BaseTool):
             if df.empty:
                 return json.dumps({"error": "The DataFrame is empty, so no visualization could be generated."})
             
-            # 2. EXTRACT COLUMNS AND DATA
+            # 2. PREPARE DATA WITH PROPER SERIALIZATION
             columns = df.columns.tolist()
-            # Convert DataFrame to list of tuples for processing
-            raw_data = [tuple(row) for row in df.values]
             
-            # Default to a single chart type if not specified
+            # Default to bar chart if not specified
             if viz_type is None:
                 viz_type = 'bar'
             
-            # Convert to dict format for LLM processing
-            data_dicts = [dict(zip(columns, row)) for row in raw_data]
+            # Limit to 100 rows for frontend charts
+            max_rows = min(100, len(df))
             
-            # Get format and guidance for visualization with selected variant (from config)
+            # Serialize DataFrame with numpy type conversion
+            sample_data = serialize_dataframe(df, max_rows=5)  # Sample for LLM
+            full_data = serialize_dataframe(df, max_rows=max_rows)  # Full data for output
+            
+            logger.info(f"Prepared {len(full_data)} rows for visualization (sample: {len(sample_data)} rows)")
+            
+            # 3. GET VISUALIZATION FORMAT GUIDANCE
             viz_formats = get_viz_format_for_prompt(viz_type, config)
             
-            # Use type-specific prompt
-            base_prompt = """You are a data visualization expert working with an explainable AI agent. 
-            Given DataFrame data from SQL queries (stored in Redis), transform them into the best visualization format.
+            # Extract description from data_context metadata if available
+            query_description = None
+            if data_context and hasattr(data_context, 'metadata') and data_context.metadata:
+                query_description = data_context.metadata.get('description')
             
-            Your role is to help users understand their data through clear, meaningful visualizations.
+            # 4. BUILD PROMPT FOR STRUCTURED OUTPUT
+            context_info = f"\n\n**Original Query Context**: {query_description}" if query_description else ""
             
-            Guidelines:
-            1. Map actual column names from the DataFrame to the visualization format
-            2. Use meaningful field names that reflect the actual data structure
-            3. Handle data aggregation appropriately (sum, count, average)
-            4. Consider data types and relationships
-            5. Prioritize clarity and interpretability
-            
-            CRITICAL: The field names in your output should match the actual column names from the DataFrame.
-            Do NOT use generic names like "label", "value1", "value2". Use the actual column names provided.
-            
-            Available Visualization Type: {viz_type}
-            
-            {viz_formats}
-            
-            IMPORTANT: Return ONLY valid JSON matching the format above. No explanations, just JSON.
-            Use the format that best represents the data structure and user intent.
-            Map the actual column names to the visualization format fields."""
-            
-            prompt = ChatPromptTemplate.from_messages([
-                ("system", base_prompt),
-                ("user", """Reasoning: {reasoning}
-                
-Columns: {columns}
+            system_prompt = f"""You are a data visualization expert. Transform the provided DataFrame data into a {viz_type} chart format.
+
+Your task:
+1. Map actual column names from the DataFrame to the visualization format
+2. Create a meaningful chart title based on the data and query context
+3. Configure axes/keys appropriately for the chart type
+4. Use the actual column names - DO NOT use generic names like "label", "value"
+
+Available columns: {', '.join(columns)}{context_info}
+
+{viz_formats}
+
+Return a properly structured {viz_type} chart configuration."""
+
+            user_prompt = f"""Columns: {columns}
 
 Sample data (first 5 rows):
-{sample_data}
+{safe_json_dumps(sample_data, indent=2)}
 
-Total rows: {total_rows}
+Total rows: {len(df)}
 
-Config: {config}
+Config overrides: {safe_json_dumps(config, indent=2) if config else "None"}
 
-Transform this data into the most appropriate visualization format.""")
-            ])
-            
-            # Invoke LLM with dynamic format context
-            response = self.llm.invoke(
-                prompt.format_messages(
-                    viz_type=viz_type,
-                    viz_formats=viz_formats,
-                    reasoning=reasoning,
-                    columns=columns,
-                    sample_data=json.dumps(data_dicts[:5], indent=2),
-                    total_rows=len(data_dicts),
-                    config=json.dumps(config, indent=2) if config else "None"
-                )
-            )
-            
-            # Parse LLM response
+Create the best {viz_type} chart for this data. Use the query context to create a meaningful title."""
+
+            # 5. INVOKE LLM WITH STRUCTURED OUTPUT
             try:
-                # Extract JSON from response (handles cases where LLM adds text)
-                content = response.content.strip()
+                structured_llm = self._get_structured_llm(viz_type)
                 
-                # Try to find JSON in markdown code blocks
-                if "```json" in content:
-                    json_start = content.find("```json") + 7
-                    json_end = content.find("```", json_start)
-                    content = content[json_start:json_end].strip()
-                elif "```" in content:
-                    json_start = content.find("```") + 3
-                    json_end = content.find("```", json_start)
-                    content = content[json_start:json_end].strip()
+                from langchain_core.messages import SystemMessage, HumanMessage
+                viz_output = structured_llm.invoke([
+                    SystemMessage(content=system_prompt),
+                    HumanMessage(content=user_prompt)
+                ])
                 
-                viz_config = json.loads(content)
+                # Convert Pydantic model to dict
+                viz_config = viz_output.model_dump()
                 
-                # Validate that returned type matches the requested type
-                if viz_config.get("type") != viz_type:
-                    raise ValueError(f"LLM returned invalid viz type: {viz_config.get('type')}, expected: {viz_type}")
+                # Replace sample data with full data
+                viz_config["data"] = full_data
                 
                 # Apply any provided configuration overrides
                 if config and isinstance(config, dict):
+                    # Override top-level fields (title, etc.)
+                    if "title" in config:
+                        viz_config["title"] = config["title"]
+                    
+                    # Override config section (xAxis, yAxis, etc.)
                     if "config" not in viz_config:
                         viz_config["config"] = {}
-                    viz_config["config"].update(config)
                     
-            except (json.JSONDecodeError, ValueError) as e:
-                # Fallback to basic bar chart if parsing fails
-                logger.error(f"Error parsing LLM response: {e}")
-                # Use actual column names in fallback
+                    # Merge config fields (excluding top-level overrides)
+                    config_fields = {k: v for k, v in config.items() if k not in ["title"]}
+                    viz_config["config"].update(config_fields)
+                
+                logger.info(f"Successfully generated {viz_type} chart with structured output")
+
+                
+            except Exception as e:
+                logger.error(f"Error with structured output: {e}")
+                # Fallback to basic chart
                 x_key = columns[0] if columns else "category"
                 y_key = columns[1] if len(columns) > 1 else "value"
                 
-                # Limit to first 100 rows for frontend charts
-                max_rows = min(100, len(raw_data))
-                
                 viz_config = {
-                    "type": "bar",
-                    "title": f"Data Analysis Results ({len(raw_data)} rows)",
-                    "data": [
-                        {
-                            x_key: str(row[0]) if row else "N/A", 
-                            y_key: row[1] if len(row) > 1 else 1
-                        } 
-                        for row in raw_data[:max_rows]
-                    ],
+                    "type": viz_type,
+                    "title": f"Data Analysis Results ({len(df)} rows)",
+                    "data": full_data,
                     "config": {
-                        "xAxis": {"key": x_key, "label": x_key.title()},
-                        "yAxis": [{"key": y_key, "label": y_key.title()}]
+                        "xAxis": {"key": x_key, "label": x_key.replace('_', ' ').title()},
+                        "yAxis": [{"key": y_key, "label": y_key.replace('_', ' ').title()}]
                     }
                 }
             
-            # Add metadata
+            # 6. ADD METADATA
             viz_config["metadata"] = {
                 "source": "smart_transform_for_viz",
-                "total_rows": len(raw_data),
+                "total_rows": len(df),
+                "displayed_rows": len(full_data),
                 "columns": columns,
-                "reasoning": reasoning,
                 "df_id": data_context.df_id
             }
             
             logger.info(f"Successfully transformed DataFrame {data_context.df_id} into {viz_type} visualization")
             
-            return json.dumps(viz_config, indent=2)
+            # 7. RETURN WITH SAFE JSON SERIALIZATION
+            return safe_json_dumps(viz_config, indent=2)
             
         except Exception as e:
             import logging
             logger = logging.getLogger(__name__)
-            logger.error(f"Error generating visualization: {str(e)}")
+            logger.error(f"Error generating visualization: {str(e)}", exc_info=True)
             return json.dumps({"error": f"Failed to transform data: {str(e)}"})
     
     async def _arun(
         self,
-        reasoning: str = Field(..., description="Reasoning about why the tool was selected"),
         viz_type: Optional[str] = None,
         config: Optional[Dict[str, Any]] = None,
-        columns: Optional[List[str]] = None,
         state: Annotated[Dict[str, Any], InjectedState] = None,
         tool_call_id: Annotated[Optional[str], InjectedToolCallId] = None,
     ) -> str:
         """Async version of the tool."""
-        return self._run(reasoning, viz_type, config, columns, state, tool_call_id)
+        return self._run(reasoning, viz_type, config, state, tool_call_id)
+
 
 
 class LargePlottingTool(BaseTool):
@@ -413,15 +400,22 @@ class LargePlottingTool(BaseTool):
                 plt.bar(df[x_column], df[y_column], color=color, alpha=0.7)
             elif plot_type.lower() == "histogram":
                 plt.hist(df[x_column], bins=30, color=color, alpha=0.7, edgecolor='black')
+            elif plot_type.lower() == "pie":
+                # For pie charts, x_column is labels, y_column is values
+                plt.pie(df[y_column], labels=df[x_column], autopct='%1.1f%%', startangle=90)
+                plt.axis('equal')  # Equal aspect ratio ensures circular pie
             else:
                 # Default to scatter plot
                 plt.scatter(df[x_column], df[y_column], alpha=0.6, c=color, s=30)
             
             # 4. CUSTOMIZE PLOT
             plt.title(title, fontsize=14, fontweight='bold', pad=20)
-            plt.xlabel(x_label or x_column.replace('_', ' ').title(), fontsize=12)
-            plt.ylabel(y_label or y_column.replace('_', ' ').title(), fontsize=12)
-            plt.grid(True, linestyle='--', alpha=0.7)
+            
+            # Skip axis labels and grid for pie charts
+            if plot_type.lower() != "pie":
+                plt.xlabel(x_label or x_column.replace('_', ' ').title(), fontsize=12)
+                plt.ylabel(y_label or y_column.replace('_', ' ').title(), fontsize=12)
+                plt.grid(True, linestyle='--', alpha=0.7)
             
             # Improve layout
             plt.tight_layout()
