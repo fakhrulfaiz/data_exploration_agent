@@ -220,7 +220,7 @@ Generate a clear answer in markdown format. Focus on what the user asked for and
                 tool_output = tc.get("output", "No output")
                 
                 # Truncate long outputs
-                tool_output_str = str(tool_output)[:500] + "..." if len(str(tool_output)) > 500 else str(tool_output)
+                tool_output_str = str(tool_output)
                 
                 if len(tool_calls) > 1:
                     lines.append(f"  Call {i+1}:")

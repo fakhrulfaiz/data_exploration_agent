@@ -348,22 +348,73 @@ async def stream_graph(
         yield {"event": event_type, "data": initial_data}
         
         try:
-            for msg, metadata in agent.graph.stream(input_state, config, stream_mode="messages"):
+            for mode, value in agent.graph.stream(input_state, config, stream_mode=["messages", "updates"]):
                 if await request.is_disconnected():
                     break
                 
-                context.node_name = metadata.get('langgraph_node', 'unknown')
+                msg = None
+                metadata = {}
                 
-                # Emit graph node event for visualization
+                if mode == "messages":
+                    msg, metadata = value
+                    context.node_name = metadata.get('langgraph_node', 'unknown')
+                elif mode == "updates":
+                    if value:
+                        # value is {node: ...}
+                        context.node_name = next(iter(value.keys()))
+                
+                # [DEBUG] Log first message of EVERY node transition
+                try:
+                    debug_file_path = "debug_stream_log.txt"
+                    
+                    # Initialize tracker for the last logged node in this stream
+                    if not hasattr(event_generator, "last_logged_node"):
+                        event_generator.last_logged_node = None
+                    
+                    # If this message belongs to a NEW node (or first node), log it
+                    if context.node_name != event_generator.last_logged_node and context.node_name != 'unknown':
+                        with open(debug_file_path, "a", encoding="utf-8") as f:
+                            debug_entry = {
+                                "timestamp": datetime.now().isoformat(),
+                                "event": "NODE_TRANSITION",
+                                "new_node": context.node_name,
+                                "previous_node": event_generator.last_logged_node,
+                                "metadata": metadata,
+                                "metadata": metadata,
+                                "first_msg_type": type(msg).__name__ if msg else "state_update",
+                                "first_msg_content": (str(msg.content) if hasattr(msg, "content") else str(msg)) if msg else "N/A",
+                                "first_msg_repr": repr(msg) if msg else "N/A"
+                            }
+                            f.write(json.dumps(debug_entry, indent=2, default=str) + "\n" + "="*50 + "\n")
+                        
+                        # Update tracker so we don't log subsequent chunks for this node
+                        event_generator.last_logged_node = context.node_name
+                        
+                except Exception as log_err:
+                    logger.error(f"Debug logging failed: {log_err}")
+                
+                # Emit graph node event for visualization - ONLY ON TRANSITION
                 if context.node_name != 'unknown':
-                    graph_node_event = json.dumps({
-                        "node_id": context.node_name,
-                        "status": "active",
-                        "timestamp": datetime.now().isoformat()
-                    })
-                    yield {"event": "graph_node", "data": graph_node_event}
+                    # Initialize tracker for visualization events
+                    if not hasattr(event_generator, "last_emitted_node"):
+                        event_generator.last_emitted_node = None
+                    
+                    if context.node_name != event_generator.last_emitted_node:
+                        graph_node_event = json.dumps({
+                            "node_id": context.node_name,
+                            "status": "active",
+                            "previous_node_id": event_generator.last_emitted_node,
+                            "timestamp": datetime.now().isoformat()
+                        })
+                        yield {"event": "graph_node", "data": graph_node_event}
+                        
+                        event_generator.last_emitted_node = context.node_name
                 
                 if context.node_name == 'error_explainer':
+                    continue
+                
+                # Only process content handlers if we have a message
+                if not msg:
                     continue
                 
                 checkpoint_ns = metadata.get('langgraph_checkpoint_ns')
