@@ -254,6 +254,8 @@ export interface ChatComponentProps {
   onDataFrameDetected?: (dfId: string) => void; // Callback when df_id is detected in tool output
   onCancelStream?: () => Promise<void>; // Callback to cancel ongoing stream
   onToggleGraphPanel?: () => void; // Callback to toggle graph flow panel
+  graphPanelOpen?: boolean; // Whether graph panel is currently open
+  graphStructure?: any; // Graph structure data for visualization (GraphStructure from types/graph.ts)
 }
 
 export interface MessageComponentProps {
