@@ -13,6 +13,7 @@ import VisualizationPanel from '@/components/panels/VisualizationPanel';
 import DataFramePanel from '@/components/panels/DataFramePanel';
 import GraphFlowPanel from '@/components/graph-flow/GraphFlowPanel';
 import { GraphStructure } from '@/types/graph';
+import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from '@/components/ui/resizable';
 
 const ChatWithApproval: React.FC = () => {
   // Local state management (replacing UIStateContext)
@@ -1013,34 +1014,34 @@ const ChatWithApproval: React.FC = () => {
 
           {/* Chat Container or Execution History */}
           <div className="flex-1 min-h-0">
-            <div className="w-full h-full">
-              {showExecutionHistory ? (
-                <ExecutionHistory
-                  onCheckpointClick={handleCheckpointClick}
-                  onBack={handleExecutionHistoryBack}
-                />
-              ) : (
-                <ChatComponent
-                  key={`chat-approval-${chatKey}`}
-                  onSendMessage={handleSendMessage}
-                  onApprove={handleApprove}
-                  onFeedback={handleFeedback}
-                  currentThreadId={currentThreadId || selectedChatThreadId}
-                  initialMessages={restoredMessages}
-                  placeholder="Ask me anything..."
-                  className="h-full"
-                  onMessageUpdated={handleMessageUpdated}
-                  threadTitle={currentThreadTitle}
-                  onTitleChange={handleTitleChange}
-                  sidebarExpanded={sidebarExpanded}
-                  hasDataContext={!!dataFrameData}
-                  onOpenDataContext={() => setDataFrameOpen(true)}
-                  onDataFrameDetected={handleDataFrameDetected}
-                  onCancelStream={handleCancelStream}
-                  onToggleGraphPanel={() => setGraphPanelOpen(!graphPanelOpen)}
-                />
-              )}
-            </div>
+            {showExecutionHistory ? (
+              <ExecutionHistory
+                onCheckpointClick={handleCheckpointClick}
+                onBack={handleExecutionHistoryBack}
+              />
+            ) : (
+              <ChatComponent
+                key={`chat-approval-${chatKey}`}
+                onSendMessage={handleSendMessage}
+                onApprove={handleApprove}
+                onFeedback={handleFeedback}
+                currentThreadId={currentThreadId || selectedChatThreadId}
+                initialMessages={restoredMessages}
+                placeholder="Ask me anything..."
+                className="h-full"
+                onMessageUpdated={handleMessageUpdated}
+                threadTitle={currentThreadTitle}
+                onTitleChange={handleTitleChange}
+                sidebarExpanded={sidebarExpanded}
+                hasDataContext={!!dataFrameData}
+                onOpenDataContext={() => setDataFrameOpen(true)}
+                onDataFrameDetected={handleDataFrameDetected}
+                onCancelStream={handleCancelStream}
+                onToggleGraphPanel={() => setGraphPanelOpen(!graphPanelOpen)}
+                graphPanelOpen={graphPanelOpen}
+                graphStructure={graphStructure}
+              />
+            )}
           </div>
         </div>
 
@@ -1060,12 +1061,7 @@ const ChatWithApproval: React.FC = () => {
           onClose={() => setDataFrameOpen(false)}
           data={dataFrameData}
         />
-        <GraphFlowPanel
-          open={graphPanelOpen}
-          onClose={() => setGraphPanelOpen(false)}
-          threadId={currentThreadId || selectedChatThreadId || undefined}
-          graphStructure={graphStructure}
-        />
+        {/* GraphFlowPanel now rendered inline in split view above */}
       </div>
     </div>
   );

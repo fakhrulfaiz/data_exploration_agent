@@ -13,7 +13,7 @@ const CustomNode = ({ data }: NodeProps) => {
     const nodeData = data as unknown as CustomNodeData;
 
     return (
-        <div className="custom-graph-node">
+        <div className={`custom-graph-node ${nodeData.status || ''}`}>
             {/* 
         🎯 CUSTOM HANDLE POSITIONING
         You can add handles anywhere with custom styles!

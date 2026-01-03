@@ -221,6 +221,21 @@ export class GraphService {
             }
         });
 
+        // Handle graph_node events (visualization updates)
+        eventSource.addEventListener('graph_node', (event) => {
+            try {
+                // Pass directly to onMessage with status='graph_node'
+                // event.data is already a JSON string containing { node_id, status, previous_node_id }
+                onMessage({
+                    status: 'graph_node',
+                    eventData: event.data,
+                });
+            } catch (error) {
+                console.error('Error parsing graph_node event:', error);
+                // Don't error out the stream for visualization frame errors
+            }
+        });
+
         // Handle start/resume events
         eventSource.addEventListener('start', (event) => {
             console.log('Stream started:', event.data);

@@ -19,6 +19,19 @@
   box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
 }
 
+.custom-graph-node.active {
+  border-color: var(--primary) !important;
+  background-color: hsl(var(--primary) / 0.1) !important;
+  box-shadow: 0 0 10px var(--primary), 0 0 2px var(--primary) !important;
+  transform: scale(1.05);
+  transition: all 0.3s ease;
+}
+
+.custom-graph-node.completed {
+  border-color: var(--muted) !important;
+  opacity: 0.9;
+}
+
 .node-label {
   color: var(--foreground);
   font-weight: 600;

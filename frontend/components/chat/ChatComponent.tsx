@@ -7,6 +7,8 @@ import Message from './Message';
 import GeneratingIndicator from './GeneratingIndicator';
 import InputForm from './InputForm';
 import ThreadTitle from '../ThreadTitle';
+import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from '@/components/ui/resizable';
+import GraphFlowPanel from '../graph-flow/GraphFlowPanel';
 
 
 const EphemeralToolIndicator: React.FC<{
@@ -69,6 +71,8 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
   onDataFrameDetected,
   onCancelStream,
   onToggleGraphPanel,
+  graphPanelOpen = false,
+  graphStructure,
 }) => {
 
 
@@ -1314,6 +1318,21 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
                   return;
                 }
 
+                if (status === 'graph_node' && eventData) {
+                  try {
+                    const nodeData = JSON.parse(eventData);
+                    if ((window as any).updateGraphNodeStatus) {
+                      (window as any).updateGraphNodeStatus(
+                        nodeData.node_id,
+                        nodeData.status,
+                        nodeData.previous_node_id
+                      );
+                    }
+                  } catch (e) {
+                    console.error("Failed to parse graph_node event", e);
+                  }
+                }
+
                 if (status === 'tool_call' && eventData) {
                   const toolData = JSON.parse(eventData);
                   setToolStepHistory(prev => {
@@ -1713,132 +1732,158 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
   };
 
   return (
-    <div
-      className={`relative flex flex-col h-full min-h-0 ${className}`}
+    <ResizablePanelGroup
+      key={graphPanelOpen ? 'split' : 'full'}
+      orientation="horizontal"
+      className={`h-full ${className}`}
     >
-      {/* Thread Title - responsive background */}
-      {threadTitle && (
-        <>
-          {/* Mobile: Full-width background with gradient bottom */}
-          <div className={`md:hidden fixed top-0 left-0 right-0 z-30 transition-[left] duration-300 ease-in-out`}>
-            {/* Main background */}
-            <div className="bg-background py-3 pr-4 pl-14">
-              <ThreadTitle
-                title={threadTitle}
-                threadId={currentThreadId || undefined}
-                onTitleChange={onTitleChange}
-              />
+      {/* Chat Panel */}
+      <ResizablePanel defaultSize={graphPanelOpen ? 60 : 100} minSize={5}>
+        <div
+          className={`relative flex flex-col h-full min-h-0 ${messages.length === 0 && !currentThreadId ? 'justify-end md:justify-center md:pb-32' : ''}`}
+        >
+          {/* Thread Title - responsive background */}
+          {threadTitle && (
+            <>
+              {/* Mobile: Full-width background with gradient bottom */}
+              <div className={`md:hidden absolute top-0 left-0 right-0 z-30 transition-[left] duration-300 ease-in-out`}>
+                {/* Main background */}
+                <div className="bg-background py-3 pr-4 pl-14">
+                  <ThreadTitle
+                    title={threadTitle}
+                    threadId={currentThreadId || undefined}
+                    onTitleChange={onTitleChange}
+                  />
+                </div>
+                {/* Very sharp gradient fade at bottom */}
+                <div className="h-3 bg-gradient-to-b from-background via-background/20 to-transparent"></div>
+              </div>
+
+              {/* Desktop: Background with gradient bottom */}
+              <div className={`hidden md:block absolute top-0 left-0 right-0 z-30 transition-[left] duration-300 ease-in-out`}>
+                {/* Main background */}
+                <div className={`bg-background py-3 pr-4 pl-4 transition-[padding-left] duration-300 ease-in-out`}>
+                  <ThreadTitle
+                    title={threadTitle}
+                    threadId={currentThreadId || undefined}
+                    onTitleChange={onTitleChange}
+                  />
+                </div>
+                {/* Very sharp gradient fade at bottom */}
+                <div className="h-3 bg-gradient-to-b from-background via-background/20 to-transparent"></div>
+              </div>
+            </>
+          )}
+
+          {/* Messages - scrollable area with padding for fixed input and header */}
+          <div
+            ref={messagesContainerRef}
+            className={`relative space-y-4 min-h-0 slim-scroll pb-40 overflow-y-auto ${messages.length === 0 && !currentThreadId ? '' : 'flex-1'} ${threadTitle ? 'pt-38' : 'pt-8'}`}
+          >
+            <div className="max-w-3xl mx-auto px-4">
+              {messages.map((message) => (
+                <React.Fragment key={message.message_id}>
+                  <Message
+                    message={message}
+                    onRetry={handleRetry}
+                    onApproveBlock={handleApprove}
+                    onRejectBlock={handleCancel}
+                  />
+
+                  {(() => {
+                    const shouldShow = message.isStreaming &&
+                      toolStepHistory?.messageId === message.message_id &&
+                      toolStepHistory.steps.length > 0;
+                    return shouldShow && (
+                      <EphemeralToolIndicator steps={toolStepHistory.steps} />
+                    );
+                  })()}
+                </React.Fragment>
+              ))}
+
+              {/* Loading indicator - shows when waiting for content */}
+              {(isLoading || (useStreaming && streamingActive && !hasReceivedContent)) && (
+                <GeneratingIndicator
+                  activeTools={toolStepHistory?.steps.filter(s => s.status === 'calling').map(s => s.name)}
+                />
+              )}
+              <div ref={messagesEndRef} />
             </div>
-            {/* Very sharp gradient fade at bottom */}
-            <div className="h-3 bg-gradient-to-b from-background via-background/20 to-transparent"></div>
+
+            {/* Scroll to bottom button - fixed above input form, aligned with messages */}
+            {!isAtBottom && messages.length > 0 && (
+              <div className={`absolute left-0 right-0 bottom-42 z-30 pointer-events-none px-4`}>
+                <div className="max-w-3xl px-4 mx-auto">
+                  <div className="flex justify-end">
+                    <button
+                      onClick={() => scrollToBottom()}
+                      className="pointer-events-auto w-10 h-10 rounded-full bg-muted border-1 border-foreground/20 shadow-lg hover:bg-accent hover:border-foreground/30 hover:shadow-xl transition-all duration-200 flex items-center justify-center group"
+                      title="Scroll to bottom"
+                      aria-label="Scroll to bottom"
+                    >
+                      <ChevronDown className="w-5 h-5 text-foreground group-hover:text-foreground" />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
 
-          {/* Desktop: Background with gradient bottom */}
-          <div className={`hidden md:block fixed top-0 left-0 right-0 z-30 transition-[left] duration-300 ease-in-out`}>
-            {/* Main background */}
-            <div className={`bg-background py-3 pr-4 ${sidebarExpanded ? 'pl-84' : 'pl-16'} transition-[padding-left] duration-300 ease-in-out`}>
-              <ThreadTitle
-                title={threadTitle}
-                threadId={currentThreadId || undefined}
-                onTitleChange={onTitleChange}
+          <div className={`z-10 transition-all duration-300 ease-in-out bg-background/80 backdrop-blur-sm ${messages.length === 0 && !currentThreadId
+            ? 'w-full flex justify-center pb-3'
+            : 'absolute left-0 right-0 bottom-0 pb-3'
+            }`}>
+
+            <div className={`${messages.length === 0 && !currentThreadId ? 'max-w-4xl px-6' : 'max-w-3xl px-4'} min-w-[320px] w-full mx-auto`}>
+              {messages.length === 0 && !currentThreadId && (
+                <div className="hidden md:block mb-5 text-center text-muted-foreground">
+                  <span className="text-3xl">Hi User! Start a conversation</span>
+                </div>
+              )}
+              <InputForm
+                value={inputValue}
+                onChange={setInputValue}
+                onSend={handleSend}
+                onKeyDown={handleKeyDown}
+                placeholder={pendingApproval ? "Your feedback..." : placeholder}
+                disabled={disabled}
+                isLoading={isLoading}
+                usePlanning={usePlanning}
+                useExplainer={useExplainer}
+                useStreaming={useStreaming}
+                onPlanningToggle={handlePlanningToggle}
+                onExplainerToggle={handleExplainerToggle}
+                onStreamingToggle={handleStreamingToggle}
+                onFilesChange={handleFilesChange}
+                attachedFiles={attachedFiles}
+                hasDataContext={hasDataContext}
+                onOpenDataContext={onOpenDataContext}
+                isStreaming={streamingActive}
+                onStopStream={handleStopStream}
+                onToggleGraphPanel={onToggleGraphPanel}
               />
             </div>
-            {/* Very sharp gradient fade at bottom */}
-            <div className="h-3 bg-gradient-to-b from-background via-background/20 to-transparent"></div>
           </div>
-        </>
+        </div>
+      </ResizablePanel>
+
+      {/* Resizable Handle - only show when graph panel is open */}
+      {graphPanelOpen && (
+        <ResizableHandle withHandle className="w-1.5 hover:w-2 hover:bg-primary/50 transition-all cursor-col-resize" />
       )}
 
-      {/* Messages - scrollable area with padding for fixed input and header */}
-      <div
-        ref={messagesContainerRef}
-        className={`relative flex-1 space-y-4 min-h-0 pb-40 overflow-y-auto slim-scroll ${threadTitle ? 'pt-38' : 'pt-8'}`}
-      >
-        <div className="max-w-3xl mx-auto px-4">
-          {messages.map((message) => (
-            <React.Fragment key={message.message_id}>
-              <Message
-                message={message}
-                onRetry={handleRetry}
-                onApproveBlock={handleApprove}
-                onRejectBlock={handleCancel}
-              />
-
-              {(() => {
-                const shouldShow = message.isStreaming &&
-                  toolStepHistory?.messageId === message.message_id &&
-                  toolStepHistory.steps.length > 0;
-                return shouldShow && (
-                  <EphemeralToolIndicator steps={toolStepHistory.steps} />
-                );
-              })()}
-            </React.Fragment>
-          ))}
-
-          {/* Loading indicator - shows when waiting for content */}
-          {(isLoading || (useStreaming && streamingActive && !hasReceivedContent)) && (
-            <GeneratingIndicator
-              activeTools={toolStepHistory?.steps.filter(s => s.status === 'calling').map(s => s.name)}
-            />
-          )}
-          <div ref={messagesEndRef} />
-        </div>
-
-        {/* Scroll to bottom button - fixed above input form, aligned with messages */}
-        {!isAtBottom && messages.length > 0 && (
-          <div className={`fixed ${sidebarExpanded ? 'md:left-82' : 'md:left-14'} right-0 bottom-42 md:bottom-42 z-30 pointer-events-none`}>
-            <div className="max-w-3xl px-4 mx-auto">
-              <div className="flex justify-end">
-                <button
-                  onClick={() => scrollToBottom()}
-                  className="pointer-events-auto w-10 h-10 rounded-full bg-muted border-1 border-foreground/20 shadow-lg hover:bg-accent hover:border-foreground/30 hover:shadow-xl transition-all duration-200 flex items-center justify-center group"
-                  title="Scroll to bottom"
-                  aria-label="Scroll to bottom"
-                >
-                  <ChevronDown className="w-5 h-5 text-foreground group-hover:text-foreground" />
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-
-      <div className={`fixed left-0 ${sidebarExpanded ? 'md:left-82' : 'md:left-14'} right-0 z-10 transition-all duration-300 ease-in-out ${messages.length === 0 && !currentThreadId
-        ? 'bottom-0 pb-3 md:top-1/2 md:transform md:-translate-y-1/2 md:flex md:items-center md:justify-center'
-        : 'bottom-0 pb-3 md:flex md:items-center'
-        }`}>
-
-        <div className={`${messages.length === 0 && !currentThreadId ? 'max-w-4xl px-6' : 'max-w-3xl px-4'} min-w-[320px] w-full mx-auto`}>
-          {messages.length === 0 && !currentThreadId && (
-            <div className="hidden md:block mb-5 text-center text-muted-foreground">
-              <span className="text-3xl">Hi User! Start a conversation</span>
-            </div>
-          )}
-          <InputForm
-            value={inputValue}
-            onChange={setInputValue}
-            onSend={handleSend}
-            onKeyDown={handleKeyDown}
-            placeholder={pendingApproval ? "Your feedback..." : placeholder}
-            disabled={disabled}
-            isLoading={isLoading}
-            usePlanning={usePlanning}
-            useExplainer={useExplainer}
-            useStreaming={useStreaming}
-            onPlanningToggle={handlePlanningToggle}
-            onExplainerToggle={handleExplainerToggle}
-            onStreamingToggle={handleStreamingToggle}
-            onFilesChange={handleFilesChange}
-            attachedFiles={attachedFiles}
-            hasDataContext={hasDataContext}
-            onOpenDataContext={onOpenDataContext}
-            isStreaming={streamingActive}
-            onStopStream={handleStopStream}
-            onToggleGraphPanel={onToggleGraphPanel}
+      {/* Graph Panel - only render when open */}
+      {graphPanelOpen && (
+        <ResizablePanel defaultSize={40} minSize={5}>
+          <GraphFlowPanel
+            open={true}
+            onClose={() => onToggleGraphPanel?.()}
+            threadId={currentThreadId || undefined}
+            graphStructure={graphStructure}
           />
-        </div>
-      </div>
-    </div>
+        </ResizablePanel>
+      )}
+    </ResizablePanelGroup>
   );
 };
 

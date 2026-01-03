@@ -34,5 +34,6 @@ export interface GraphStructure {
 export interface GraphNodeEvent {
     node_id: string;
     status: NodeStatus;
+    previous_node_id?: string | null;
     timestamp: string;
 }
