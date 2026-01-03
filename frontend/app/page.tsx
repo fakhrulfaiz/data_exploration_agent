@@ -11,6 +11,8 @@ import ExecutionHistory from '@/components/ExecutionHistory';
 import ExplorerPanel from '@/components/panels/ExplorerPanel';
 import VisualizationPanel from '@/components/panels/VisualizationPanel';
 import DataFramePanel from '@/components/panels/DataFramePanel';
+import GraphFlowPanel from '@/components/graph-flow/GraphFlowPanel';
+import { GraphStructure } from '@/types/graph';
 
 const ChatWithApproval: React.FC = () => {
   // Local state management (replacing UIStateContext)
@@ -34,6 +36,8 @@ const ChatWithApproval: React.FC = () => {
   const [visualizationCharts, setVisualizationCharts] = useState<any>(null);
   const [dataFrameOpen, setDataFrameOpen] = useState(false);
   const [dataFrameData, setDataFrameData] = useState<DataFramePreviewData | null>(null);
+  const [graphPanelOpen, setGraphPanelOpen] = useState(false);
+  const [graphStructure, setGraphStructure] = useState<GraphStructure | null>(null);
 
   const eventSourceRef = useRef<EventSource | null>(null);
   const currentThreadIdRef = useRef<string | null>(null);
@@ -42,6 +46,24 @@ const ChatWithApproval: React.FC = () => {
   useEffect(() => {
     // Observe context value updates
   }, [useStreaming]);
+
+  // Preload graph structure on mount
+  useEffect(() => {
+    const loadGraphStructure = async () => {
+      try {
+        const response = await fetch('/api/v1/graph/structure');
+        if (response.ok) {
+          const result = await response.json();
+          if (result.success && result.data) {
+            setGraphStructure(result.data);
+          }
+        }
+      } catch (error) {
+        console.error('Failed to preload graph structure:', error);
+      }
+    };
+    loadGraphStructure();
+  }, []);
 
   const convertChatHistoryToMessages = (chatMessages: any[]): Message[] => {
     return chatMessages.map((msg, index) => {
@@ -1015,6 +1037,7 @@ const ChatWithApproval: React.FC = () => {
                   onOpenDataContext={() => setDataFrameOpen(true)}
                   onDataFrameDetected={handleDataFrameDetected}
                   onCancelStream={handleCancelStream}
+                  onToggleGraphPanel={() => setGraphPanelOpen(!graphPanelOpen)}
                 />
               )}
             </div>
@@ -1036,6 +1059,12 @@ const ChatWithApproval: React.FC = () => {
           open={dataFrameOpen && !explorerOpen && !visualizationOpen}
           onClose={() => setDataFrameOpen(false)}
           data={dataFrameData}
+        />
+        <GraphFlowPanel
+          open={graphPanelOpen}
+          onClose={() => setGraphPanelOpen(false)}
+          threadId={currentThreadId || selectedChatThreadId || undefined}
+          graphStructure={graphStructure}
         />
       </div>
     </div>

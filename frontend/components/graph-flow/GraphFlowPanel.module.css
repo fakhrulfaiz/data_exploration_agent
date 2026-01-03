@@ -1,0 +1,49 @@
+.panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: hsl(var(--background));
+  border-left: 1px solid hsl(var(--border));
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid hsl(var(--border));
+  background: hsl(var(--card));
+}
+
+.title {
+  font-size: 16px;
+  font-weight: 600;
+  color: hsl(var(--foreground));
+  margin: 0;
+}
+
+.closeButton {
+  width: 32px;
+  height: 32px;
+  border: none;
+  background: transparent;
+  color: hsl(var(--muted-foreground));
+  font-size: 24px;
+  line-height: 1;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.closeButton:hover {
+  background: hsl(var(--accent));
+  color: hsl(var(--foreground));
+}
+
+.content {
+  flex: 1;
+  overflow: hidden;
+}

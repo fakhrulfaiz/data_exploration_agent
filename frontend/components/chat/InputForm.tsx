@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useState, useRef } from 'react';
-import { ArrowUp, Upload, X, Check, Brain, Zap, Layers, File, Image, FileText, FileCode, Plus, Loader2, Trash2, Database } from 'lucide-react';
+import { ArrowUp, Upload, X, Check, Brain, Zap, Layers, File, Image, FileText, FileCode, Plus, Loader2, Trash2, Database, Network } from 'lucide-react';
 import {
   InputGroup,
   InputGroupTextarea,
@@ -51,6 +51,7 @@ interface InputFormProps {
   onOpenDataContext?: () => void;
   isStreaming?: boolean;
   onStopStream?: () => void;
+  onToggleGraphPanel?: () => void; // Callback to toggle graph panel
 }
 
 const InputForm: React.FC<InputFormProps> = ({
@@ -76,6 +77,7 @@ const InputForm: React.FC<InputFormProps> = ({
   onOpenDataContext,
   isStreaming = false,
   onStopStream,
+  onToggleGraphPanel,
 }) => {
   const useStreaming = useStreamingProp ?? true;
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -397,6 +399,20 @@ const InputForm: React.FC<InputFormProps> = ({
               onClick={onOpenDataContext}
             >
               <Database className="w-4 h-4 text-primary" />
+            </InputGroupButton>
+          )}
+
+          {/* Graph Flow Panel Toggle */}
+          {onToggleGraphPanel && (
+            <InputGroupButton
+              type="button"
+              variant="outline"
+              className="rounded-xl ml-2"
+              size="icon-sm"
+              onClick={onToggleGraphPanel}
+              title="Toggle Agent Flow Visualization"
+            >
+              <Network className="w-4 h-4 text-purple-600" />
             </InputGroupButton>
           )}
 

@@ -559,11 +559,11 @@ Execute the step instruction and use as many tools as needed to complete it."""
         graph.add_node("finalizer", self.finalizer_node)
         graph.add_node("human_feedback", self.human_feedback)
         
-        # Set entry point to assistant
-        graph.set_entry_point("assistant")
-        
-        # Route from assistant to main agent flow
-        graph.add_edge("main_agent_flow", "planner")
+        # Set entry point to planner (skip assistant routing)
+        graph.set_entry_point("planner")
+        # graph.set_entry_point("assistant")
+        # Remove assistant routing - go directly to main agent flow
+        # graph.add_edge("main_agent_flow", "planner")
         
         # Add edges
         graph.add_edge("planner", "process_query")

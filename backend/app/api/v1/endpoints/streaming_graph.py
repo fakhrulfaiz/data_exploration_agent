@@ -354,6 +354,15 @@ async def stream_graph(
                 
                 context.node_name = metadata.get('langgraph_node', 'unknown')
                 
+                # Emit graph node event for visualization
+                if context.node_name != 'unknown':
+                    graph_node_event = json.dumps({
+                        "node_id": context.node_name,
+                        "status": "active",
+                        "timestamp": datetime.now().isoformat()
+                    })
+                    yield {"event": "graph_node", "data": graph_node_event}
+                
                 if context.node_name == 'error_explainer':
                     continue
                 

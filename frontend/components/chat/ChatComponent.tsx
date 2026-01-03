@@ -68,6 +68,7 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
   onOpenDataContext,
   onDataFrameDetected,
   onCancelStream,
+  onToggleGraphPanel,
 }) => {
 
 
@@ -1055,6 +1056,19 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
           await response.streamingHandler(streamingMsgId, updateContentBlocksCallback, (status, eventData, responseType) => {
             if (!status) return;
 
+            // Handle graph node events for visualization
+            if (status === 'graph_node' && eventData) {
+              try {
+                const graphNodeData = JSON.parse(eventData);
+                if (typeof window !== 'undefined' && (window as any).handleGraphNodeEvent) {
+                  (window as any).handleGraphNodeEvent(graphNodeData);
+                }
+              } catch (error) {
+                console.error('Error handling graph_node event:', error);
+              }
+              return;
+            }
+
             if (status === 'content_block' && eventData) {
               currentContentBlocks = handleContentBlockEvent(
                 eventData,
@@ -1820,6 +1834,7 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
             onOpenDataContext={onOpenDataContext}
             isStreaming={streamingActive}
             onStopStream={handleStopStream}
+            onToggleGraphPanel={onToggleGraphPanel}
           />
         </div>
       </div>

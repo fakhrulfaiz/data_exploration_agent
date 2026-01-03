@@ -229,7 +229,7 @@ export interface HandlerResponse {
   streamingHandler?: (
     streamingMessageId: string,
     updateContentCallback: (id: string, contentBlocks?: ContentBlock[]) => void,
-    onStatus?: (status: 'user_feedback' | 'finished' | 'running' | 'error' | 'tool_call' | 'tool_result' | 'completed_payload' | 'visualizations_ready' | 'content_block', eventData?: string, responseType?: 'answer' | 'replan' | 'cancel') => void
+    onStatus?: (status: 'user_feedback' | 'finished' | 'running' | 'error' | 'tool_call' | 'tool_result' | 'completed_payload' | 'visualizations_ready' | 'content_block' | 'graph_node', eventData?: string, responseType?: 'answer' | 'replan' | 'cancel') => void
   ) => Promise<void>;
 }
 
@@ -253,6 +253,7 @@ export interface ChatComponentProps {
   onOpenDataContext?: () => void;
   onDataFrameDetected?: (dfId: string) => void; // Callback when df_id is detected in tool output
   onCancelStream?: () => Promise<void>; // Callback to cancel ongoing stream
+  onToggleGraphPanel?: () => void; // Callback to toggle graph flow panel
 }
 
 export interface MessageComponentProps {
