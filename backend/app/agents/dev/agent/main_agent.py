@@ -1,3 +1,4 @@
+import json
 import os
 from pathlib import Path
 from typing import Annotated, Any, Dict, List, Literal
@@ -42,17 +43,42 @@ def call_data_exploration_agent(query: str) -> str:
     result = data_exploration_agent.invoke(
         {"messages": [{"role": "user", "content": query}]}
     )
-    reply = result["messages"][-1].content + "```json" + result["messages"][-2].content + "```"
+    reply = result["messages"][-1].content + "\n\n```json" + result["messages"][-2].content + "```"
     return reply
 
 
 # Import image QNA tool
-from image_qna_tool import build_image_qna_tool
-image_qna_tool = build_image_qna_tool()
+# from image_qna_tool import build_image_qna_tool
+# image_qna_tool = build_image_qna_tool()
+from image_qna_tool import build_image_qna_agent
+image_qna_agent = build_image_qna_agent()
+
+# Wrap data_exploration_agent as a tool
+@tool("image_qna_agent", description="Use this expert agent to answer questions related to the visual aspects of images in the database. You can query multiple images at once and the agent will answer it in parallel. Use this tool when you want to answer questions that needs visual information from an image. This tool only works with image path. Example path = `images/img_0.jpg`")
+def call_image_qna_agent(query: str, img_path: List[str]) -> str:
+    """
+    Call the image QNA agent to answer questions related to the images in the database. You can query multiple images at once and the agent will answer it in parallel.
+    Use this tool when you want to answer questions that needs visual information from an image. This tool only works with image path. Example path = `images/img_0.jpg`
+
+    Args:
+        query: A natural language question about the images in the database. Provide details goals of the query. The query can be done on multiple images at once.
+        img_path: A list of image path for the related images to be accessed. Example path = [images/img_0.jpg] or [images/img_1.jpg, images/img_2.jpg, ...]
+        
+    Returns:
+        The response from the image QNA agent. 
+    """
+    img_path_json_str = json.dumps(img_path)
+    result = image_qna_agent.invoke(
+        {"messages": [{"role": "user", "content": f"{query}\n\nimg_path={img_path_json_str}"}]}
+    )
+
+    reply = result["messages"][-1].content + "\n\n```json" + result["messages"][-2].content + "```"
+    return reply
 
 # Define tools list
 tools = [
-    image_qna_tool,
+    # image_qna_tool,
+    call_image_qna_agent,
     call_data_exploration_agent,
 ]
 
@@ -104,7 +130,7 @@ def plan_and_list_tasks(state: MainAgentState):
     plan and list the tasks in a way that each task can be solved by one of these tools.
 
     tools:
-    1. image_qna_tool: This tool equipped with a visual question answering model that can answer questions related to the images in the database.
+    1. image_qna_agent: This tool equipped with an expert agent with visual question answering tool that can answer questions related to the images in the database. If the question are simmilar, you can populate multiply image path to query multiple images at once.
     2. database_exploration_agent: This tool can answer questions related to the database but limited to the scope of the schema. Always be explicit on the total number of rows you want to return for most accurate result.
 
     Remember that you need to use image_qna_tool to solve tasks that needs to understand the visuals in the images.
@@ -115,8 +141,8 @@ def plan_and_list_tasks(state: MainAgentState):
     {tools}    
 
     IMPORTANT:
-    1. image_qna_tool need IMAGE PATH (like images/img_0.jpg) to works.
-    2. Dont query on non-existant database column. You can use image_qna_tool to synthesis the information from the image.
+    1. image_qna_agent need  list of IMAGE PATH (["images/img_0.jpg"] or ["images/img_1.jpg", "images/img_2.jpg", ...]) to works. ALWAYS use multiple image in one call when possible. 
+    2. Dont query on non-existant database column. You can use image_qna_agent to synthesis the information from the image.
     {feedback}
 
     database_schema:
@@ -199,7 +225,7 @@ You also have access to a tool that can answer questions related to the images i
 Your limitation in data exploration agent is that it can only query the database and tasks that demands context outside the database schema are beyond its scope.
 
 When users ask questions about the art database, use the data_exploration_agent tool to find the answers, if the schema and context relates.
-When users ask questions in regard to the visuals in the images, use the image_qna_tool to solve the tasks.
+When users ask questions in regard to the visuals in the images, use the image_qna_agent to solve the tasks.
 
 You can ask the agent multi-step questions and use the results to provide comprehensive responses.
 """
@@ -220,17 +246,20 @@ def process_query(state: MainAgentState):
     # Get the current plan step
     current_step_text = state["base_plan"][state["current_step"]]
     
-    # Check for previous step
-    previous_step = ""
-    if state["current_step"] > 0:
-        previous_step = f"Just executed: {state["base_plan"][state["current_step"] - 1]}. Next "
+    # # Check for previous step
+    # previous_step = ""
+    # if state["current_step"] > 0:
+    #     previous_step = f"Just executed: {state["base_plan"][state["current_step"] - 1]}. Next "
+    # Pass the whole step (with json.dumps), so the agent can understand the context
+    base_plan_string = json.dumps(state["base_plan"])
+
 
     # System + user messages
     system_message = {"role": "system", "content": main_agent_system_prompt}
-    plan_message = {"role": "user", "content": f"{previous_step}Execute the following step: {current_step_text}"}
+    plan_message = {"role": "user", "content": f"Now you are working on this step: {current_step_text}\nThis is the overall plan: {base_plan_string}"}
 
     # Bind tools the agent can use
-    llm_with_tools = model.bind_tools([image_qna_tool, call_data_exploration_agent])
+    llm_with_tools = model.bind_tools([call_image_qna_agent, call_data_exploration_agent])
 
     # Include previous messages for context
     response = llm_with_tools.invoke([system_message] + state["messages"] + [plan_message])

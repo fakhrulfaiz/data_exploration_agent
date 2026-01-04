@@ -2,15 +2,22 @@
 
 ## current error is from the page rejecting the request as we dont have a user agent or authorization
 
+import json
 import os
+from typing import Literal
+from pydantic import BaseModel, Field
 import torch
 import requests
 from pathlib import Path
 from urllib.parse import urlparse
 from PIL import Image
 from transformers import BlipProcessor, BlipForQuestionAnswering
+from langchain_core.messages import ToolMessage
+from langgraph.prebuilt import ToolRuntime
+from langchain_core.tools import InjectedToolCallId
 from langchain.tools import tool
 from langgraph.types import Command
+from typing_extensions import Annotated
 
 
 def _load_image(img_url: str) -> Image.Image:
@@ -57,7 +64,7 @@ def build_image_qna_tool():
     model = BlipForQuestionAnswering.from_pretrained("Salesforce/blip-vqa-base")
     
     @tool("image_qna_tool", description="Use this tool when you want to answer questions that needs visual information from an image. This tool only works with image path. Example path = `images/img_0.jpg`")
-    def image_qna_tool(img_url: str, question: str):
+    def image_qna_tool(img_url: str, question: str, runtime: ToolRuntime, tool_call_id: Annotated[str, InjectedToolCallId]):
         """
         Use this tool when you want to answer questions about an image. The image should be a local file path. Example path = `images/img_0.jpg`
         
@@ -76,62 +83,130 @@ def build_image_qna_tool():
             output_ids = model.generate(**inputs)
 
         answer = processor.decode(output_ids[0], skip_special_tokens=True)
+
+        # Get tool call id
+        tool_call_id = runtime.tool_call_id
+
+
+        # Create Tool Message for Command 
+        tool_message = ToolMessage(
+            content=f"Answered question ({question}) about image {img_url}: {answer}",
+            tool_call_id=tool_call_id,
+        )
+
         # return answer
         return Command(
             update={
-                "messages": [f"Analysis for {img_url}: {answer}"],
-                "image_analysis_history": [f"Image: {img_url} | Q: {question} | A: {answer}"]
+                "messages": [tool_message],
+                "analysis_history": [f"Image: {img_url} | Q: {question} | A: {answer}"]
             }
         )
     
     return image_qna_tool
 
+import os
+from langchain.chat_models import init_chat_model
+from dotenv import load_dotenv
 
-# import os
-# from langchain.chat_models import init_chat_model
-# from dotenv import load_dotenv
+# Load from env
+load_dotenv()
 
-# # Load from env
-# load_dotenv()
+model = init_chat_model("gpt-4o-mini")
 
-# model = init_chat_model("gpt-4o-mini")
+image_qna_tool = build_image_qna_tool()
+tools = [image_qna_tool]
 
-# image_qna_tool = build_image_qna_tool()
-# tools = [image_qna_tool]
+from langchain_core.messages import SystemMessage
+from langgraph.prebuilt import ToolNode, tools_condition
+from typing_extensions import TypedDict, Annotated
+from langgraph.graph.message import add_messages
+import operator
+from langgraph.graph import StateGraph, START, END, MessagesState
+from langchain_core.messages import ToolMessage, AIMessage
 
-# from langchain_core.messages import ToolMessage
-# from langgraph.graph import StateGraph, START, END, MessagesState
-# from langgraph.prebuilt import ToolNode, tools_condition
-# from typing_extensions import TypedDict, Annotated
-# from langgraph.graph.message import add_messages
-# import operator
+# Define state right here
+class ImageAnalysisState(MessagesState):
+    analysis_history: Annotated[list[str], operator.add]
 
-# # Define state right here
-# class ImageAnalysisState(MessagesState):
-#     analysis_history: Annotated[list[str], operator.add]
+# Custom Output state for data exploration
+class ImageAnalysisOutput(BaseModel):
+    """Output state for data exploration"""
+    task: str = Field(..., description="The overall tasks to accomplish.")
+    total_run_needed: int = Field(..., description="The total number of unique tool runs needed to accomplish the task.")
+    completed_run: int = Field(..., description="The number of unique tool runs that has been completed.")
+    error: bool = Field(..., description="Whether there is an error. Incomplete tool runs are not considered errors.")
+    error_message: str = Field(..., description="useful message that helps to request more context to overcome the error.")
 
-# def build_image_analysis_agent():
-#     """
-#     Build and initialize the image analysis agent for the tools pipeline.
+# make an evaluator node
+def evaluator_node(state: ImageAnalysisState):
+
+    last_message = state["messages"][-1]
+
+    # if last message is tool message, skip
+    if isinstance(last_message, ToolMessage):
+        return {}
     
-#     Returns:
-#         The image_analysis_agent LangChain agent ready for use in an agent.
-#     """
-#     # Nodes
+    # evaluator llm
+    evaluator = model.with_structured_output(ImageAnalysisOutput)
+    system_message = SystemMessage(content="You are an evaluator. Your job is to evaluate the task and determine if the task is accomplished. If not, return the error message.")
+    
+    evaluation: ImageAnalysisOutput | None = None
+    # if last message is AIMessage, evaluate
+    if isinstance(last_message, AIMessage):
+        # first_message = state["messages"][1] # not system message
+        # messages_for_llm = [system_message] + [first_message, last_message]
+        evaluation : ImageAnalysisOutput = evaluator.invoke([system_message] + state["messages"])
 
-#     system_prompt = "You are an image analysis agent. Your job is to answer questions about images. You have a tool called `image_qna_tool` that you can use to answer questions about images. You can only use this tool if the user asks a question that requires visual information from an image."
+    if evaluation.error :
+        return Command(goto=END, graph=Command.PARENT, update={"current_step": 0, "feedback": f"final tool execution result: {evaluation.error_message}"})
+    
+    else:
+        tool_run_history = json.dumps(state["analysis_history"])
+        final_message = AIMessage(content=f"Run history: {tool_run_history}")
+        
+        return {"messages": [final_message]}
 
-#     def agent_node(state: ImageAnalysisState):
-#         return {"messages": [model.bind_tools(tools).invoke(state["messages"])]}
+# make custom tool_condition
+def image_qna_tool_condition(state: ImageAnalysisState) -> Literal["tools", "evaluator"]:
+    last_message = state["messages"][-1]
+    # check for tool_calls from agent
+    if isinstance(last_message, AIMessage) and last_message.tool_calls:
+        return "tools"
+    return "evaluator"
 
-#     builder = StateGraph(ImageAnalysisState)
-#     builder.add_node("agent", agent_node)
-#     builder.add_node("tools", ToolNode(tools))  # Handles parallel automatically!
+def build_image_qna_agent():
+    
+    # 2. Define the agent node properly
+    def agent_node(state: ImageAnalysisState):
+        system_prompt = (
+            "You are an image analysis agent. Your job is to answer questions about images. "
+            "You have a tool called `image_qna_tool`. Use it for visual questions. "
+            "Aggregate history to provide a final answer."
+        )
+        messages_for_llm = [SystemMessage(content=system_prompt)] + state["messages"]
+        
+        # Bind tools and invoke
+        response = model.bind_tools(tools).invoke(messages_for_llm)
+        
+        # Return the response to be added to the state
+        return {"messages": [response]}
 
-#     builder.add_edge(START, "agent")
-#     builder.add_conditional_edges("agent", tools_condition)  # Parallel if tool_calls
-#     builder.add_edge("tools", "agent")
+    # 3. Build Graph
+    builder = StateGraph(ImageAnalysisState)
+    
+    builder.add_node("agent", agent_node)
+    builder.add_node("tools", ToolNode(tools))
+    builder.add_node("evaluator", evaluator_node)
 
-#     return builder.compile()
+    builder.add_edge(START, "agent")
+    builder.add_conditional_edges(
+        "agent",
+        image_qna_tool_condition,
+        ["tools", "evaluator"],
+        )
+    builder.add_edge("tools", "agent")
+    builder.add_edge("evaluator", END)
+
+    return builder.compile()
 
 
