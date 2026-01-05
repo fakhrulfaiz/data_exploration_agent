@@ -71,10 +71,16 @@ class DataExplorationAgentTool(BaseTool):
         schema_engine = create_engine(f'sqlite:///{self.db_path}')
         db = SQLDatabase(schema_engine)
         
-        toolkit = SQLDatabaseToolkit(db=db, llm=self.llm)
+        # Create SQL tools directly to avoid deprecated QuerySQLCheckerTool
+        # which tries to import from langchain_core.memory (doesn't exist in newer versions)
+        from langchain_community.tools.sql_database.tool import (
+            InfoSQLDatabaseTool,
+            ListSQLDatabaseTool,
+        )
+        
         sql_tools = [
-            tool for tool in toolkit.get_tools()
-            if tool.name in ["sql_db_list_tables", "sql_db_schema"]
+            ListSQLDatabaseTool(db=db),
+            InfoSQLDatabaseTool(db=db)
         ]
         
         object.__setattr__(self, '_agent', create_react_agent(
@@ -160,15 +166,34 @@ Your final answer must be ONLY the SQL query, no explanation.""")
                 sql_query = self._generate_sql(question, context)
                 logger.info(f"Generated SQL: {sql_query}")
             except Exception as e:
-                return f"Error: Failed to generate SQL: {str(e)}"
+                return json.dumps({
+                    "error": f"Failed to generate SQL: {str(e)}",
+                    "error_type": "validation_error",
+                    "tool_name": "data_exploration_tool",
+                    "details": {
+                        "question": question,
+                        "context": context,
+                        "exception": str(e)
+                    },
+                    "recoverable": False  # Bad question needs replanning
+                })
 
             # Step 2: Execute SQL and get DataFrame
             try:
                 df = pd.read_sql_query(sql_query, self.db_engine)
             except Exception as e:
                 logger.error(f"SQL Execution failed: {str(e)}")
-                # Retry strategy could go here, or returning specific helpful error
-                return f"Error: Generated SQL failed to execute: {str(e)}. Query: {sql_query}"
+                # STANDARDIZED ERROR: SQL Execution Failed
+                return json.dumps({
+                    "error": f"Generated SQL failed to execute: {str(e)}",
+                    "error_type": "execution_error",
+                    "tool_name": "data_exploration_tool",
+                    "details": {
+                        "sql_query": sql_query,
+                        "db_error": str(e)
+                    },
+                    "recoverable": True  # Can retry, might be transient
+                })
 
             if df.empty:
                  return json.dumps({
@@ -191,11 +216,17 @@ Your final answer must be ONLY the SQL query, no explanation.""")
                 )
             except Exception as e:
                  logger.error(f"Redis storage failed: {str(e)}")
-                 # Fallback: still return data, but warn about caching
+                 # STANDARDIZED ERROR: Storage Failed (but data available)
                  return json.dumps({
-                     "error": "Data retrieved but caching failed.",
-                     "data": df.head(5).to_dict(orient='records'),
-                     "sql_query": sql_query
+                     "error": "Data retrieved but caching failed",
+                     "error_type": "storage_error",
+                     "tool_name": "data_exploration_tool",
+                     "details": {
+                         "storage_error": str(e),
+                         "data_preview": df.head(5).to_dict(orient='records'),
+                         "sql_query": sql_query
+                     },
+                     "recoverable": True  # Can retry storage
                  })
 
             # Step 4: Construct Response
@@ -231,7 +262,14 @@ Your final answer must be ONLY the SQL query, no explanation.""")
             
         except Exception as e:
             logger.error(f"DataExplorationAgentTool fatal error: {str(e)}")
-            return json.dumps({"error": f"Unexpected error: {str(e)}"})
+            # STANDARDIZED ERROR: Unexpected Fatal Error
+            return json.dumps({
+                "error": f"Unexpected error: {str(e)}",
+                "error_type": "execution_error",
+                "tool_name": "data_exploration_tool",
+                "details": {"exception": str(e)},
+                "recoverable": False
+            })
 
     async def _arun(
         self,

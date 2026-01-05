@@ -138,7 +138,14 @@ class SmartTransformForVizTool(BaseTool):
             # 1. GET DATAFRAME FROM REDIS
             data_context = state.get("data_context")
             if not data_context or not data_context.df_id:
-                return json.dumps({"error": "No DataFrame available. Please run a SQL query first using data_exploration_tool."})
+                # STANDARDIZED ERROR: No DataFrame Available
+                return json.dumps({
+                    "error": "No DataFrame available. Please run a SQL query first using data_exploration_tool.",
+                    "error_type": "resource_not_found",
+                    "tool_name": "smart_transform_for_viz",
+                    "details": {"missing_resource": "data_context.df_id"},
+                    "recoverable": False  # Needs previous step
+                })
             
             # Load DataFrame from Redis
             redis_service = get_redis_dataframe_service()
@@ -146,7 +153,17 @@ class SmartTransformForVizTool(BaseTool):
             
             # If DataFrame not found in Redis, try to regenerate from SQL query
             if df is None:
-                return json.dumps({"error": f"DataFrame {data_context.df_id} not found or expired. Please run the SQL query again using data_exploration_tool."})
+                # STANDARDIZED ERROR: DataFrame Expired
+                return json.dumps({
+                    "error": f"DataFrame {data_context.df_id} not found or expired. Please run the SQL query again using data_exploration_tool.",
+                    "error_type": "resource_not_found",
+                    "tool_name": "smart_transform_for_viz",
+                    "details": {
+                        "df_id": data_context.df_id,
+                        "reason": "expired_or_missing"
+                    },
+                    "recoverable": True  # Can rerun SQL query
+                })
             
             # Extend TTL since we're using the DataFrame
             redis_service.extend_ttl(data_context.df_id)
@@ -154,7 +171,14 @@ class SmartTransformForVizTool(BaseTool):
             logger.info(f"Using DataFrame {data_context.df_id} with shape {df.shape} for visualization")
             
             if df.empty:
-                return json.dumps({"error": "The DataFrame is empty, so no visualization could be generated."})
+                # STANDARDIZED ERROR: Empty DataFrame
+                return json.dumps({
+                    "error": "The DataFrame is empty, so no visualization could be generated.",
+                    "error_type": "validation_error",
+                    "tool_name": "smart_transform_for_viz",
+                    "details": {"df_id": data_context.df_id},
+                    "recoverable": False  # Empty data can't be visualized
+                })
             
             # 2. PREPARE DATA WITH PROPER SERIALIZATION
             columns = df.columns.tolist()
@@ -275,7 +299,17 @@ Create the best {viz_type} chart for this data. Use the query context to create 
             import logging
             logger = logging.getLogger(__name__)
             logger.error(f"Error generating visualization: {str(e)}", exc_info=True)
-            return json.dumps({"error": f"Failed to transform data: {str(e)}"})
+            # STANDARDIZED ERROR: Transformation Failed
+            return json.dumps({
+                "error": f"Failed to transform data: {str(e)}",
+                "error_type": "execution_error",
+                "tool_name": "smart_transform_for_viz",
+                "details": {
+                    "exception": str(e),
+                    "viz_type": viz_type if 'viz_type' in locals() else "unknown"
+                },
+                "recoverable": True  # Can retry
+            })
     
     async def _arun(
         self,
@@ -356,7 +390,14 @@ class LargePlottingTool(BaseTool):
             logger = logging.getLogger(__name__)
             
         except ImportError as e:
-            return f"Error: Required libraries not available: {str(e)}"
+            # STANDARDIZED ERROR: Missing Libraries
+            return json.dumps({
+                "error": f"Required libraries not available: {str(e)}",
+                "error_type": "execution_error",
+                "tool_name": "large_plotting_tool",
+                "details": {"missing_lib": str(e)},
+                "recoverable": False  # System issue
+            })
         
         try:
             if state is None:
@@ -364,14 +405,31 @@ class LargePlottingTool(BaseTool):
             # 1. GET DATAFRAME FROM REDIS
             data_context = state.get("data_context")
             if not data_context or not data_context.df_id:
-                return "Error: No DataFrame available. Please run a SQL query first using sql_db_to_df tool."
+                # STANDARDIZED ERROR: No DataFrame Available
+                return json.dumps({
+                    "error": "No DataFrame available. Please run a SQL query first using sql_db_to_df tool.",
+                    "error_type": "resource_not_found",
+                    "tool_name": "large_plotting_tool",
+                    "details": {"missing_resource": "data_context.df_id"},
+                    "recoverable": False  # Needs previous step
+                })
             
             # Load DataFrame from Redis
             redis_service = get_redis_dataframe_service()
             df = redis_service.get_dataframe(data_context.df_id)
             
             if df is None:
-                return f"Error: DataFrame {data_context.df_id} not found or expired. Please run the SQL query again using sql_db_to_df tool."
+                # STANDARDIZED ERROR: DataFrame Expired
+                return json.dumps({
+                    "error": f"DataFrame {data_context.df_id} not found or expired. Please run the SQL query again using sql_db_to_df tool.",
+                    "error_type": "resource_not_found",
+                    "tool_name": "large_plotting_tool",
+                    "details": {
+                        "df_id": data_context.df_id,
+                        "reason": "expired_or_missing"
+                    },
+                    "recoverable": True  # Can rerun SQL query
+                })
             
             # Extend TTL since we're using the DataFrame
             redis_service.extend_ttl(data_context.df_id)
@@ -379,14 +437,41 @@ class LargePlottingTool(BaseTool):
             logger.info(f"Using DataFrame {data_context.df_id} with shape {df.shape} for plotting")
             
             if df.empty:
-                return "Error: The DataFrame is empty, so no plot could be generated."
+                # STANDARDIZED ERROR: Empty DataFrame
+                return json.dumps({
+                    "error": "The DataFrame is empty, so no plot could be generated.",
+                    "error_type": "validation_error",
+                    "tool_name": "large_plotting_tool",
+                    "details": {"df_id": data_context.df_id},
+                    "recoverable": False  # Empty data can't be plotted
+                })
             
             # 2. VALIDATE COLUMNS
             if x_column not in df.columns:
-                return f"Error: X-axis column '{x_column}' not found in query results. Available columns: {list(df.columns)}"
+                # STANDARDIZED ERROR: Column Not Found
+                return json.dumps({
+                    "error": f"X-axis column '{x_column}' not found in query results",
+                    "error_type": "validation_error",
+                    "tool_name": "large_plotting_tool",
+                    "details": {
+                        "requested_column": x_column,
+                        "available_columns": list(df.columns)
+                    },
+                    "recoverable": False  # Wrong parameter
+                })
             
             if y_column not in df.columns:
-                return f"Error: Y-axis column '{y_column}' not found in query results. Available columns: {list(df.columns)}"
+                # STANDARDIZED ERROR: Column Not Found
+                return json.dumps({
+                    "error": f"Y-axis column '{y_column}' not found in query results",
+                    "error_type": "validation_error",
+                    "tool_name": "large_plotting_tool",
+                    "details": {
+                        "requested_column": y_column,
+                        "available_columns": list(df.columns)
+                    },
+                    "recoverable": False  # Wrong parameter
+                })
             
             # 3. GENERATE PLOT
             plt.figure(figsize=(fig_width, fig_height))
@@ -455,19 +540,37 @@ class LargePlottingTool(BaseTool):
 - Image URL: {public_url}"""
             except ValueError as e:  
                 logger.error(f"Supabase not configured: {str(e)}")
-                # Reset the service instance to allow retry on next call
-                # Reset functionality could be added to storage_service if needed
-                pass
-                return "Plot unsuccessful because there is a problem with storage."
+                # STANDARDIZED ERROR: Storage Not Configured
+                return json.dumps({
+                    "error": "Plot unsuccessful because there is a problem with storage.",
+                    "error_type": "storage_error",
+                    "tool_name": "large_plotting_tool",
+                    "details": {"config_error": str(e)},
+                    "recoverable": False  # Configuration issue
+                })
             except Exception as upload_error:
                 logger.error(f"Failed to upload to Supabase: {str(upload_error)}")
                 import traceback
                 logger.error(f"Upload error traceback: {traceback.format_exc()}")
-                return f"Plot unsuccessful because there is a problem with storage: {str(upload_error)}"
+                # STANDARDIZED ERROR: Upload Failed
+                return json.dumps({
+                    "error": f"Plot unsuccessful - storage problem: {str(upload_error)}",
+                    "error_type": "storage_error",
+                    "tool_name": "large_plotting_tool",
+                    "details": {"upload_error": str(upload_error)},
+                    "recoverable": True  # Retry might work
+                })
             
         except Exception as e:
             logger.error(f"Error generating large plot: {str(e)}")
-            return f"Error generating plot: {str(e)}"
+            # STANDARDIZED ERROR: Plot Generation Failed
+            return json.dumps({
+                "error": f"Error generating plot: {str(e)}",
+                "error_type": "execution_error",
+                "tool_name": "large_plotting_tool",
+                "details": {"exception": str(e)},
+                "recoverable": True  # Can retry
+            })
     
     async def _arun(
         self,
