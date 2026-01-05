@@ -1,6 +1,7 @@
 import os
 import csv
 import ast
+import json
 from pathlib import Path
 from typing import Literal, Annotated, Any, Dict
 
@@ -11,6 +12,7 @@ from langchain_community.utilities import SQLDatabase
 from langchain_core.messages import AIMessage
 from langgraph.graph import END, START, MessagesState, StateGraph
 from langgraph.prebuilt import ToolNode
+from langgraph.types import Command
 
 # Load environment variables
 load_dotenv()
@@ -26,10 +28,11 @@ db_path = base_path / "resource" / "art.db"
 dev_path = base_path / "agents" / "dev"
 workspace_path = dev_path / "workspace"
 
-sql_url = f"sqlite:///{db_path.resolve()}"
+# sql_url = f"sqlite:///{db_path.resolve()}"
+db_path = "/home/afiq/fyp/fafa-repo/backend/app/resource/art.db"
+sql_url = f"sqlite:///{db_path}"
 db = SQLDatabase.from_uri(sql_url)
 
-# Initialize toolkit and tools
 toolkit = SQLDatabaseToolkit(db=db, llm=model)
 tools = toolkit.get_tools()
 
@@ -37,13 +40,11 @@ tools = toolkit.get_tools()
 get_schema_tool = next(tool for tool in tools if tool.name == "sql_db_schema")
 get_schema_node = ToolNode([get_schema_tool], name="get_schema")
 
-from pydantic import BaseModel, Field
-class QueryArgs(BaseModel):
-    """Args required to run a query"""
-    query: str = Field(..., description="The query to run")
-    columns: list[str] = Field(..., description="The columns or headers created/ return by the given query")
+
+from state.data_exploration_state import DataExplorationState, QueryArgs, DataExplorationOutput, ToolResult
 
 from langchain_core.tools import StructuredTool
+
 
 run_query_tool = next(tool for tool in tools if tool.name == "sql_db_query")
 
@@ -58,15 +59,7 @@ wrapped_run_query_tool = StructuredTool.from_function(
     func=run_query_tool_with_columns,
     args_schema=QueryArgs,
 )
-run_query_node = ToolNode([run_query_tool], name="run_query")
-
-# Reducer 
-def merge_tool_results(a: dict, b: dict) -> dict:
-    return {**a, **b}
-
-# Custom State for data exploration
-class DataExplorationState(MessagesState):
-    tool_results: Annotated[Dict[str, Any], merge_tool_results]
+run_query_node = ToolNode([run_query_tool], name="run_query") # the action part of the agent system.
 
 # Node: List available tables
 def list_tables(state: DataExplorationState):
@@ -99,7 +92,7 @@ You are an agent designed to interact with a SQL database.
 Given an input question, create a syntactically correct {dialect} query to run,
 then look at the results of the query and return the answer. Unless the user
 specifies a specific number of examples they wish to obtain, always limit your
-query to at most {top_k} results.
+query to at most {top_k} results when you are unsure. REMEMBER you can and must query everything only if the tasks requires it.
 
 You can order the results by a relevant column to return the most interesting
 examples in the database. Never query for all the columns from a specific table,
@@ -108,6 +101,7 @@ only ask for the relevant columns given the question.
 DO NOT make any DML statements (INSERT, UPDATE, DELETE, DROP etc.) to the database.
 
 If you have enough information to answer the user's question: DO NOT generate a tool call but instead answer the question.
+There might be case where Table or Column name is not available. In this case, explain to user that the information is not available and end conversation.
 """.format(
     dialect=db.dialect,
     top_k=5,
@@ -115,6 +109,7 @@ If you have enough information to answer the user's question: DO NOT generate a 
 
 
 def generate_query(state: DataExplorationState):
+    """The reasoning part of the agent."""
     system_message = {
         "role": "system",
         "content": generate_query_system_prompt,
@@ -144,69 +139,169 @@ just reproduce the original query.
 You will call the appropriate tool to execute the query after running this check.
 """.format(dialect=db.dialect)
 
+# Evaluate query result and make a structured output response
+def evaluate_query(state: DataExplorationState):
+    """
+    Extract query results from ToolMessage and create structured ToolResult.
+    Evaluation are made with an LLM.
 
-# Node to extract tool results into state
-from langchain_core.messages import ToolMessage
-
-def store_query_result(state: DataExplorationState):
-    last_message = state["messages"][-1]
-
-    if not isinstance(last_message, ToolMessage):
-        return {}
     
+    1. Extract details from ToolMessage
+    2. Create ToolResult model with validation
+    3. If error during validation → Command back to generate_query
+    4. If success → return ToolResult to be appended to tool_results list
+    """
+    last_message = state["messages"][-1]
+    evaluator = model.with_structured_output(DataExplorationOutput)
+    system_message = {
+        "role": "system",
+        "content": "You need to evaluate if the following query make sense and run as intended. Be extra mindful and strict of weird query that does not make sense of the database schema (This is an error). If the model says it cant answer the question or cant run the query for whatever reason, return error and explain why.",
+    }
+
+
+    # # Check if last message is ToolMessage
+    # if isinstance(last_message, ToolMessage):
+    #     tool_result = ToolResult(
+    #         tool_call_id=last_message.tool_call_id,
+    #         name=tool_call["name"],
+    #         query=tool_call["args"]["query"],
+    #         columns=tool_call["args"]["columns"],
+    #         result=last_message.content
+    #     )
+
+
+    # Check if last message is AIMessage    
+    if isinstance(last_message, AIMessage):
+        output: DataExplorationOutput = evaluator.invoke(state["messages"]) # type: ignore
+
+        if output.error:
+            if output.error_message == "":
+                print("No error detected. Returning tool result to agent(generate_query). FROM AIMESSAGE CHECK")
+                return Command(goto="generate_query", update={"current_step": 0, "messages": [last_message]})
+    
+            return Command(goto=END, graph=Command.PARENT, update={"feedback": output.error_message, "current_step": 0})
+        else:
+            print("No error detected. Returning tool result to agent(generate_query). FROM AIMESSAGE CHECK")
+            # using command to force to go to store_query_result
+            return Command(goto="store_query_result", update={"messages": [last_message]})
+
+    
+    # Process results from ToolMessage
+    # Find the corresponding tool call
     tool_call_id = last_message.tool_call_id
+    tool_call = None
+    
     for msg in reversed(state["messages"][:-1]):
         if isinstance(msg, AIMessage):
             for call in msg.tool_calls:
                 if call["id"] == tool_call_id:
                     tool_call = call
                     break
-        if tool_call:
-            break
-
+            if tool_call:
+                break
+    
     if tool_call is None:
         return {}
     
-    tool_results = {
-        tool_call_id: {
-            "name": tool_call["name"],
-            "query": tool_call["args"]["query"],
-            "columns": tool_call["args"]["columns"],
-            "result": last_message.content,
-        }
-    }
+    # Create ToolResult model with validation
+    tool_result = ToolResult(
+        tool_call_id=tool_call_id,
+        name=tool_call["name"],
+        query=tool_call["args"]["query"],
+        columns=tool_call["args"]["columns"],
+        result=last_message.content
+    )
+
+    # Evaluation starts here
+    result = tool_result.model_dump_json()
+    message = AIMessage(content=result)
     
-    return {"tool_results": tool_results}
+    output: DataExplorationOutput = evaluator.invoke(state["messages"] + [message] + [system_message]) # type: ignore
+    output_message = AIMessage(content=output.model_dump_json())
+
+    # check for error by the evaluator
+    # if not output.error and tool_result is not None:
+    if not output.error:
+        print("No error detected. Returning tool result to agent(generate_query). AFTER TOOL OUTPUT PROCESS")
+        return Command(goto="generate_query", update={"data_exploration_history": [tool_result], "messages": [message] + [output_message]})
+        # return {"tool_results": [tool_result], "messages": [message] + [output_message]} 
+    else:
+        print("Error detected. Returning tool result to agent(generate_query). AFTER TOOL OUTPUT PROCESS")
+        return Command(goto="interrupt_for_replan", graph=Command.PARENT, update={"messages": [output_message], "feedback": output.error_message})
+    
+# Node to extract tool results into state
+from langchain_core.messages import ToolMessage
+
+def store_query_result(state: DataExplorationState):
+    """
+    Create structured output from the latest tool result and prepare for output.
+    """
+    if not state.get("data_exploration_history") or len(state["data_exploration_history"]) == 0:
+        return {}
+    
+    last_result = state["data_exploration_history"][-1]
+    
+    try:
+        # Create structured output
+        output = DataExplorationOutput(
+            query=last_result.query,
+            final_tool_result=str(last_result.result),
+            error=False,
+            error_message=""
+        )
+        
+        # Return JSON as message for LLM context
+        return {"messages": [AIMessage(content=json.dumps(output.model_dump()))]}
+        
+    except Exception as e:
+        return {
+            "messages": [AIMessage(
+                content=json.dumps(
+                    DataExplorationOutput(
+                        query=last_result.query,
+                        final_tool_result=str(last_result.result),
+                        error=True,
+                        error_message=str(e)
+                    ).model_dump()
+                )
+            )]
+        }
 
 
 # Node to save query results to CSV workspace
 def update_workspace(state: DataExplorationState):
-    if not state.get("tool_results"):
-        return state
+    """Save the latest query result to CSV file."""
+    if not state.get("tool_results") or len(state["tool_results"]) == 0:
+        return {}
     
-    last_call_id = list(state["tool_results"].keys())[-1]
-    headers = state["tool_results"][last_call_id]["columns"]
-    raw_sqlite_results = state["tool_results"][last_call_id]["result"]
-
+    # Get the most recent tool result
+    last_result = state["tool_results"][-1]
+    
     try:
-        rows = ast.literal_eval(raw_sqlite_results)
+        # Parse the result
+        rows = ast.literal_eval(str(last_result.result))
+        
+        if not isinstance(rows, list):
+            raise ValueError("Parsed result is not a list")
+        
+        # Create output directory
+        output_dir = workspace_path / "data"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Save to CSV with tool_call_id as filename
+        csv_path = output_dir / f"{last_result.tool_call_id}.csv"
+        
+        with open(csv_path, "w", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            writer.writerow(last_result.columns)
+            writer.writerows(rows)
+        
+        return {}
+        
     except Exception as e:
-        raise ValueError(f"Failed to parse sqlite result: {e}")
-
-    if not isinstance(rows, list):
-        raise ValueError("Parsed sqlite result is not a list")
-
-    output_dir = workspace_path / "data"
-    output_dir.mkdir(parents=True, exist_ok=True)
-    csv_path = output_dir / f"{last_call_id}.csv"
-
-    with open(csv_path, "w", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f)
-        writer.writerow(headers)
-        writer.writerows(rows)
-
-    return state
-
+        # Log error but don't fail the workflow
+        print(f"Warning: Failed to save CSV: {e}")
+        return {}
 
 # Conditional edge function
 def should_continue(state: MessagesState) -> Literal[END, "run_query"]:
@@ -217,15 +312,15 @@ def should_continue(state: MessagesState) -> Literal[END, "run_query"]:
     else:
         return "run_query"
 
-
 # Build the agent graph
 def build_agent():
-    builder = StateGraph(MessagesState)
+    builder = StateGraph(DataExplorationState)
     builder.add_node(list_tables)
     builder.add_node(call_get_schema)
     builder.add_node(get_schema_node, "get_schema")
     builder.add_node(generate_query)
     builder.add_node(run_query_node, "run_query")
+    builder.add_node(evaluate_query)
     builder.add_node(store_query_result)
     builder.add_node(update_workspace)
 
@@ -237,9 +332,11 @@ def build_agent():
         "generate_query",
         should_continue,
     )
-    builder.add_edge("run_query", "store_query_result")
-    builder.add_edge("store_query_result", "update_workspace")
-    builder.add_edge("update_workspace", "generate_query")
+    builder.add_edge("run_query", "evaluate_query")
+    # builder.add_edge("evaluate_query", "store_query_result")
+    # builder.add_edge("store_query_result", "update_workspace")
+    # builder.add_edge("update_workspace", "generate_query")
+    builder.add_edge("store_query_result", END)
 
     return builder.compile()
 
@@ -247,7 +344,7 @@ def build_agent():
 # Initialize the agent
 agent = build_agent()
 
-
+# Test
 if __name__ == "__main__":
     # Example usage
     question = "Which genre has the oldest painting?"
