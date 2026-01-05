@@ -4,7 +4,7 @@ from typing import Annotated
 from langgraph.graph import MessagesState
 import operator
 
-from .data_exploration_state import DataExplorationState
+from .data_exploration_state import DataExplorationState, ToolResult, append_tool_results
 
 
 # Main agent state
@@ -22,4 +22,5 @@ class MainAgentState(MessagesState):
     image_analysis_history: Annotated[list[str], operator.add]
 
     # from data_exploration_subagent, can include by appending it in a static format in tool message then parse it into this state.        
-    tool_results: DataExplorationState
+    data_exploration_history: Annotated[List[ToolResult], append_tool_results]
+

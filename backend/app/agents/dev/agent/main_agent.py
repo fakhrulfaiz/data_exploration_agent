@@ -1,7 +1,8 @@
 import json
 import os
 from pathlib import Path
-from typing import Annotated, Any, Dict, List, Literal
+from pprint import pformat
+from typing import Annotated, Any, Dict, Iterable, List, Literal
 
 from dotenv import load_dotenv
 from langchain.tools import tool
@@ -16,6 +17,8 @@ sys.path.append("/home/afiq/fyp/fafa-repo/backend/app/agents/dev/agent")
 
 # Import the data exploration agent
 from data_exploration_subagent import build_agent as build_data_exploration_agent
+from state.data_exploration_state import DataExplorationState, ToolResult
+from pydantic.json_schema import SkipJsonSchema
 
 # Load environment variables
 load_dotenv()
@@ -26,10 +29,39 @@ model = init_chat_model("gpt-4o-mini")
 # Build the data exploration agent
 data_exploration_agent = build_data_exploration_agent()
 
+# helper
+def _format_any_result(result: Any) -> str:
+    """
+    Safely format structured or unstructured results.
+    """
+    if isinstance(result, (dict, list, tuple)):
+        return pformat(result, width=100, sort_dicts=False)
+    return str(result)
+
+def _format_data_exploration_results(tool_results: Annotated[List[Any], SkipJsonSchema()]) -> str:
+    """
+    Convert a list of ToolResult objects into one formatted string.
+    """
+    sections = []
+
+    for idx, tr in enumerate(tool_results, start=1):
+        section = (
+            f"Tool Result #{idx}\n"
+            f"Tool Name : {tr.name}\n"
+            f"Query     : {tr.query}\n"
+            f"Result:\n{_format_any_result(tr.result)}\n"
+            f"{'=' * 60}"
+        )
+        sections.append(section)
+
+    return "\n\n".join(sections)
+
 
 # Wrap data_exploration_agent as a tool
 @tool("database_exploration_agent", description="Use this agent to explore and query the art database. Provide a natural language question about the art data. REMEMBER TO ALWAYS specify total number of rows you want to return and ask for img_path.")
-def call_data_exploration_agent(query: str) -> str:
+def call_data_exploration_agent(
+    query: str, 
+) -> Command:
     """
     Call the database exploration agent to answer questions about the art database.
     REMEMBER TO ALWAYS specify total number of rows you want to return and ask for img_path.
@@ -44,13 +76,28 @@ def call_data_exploration_agent(query: str) -> str:
         {"messages": [{"role": "user", "content": query}]}
     )
     reply = result["messages"][-1].content + "\n\n```json" + result["messages"][-2].content + "```"
+    json_str = result["messages"][-2].content
+    # validated_data = DataExplorationState.model_validate_json(json_str)
+
+    # # Create Tool Message for Command 
+    # tool_message = ToolMessage(
+    #     content=reply,
+    #     tool_call_id=tool_call_id,
+    # )
     return reply
+
+    # return Command(
+    #     update={
+    #             "messages": [tool_message],
+    #             "tool_results": json.loads(json_str),
+    #         }
+    # )
 
 
 # Import image QNA tool
 # from image_qna_tool import build_image_qna_tool
 # image_qna_tool = build_image_qna_tool()
-from image_qna_tool import build_image_qna_agent
+from agent.image_qna_subagent import build_image_qna_agent
 image_qna_agent = build_image_qna_agent()
 
 # Wrap data_exploration_agent as a tool
@@ -253,10 +300,14 @@ def process_query(state: MainAgentState):
     # Pass the whole step (with json.dumps), so the agent can understand the context
     base_plan_string = json.dumps(state["base_plan"])
 
+    # data_exploration_result = state['data_exploration_history']
+    # data_exploration_result_str = _format_data_exploration_results(data_exploration_result)
+
 
     # System + user messages
     system_message = {"role": "system", "content": main_agent_system_prompt}
-    plan_message = {"role": "user", "content": f"Now you are working on this step: {current_step_text}\nThis is the overall plan: {base_plan_string}"}
+    # plan_message = {"role": "user", "content": f"Now you are working on this step: {current_step_text}\nThis is the overall plan: {base_plan_string} and this is what we find from the previous result: {json.dumps(data_exploration_result_str)}\n\n"}#add image analysis result here later
+    plan_message = {"role": "user", "content": f"Now you are working on this step: {current_step_text}\nThis is the overall plan: {base_plan_string}\n\n"}
 
     # Bind tools the agent can use
     llm_with_tools = model.bind_tools([call_image_qna_agent, call_data_exploration_agent])
@@ -363,7 +414,6 @@ def build_main_agent(checkpointer):
         should_continue,
     )
     builder.add_edge("tool_execution", "process_query")
-    builder.add_edge("interrupt_for_replan", "plan_and_list_tasks")
     builder.add_edge("cleanup", END)
     
     return builder.compile(checkpointer=checkpointer)
@@ -376,9 +426,10 @@ main_agent = build_main_agent(MemorySaver())
 if __name__ == "__main__":
     # Example usage
     questions = [
-        # "Which genre has the oldest painting?",\
+        "What is the oldest painting?",
+        # "Which genre has the oldest painting?",
         # "Does the oldest painting has one person in it?",
-        "Get the number of paintings that shows Fruit for each century.",
+        # "Get the number of paintings that shows Fruit for each century.",
     ]
     
 

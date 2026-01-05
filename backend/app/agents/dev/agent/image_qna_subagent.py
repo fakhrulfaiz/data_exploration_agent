@@ -98,7 +98,7 @@ def build_image_qna_tool():
         return Command(
             update={
                 "messages": [tool_message],
-                "analysis_history": [f"Image: {img_url} | Q: {question} | A: {answer}"]
+                "image_analysis_history": [f"Image: {img_url} | Q: {question} | A: {answer}"]
             }
         )
     
@@ -126,7 +126,7 @@ from langchain_core.messages import ToolMessage, AIMessage
 
 # Define state right here
 class ImageAnalysisState(MessagesState):
-    analysis_history: Annotated[list[str], operator.add]
+    image_analysis_history: Annotated[list[str], operator.add]
 
 # Custom Output state for data exploration
 class ImageAnalysisOutput(BaseModel):
@@ -161,7 +161,7 @@ def evaluator_node(state: ImageAnalysisState):
         return Command(goto=END, graph=Command.PARENT, update={"current_step": 0, "feedback": f"final tool execution result: {evaluation.error_message}"})
     
     else:
-        tool_run_history = json.dumps(state["analysis_history"])
+        tool_run_history = json.dumps(state["image_analysis_history"])
         final_message = AIMessage(content=f"Run history: {tool_run_history}")
         
         return {"messages": [final_message]}

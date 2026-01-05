@@ -1,5 +1,5 @@
 from typing import Annotated, Any, Dict, List
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from langgraph.graph import MessagesState
 
@@ -17,13 +17,18 @@ class ToolResult(BaseModel):
     columns: List[str] = Field(default_factory=list)
     result: Any
 
+    @field_validator("tool_call_id", mode="before")
+    @classmethod
+    def coerce_tool_call_id(cls, v):
+        return str(v)
+
 def append_tool_results(existing: List[ToolResult], new: List[ToolResult]) -> List[ToolResult]:
     """Appends new results to the existing list instead of overwriting."""
     return (existing or []) + new
 
 # Custom State for data exploration
 class DataExplorationState(MessagesState):
-    tool_results: Annotated[List[ToolResult], append_tool_results]
+    import_tool_results: Annotated[List[ToolResult], append_tool_results]
 
 # Make state to store query result
 
