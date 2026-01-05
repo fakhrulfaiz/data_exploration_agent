@@ -353,9 +353,10 @@ def tool_node(state: MainAgentState):
 
 def interrupt_for_replan(state: MainAgentState) -> Command[Literal["plan_and_list_tasks", "cleanup"]]:
 
-    is_approved = interrupt({
-        "question": "Do you want to proceed with replanning?",
-    }) 
+    # is_approved = interrupt({
+    #     "question": "Do you want to proceed with replanning?",
+    # }) 
+    is_approved = True
 
     if is_approved:
         print("Replanning...")

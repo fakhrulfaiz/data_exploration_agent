@@ -117,8 +117,6 @@ def generate_query(state: DataExplorationState):
     llm_with_tools = model.bind_tools([wrapped_run_query_tool])
     response = llm_with_tools.invoke([system_message] + state["messages"])
 
-    
-
     return {"messages": [response]}
 
 
@@ -153,8 +151,6 @@ def evaluate_query(state: DataExplorationState):
     3. If error during validation → Command back to generate_query
     4. If success → return ToolResult to be appended to tool_results list
     """
-    from langchain_core.messages import ToolMessage
-    
     last_message = state["messages"][-1]
     evaluator = model.with_structured_output(DataExplorationOutput)
     system_message = {
@@ -162,16 +158,32 @@ def evaluate_query(state: DataExplorationState):
         "content": "You need to evaluate if the following query make sense and run as intended. Be extra mindful and strict of weird query that does not make sense of the database schema (This is an error). If the model says it cant answer the question or cant run the query for whatever reason, return error and explain why.",
     }
 
+
+    # # Check if last message is ToolMessage
+    # if isinstance(last_message, ToolMessage):
+    #     tool_result = ToolResult(
+    #         tool_call_id=last_message.tool_call_id,
+    #         name=tool_call["name"],
+    #         query=tool_call["args"]["query"],
+    #         columns=tool_call["args"]["columns"],
+    #         result=last_message.content
+    #     )
+
+
     # Check if last message is AIMessage    
     if isinstance(last_message, AIMessage):
-        output: DataExplorationOutput = evaluator.invoke(state["messages"])
+        output: DataExplorationOutput = evaluator.invoke(state["messages"]) # type: ignore
 
         if output.error:
             if output.error_message == "":
-                return Command(goto=END, graph=Command.PARENT, update={"current_step": 0, "feedback": f"final tool execution result: {output.final_tool_result}"})    
+                print("No error detected. Returning tool result to agent(generate_query). FROM AIMESSAGE CHECK")
+                return Command(goto="generate_query", update={"current_step": 0, "messages": [last_message]})
+    
             return Command(goto=END, graph=Command.PARENT, update={"feedback": output.error_message, "current_step": 0})
         else:
-            return END
+            print("No error detected. Returning tool result to agent(generate_query). FROM AIMESSAGE CHECK")
+            # using command to force to go to store_query_result
+            return Command(goto="store_query_result", update={"messages": [last_message]})
 
     
     # Process results from ToolMessage
@@ -208,9 +220,13 @@ def evaluate_query(state: DataExplorationState):
     output_message = AIMessage(content=output.model_dump_json())
 
     # check for error by the evaluator
-    if not output.error and tool_result is not None:
-        return {"tool_results": [tool_result], "messages": [message] + [output_message]} 
+    # if not output.error and tool_result is not None:
+    if not output.error:
+        print("No error detected. Returning tool result to agent(generate_query). AFTER TOOL OUTPUT PROCESS")
+        return Command(goto="generate_query", update={"data_exploration_history": [tool_result], "messages": [message] + [output_message]})
+        # return {"tool_results": [tool_result], "messages": [message] + [output_message]} 
     else:
+        print("Error detected. Returning tool result to agent(generate_query). AFTER TOOL OUTPUT PROCESS")
         return Command(goto="interrupt_for_replan", graph=Command.PARENT, update={"messages": [output_message], "feedback": output.error_message})
     
 # Node to extract tool results into state
@@ -220,10 +236,10 @@ def store_query_result(state: DataExplorationState):
     """
     Create structured output from the latest tool result and prepare for output.
     """
-    if not state.get("tool_results") or len(state["tool_results"]) == 0:
+    if not state.get("data_exploration_history") or len(state["data_exploration_history"]) == 0:
         return {}
     
-    last_result = state["tool_results"][-1]
+    last_result = state["data_exploration_history"][-1]
     
     try:
         # Create structured output
@@ -231,7 +247,7 @@ def store_query_result(state: DataExplorationState):
             query=last_result.query,
             final_tool_result=str(last_result.result),
             error=False,
-            error_message=None
+            error_message=""
         )
         
         # Return JSON as message for LLM context
@@ -288,11 +304,11 @@ def update_workspace(state: DataExplorationState):
         return {}
 
 # Conditional edge function
-def should_continue(state: MessagesState) -> Literal["evaluate_query", "run_query"]:
+def should_continue(state: MessagesState) -> Literal[END, "run_query"]:
     messages = state["messages"]
     last_message = messages[-1]
     if not last_message.tool_calls:
-        return "evaluate_query"
+        return END
     else:
         return "run_query"
 
@@ -318,8 +334,9 @@ def build_agent():
     )
     builder.add_edge("run_query", "evaluate_query")
     # builder.add_edge("evaluate_query", "store_query_result")
-    builder.add_edge("store_query_result", "update_workspace")
-    builder.add_edge("update_workspace", "generate_query")
+    # builder.add_edge("store_query_result", "update_workspace")
+    # builder.add_edge("update_workspace", "generate_query")
+    builder.add_edge("store_query_result", END)
 
     return builder.compile()
 

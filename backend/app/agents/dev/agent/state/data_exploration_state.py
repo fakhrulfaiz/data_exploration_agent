@@ -28,7 +28,8 @@ def append_tool_results(existing: List[ToolResult], new: List[ToolResult]) -> Li
 
 # Custom State for data exploration
 class DataExplorationState(MessagesState):
-    import_tool_results: Annotated[List[ToolResult], append_tool_results]
+    data_exploration_history: Annotated[List[ToolResult], append_tool_results]
+
 
 # Make state to store query result
 
@@ -37,6 +38,7 @@ class DataExplorationOutput(BaseModel):
     """Output state for data exploration"""
     query: str = Field(..., description="The query to run")
     final_tool_result: str = Field(..., description="The final tool result")
+    # file_name: str = Field(..., description="The name of csv file to store the result")
     error: bool = Field(..., description="Whether there is an error")
     error_message: str = Field(..., description="The error message")
 
