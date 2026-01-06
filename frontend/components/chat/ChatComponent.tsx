@@ -635,11 +635,25 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
         if (action === 'add_planner') {
           // Create or update plan block
           let planBlock = updatedBlocks.find(b => b.id === blockId);
-          if (!planBlock) {
+          
+          // Check if this is a replan (plan content changed)
+          const isReplan = planBlock && (planBlock.data as any).plan !== blockData.content;
+          
+          if (isReplan && planBlock) {
+            // This is a replan - just update the existing block with new content
+            (planBlock.data as any).plan = blockData.content;
+            planBlock.needsApproval = needsApproval;
+            
+            // Force re-render by updating the block reference
+            updatedBlocks = updatedBlocks.map(block =>
+              block.id === blockId ? { ...block } : block
+            );
+          } else if (!planBlock) {
+            // First time seeing this plan - create it
             planBlock = createPlanBlock(blockId, blockData.content, needsApproval);
             updatedBlocks = [...updatedBlocks, planBlock];
           } else {
-            // Update existing plan block
+            // Same plan, just update (e.g., streaming in progress)
             (planBlock.data as any).plan = blockData.content;
             planBlock.needsApproval = needsApproval;
           }
@@ -660,11 +674,13 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
               : block
           );
 
+          // Create new plan block with the new block ID from backend
           let planBlock = updatedBlocks.find(b => b.id === blockId);
           if (!planBlock) {
             planBlock = createPlanBlock(blockId, blockData.content, needsApproval);
             updatedBlocks = [...updatedBlocks, planBlock];
           } else {
+            // Streaming update for the same replan
             (planBlock.data as any).plan = blockData.content;
             planBlock.needsApproval = needsApproval;
           }
