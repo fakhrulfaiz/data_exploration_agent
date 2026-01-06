@@ -64,18 +64,7 @@ def _build_additional_blocks(
             "needsApproval": False,
             "data": {"checkpointId": checkpoint_id}
         })
-    
-    error_explanation = values.get("error_explanation")
-    if error_explanation:
-        error_block_id = f"error_{context.assistant_message_id or str(uuid4())}"
-        blocks.append({
-            "id": error_block_id,
-            "type": "error",
-            "needsApproval": False,
-            "data": error_explanation
-        })
-        logger.info(f"Added error explanation block: {error_block_id}")
-    
+
     return blocks
 
 

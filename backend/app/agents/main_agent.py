@@ -28,6 +28,7 @@ from app.agents.state import ExplainableAgentState
 from app.agents.nodes.explainable.explainable_planner_node import ExplainablePlannerNode
 from app.agents.nodes.explainer_node import ExplainerNode
 from app.agents.nodes.finalizer_node import FinalizerNode
+from app.agents.nodes.error_explainer_node import ErrorExplainerNode
 from app.agents.assistant_agent import AssistantAgent
 
 logger = logging.getLogger(__name__)
@@ -57,7 +58,8 @@ class MainAgent:
         
         self.planner = ExplainablePlannerNode(llm, self.tools)
         self.explainer = ExplainerNode(llm, available_tools=self.tools)
-        self.finalizer = FinalizerNode(llm)
+        self.error_explainer = ErrorExplainerNode(llm)
+        self.finalizer = FinalizerNode(llm, error_explainer=self.error_explainer)
         
         # Create handoff tools and assistant agent
         self.create_handoff_tools()
@@ -558,58 +560,42 @@ Focus on execution-time factors:
         
         return state_update
     
-    def should_continue_from_process_query(self, state: ExplainableAgentState) -> Literal["tools", "finalizer", "process_query"]:
-
-        # Check for feedback/replan request
+    def should_continue_from_process_query(self, state: ExplainableAgentState) -> Literal["tools", "finalizer", "process_query", "human_feedback"]:
+        """Route after process_query based on state."""
+        # Priority 1: Check for replan request
         if state.get("human_comment"):
-            logger.info("Routing to human_feedback for replan")
             return "human_feedback"
         
-        # Check for tool calls - if present, execute them
+        # Priority 2: Check for tool calls
         messages = state.get("messages", [])
-        if messages:
-            last_message = messages[-1]
-            if hasattr(last_message, 'tool_calls') and last_message.tool_calls:
-                logger.info("Tool calls detected, routing to tools")
-                return "tools"
+        if messages and hasattr(messages[-1], 'tool_calls') and messages[-1].tool_calls:
+            return "tools"
         
-        # Check if we've completed all steps
+        # Priority 3: Check if all steps completed
         dynamic_plan = state.get("dynamic_plan")
         current_idx = state.get("current_step_index", 0)
-        
         if dynamic_plan and current_idx >= len(dynamic_plan.steps):
-            logger.info("All steps completed, routing to finalizer")
             return "finalizer"
         
-        # Continue to next step
-        logger.info("Continuing to next step")
+        # Default: Continue to next step
         return "process_query"
     
-    def should_continue_from_tools(self, state: ExplainableAgentState) -> Literal["explainer", "human_feedback", "finalizer", "process_query"]:
-        # Check for tool execution errors FIRST
+    def should_continue_from_tools(self, state: ExplainableAgentState) -> Literal["explainer", "human_feedback"]:
         if state.get("feedback"):
-            logger.info("Tool execution error detected, routing to human_feedback for error handling")
-            return "human_feedback"
-        
-        # Normal flow: tool executed successfully, go to explainer
-        logger.info("Tool execution completed successfully, routing to explainer")
+            return "human_feedback"    
         return "explainer"
     
     def finalizer_node(self, state: ExplainableAgentState) -> Dict[str, Any]:
-        logger.info("Finalizing execution with comprehensive evaluation")
         return self.finalizer.execute(state)
     
     def human_feedback(self, state: ExplainableAgentState) -> Dict[str, Any]:
         from langgraph.types import interrupt
         
-        # Determine interrupt type based on state
         feedback = state.get("feedback")
         error_details = state.get("error_details", [])
         human_comment = state.get("human_comment")
         
-        # NEW: Different interrupt handling for tool errors vs manual replans vs plan approval
         if feedback and not human_comment:
-            # Tool execution error - provide error details
             logger.info(f"Tool execution error detected: {feedback}")
             
             interrupt_data = {
@@ -624,7 +610,6 @@ Focus on execution-time factors:
             feedback_data = interrupt(interrupt_data)
             
         elif human_comment:
-            # Manual replan request
             logger.info("Entering human_feedback node for manual replan - pausing for input")
             
             interrupt_data = {
@@ -678,8 +663,12 @@ Focus on execution-time factors:
             
             elif action == "approve":
                 # Plan approved - proceed with execution
+                # Clear any pending tool interrupts from previous failed executions
                 updates["status"] = "approved"
                 updates["_plan_approved"] = True  # Mark plan as approved
+                updates["error_explanation"] = None  # Clear error explanation to prevent replan loop
+                updates["tasks"] = ()  # Clear pending tool interrupts
+                logger.info("Plan approved - cleared error_explanation and pending tool interrupts")
                 return updates
             
             elif action == "reject":
@@ -698,26 +687,30 @@ Focus on execution-time factors:
         
         return updates
     
-    def route_after_feedback(self, state: ExplainableAgentState) -> Literal["planner", "finalizer", "process_query"]:
-        """Route after human feedback."""
+    def route_after_feedback(self, state: ExplainableAgentState) -> Literal["planner", "finalizer", "process_query", "error_explainer"]:
+        """Route after human feedback based on user action."""
         status = state.get("status")
+        logger.info(f"[ROUTING] route_after_feedback called with status: {status}")
         
         if status == "cancelled":
-            logger.info("User cancelled - routing to finalizer")
+            logger.info("[ROUTING] Routing to finalizer (cancelled)")
             return "finalizer"
         elif status == "approved":
-            # Plan approved - proceed to execution
-            logger.info("Plan approved - routing to process_query")
+            logger.info("[ROUTING] Routing to process_query (approved)")
             return "process_query"
         elif status == "retry":
-            # NEW: Retry same step without replanning
-            logger.info("User chose retry - routing back to process_query")
+            logger.info("[ROUTING] Routing to process_query (retry)")
             return "process_query"
         elif status == "feedback":
-            logger.info("User requested replan - routing to planner")
-            return "planner"
+            # Replan: check if error-triggered (use error_explainer) or manual (direct to planner)
+            if state.get("error_details"):
+                logger.info("Error-triggered replan - routing to error_explainer")
+                return "error_explainer"
+            else:
+                logger.info("Manual replan - routing to planner")
+                return "planner"
         else:
-            logger.info("No clear status - routing to finalizer")
+            logger.warning(f"[ROUTING] Unknown status '{status}', routing to finalizer")
             return "finalizer"
     
     def route_after_planner(self, state: ExplainableAgentState) -> Literal["human_feedback", "process_query"]:
@@ -746,6 +739,11 @@ Focus on execution-time factors:
     def explainer_node(self, state: ExplainableAgentState) -> Dict[str, Any]:
         """Execute explainer node to generate result explanations."""
         return self.explainer.execute(state)
+    
+    def error_explainer_node(self, state: ExplainableAgentState) -> Dict[str, Any]:
+        """Generate user-friendly error explanation before replanning."""
+        logger.info("Generating error explanation for replan context")
+        return self.error_explainer.execute(state)
     
     def _build_system_message(self) -> str:
         """Build system message for the execution agent."""
@@ -779,23 +777,21 @@ Execute the step instruction and use as many tools as needed to complete it."""
         graph.add_node("planner", self.planner_node)
         graph.add_node("process_query", self.process_query)
         graph.add_node("tools", self.tools_node)
-        graph.add_node("explainer", self.explainer_node)  # NEW: Add explainer node
+        graph.add_node("explainer", self.explainer_node)
+        graph.add_node("error_explainer", self.error_explainer_node)  # NEW
         graph.add_node("finalizer", self.finalizer_node)
         graph.add_node("human_feedback", self.human_feedback)
         
-        # Set entry point to planner (skip assistant routing)
+        # Set entry point
         graph.set_entry_point("planner")
-        # graph.set_entry_point("assistant")
-        # Remove assistant routing - go directly to main agent flow
-        # graph.add_edge("main_agent_flow", "planner")
         
-        # Conditional routing after planner - check if plan needs approval
+        # Conditional routing after planner
         graph.add_conditional_edges(
             "planner",
             self.route_after_planner,
             {
-                "human_feedback": "human_feedback",  # Plan approval needed
-                "process_query": "process_query"  # Skip approval (planning disabled)
+                "human_feedback": "human_feedback",
+                "process_query": "process_query"
             }
         )
         
@@ -806,31 +802,27 @@ Execute the step instruction and use as many tools as needed to complete it."""
             {
                 "tools": "tools",
                 "finalizer": "finalizer",
-                "process_query": "process_query"
+                "process_query": "process_query",
+                "human_feedback": "human_feedback"
             }
         )
           
-        # Route after tools - check for errors first!
+        # Route after tools
         graph.add_conditional_edges(
             "tools",
             self.should_continue_from_tools,
             {
-                "human_feedback": "human_feedback",  # If error occurred
-                "explainer": "explainer",  # Normal flow
-                "finalizer": "finalizer",
-                "process_query": "process_query"
+                "human_feedback": "human_feedback",
+                "explainer": "explainer"
             }
         )
         
-        # After explainer, go back to process_query for next step
+        # After explainer, go back to process_query
         graph.add_edge("explainer", "process_query")
-        #     {
-        #         "tools": "tools",  # In case more tool calls needed
-        #         "cleanup": "cleanup",
-        #         "human_feedback": "human_feedback",
-        #         "process_query": "process_query"
-        #     }
-        # )
+        
+        # After error_explainer, go to planner
+        graph.add_edge("error_explainer", "planner")
+        
         # After human_feedback, route based on action
         graph.add_conditional_edges(
             "human_feedback",
@@ -838,7 +830,8 @@ Execute the step instruction and use as many tools as needed to complete it."""
             {
                 "planner": "planner",
                 "finalizer": "finalizer",
-                "process_query": "process_query"  # NEW: Support retry without replan
+                "process_query": "process_query",
+                "error_explainer": "error_explainer"  # NEW
             }
         )
         

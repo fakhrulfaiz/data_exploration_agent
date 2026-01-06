@@ -31,7 +31,15 @@ class PlanContentHandler(ContentHandler):
         use_planning = values.get("use_planning", True)
      
         if response_type in ["plan", "replan"]:
-            block_id = f"plan_{self.context.assistant_message_id}"
+            # Generate block ID based on response type
+            if response_type == "replan":
+                # For replans, create a new block ID to show plan evolution
+                import time
+                block_id = f"plan_{self.context.assistant_message_id}_replan_{int(time.time() * 1000)}"
+            else:
+                # For initial plans, use standard block ID
+                block_id = f"plan_{self.context.assistant_message_id}"
+            
             action = "replan" if response_type == "replan" else "add_planner"
             
             # Determine if approval is needed based on use_planning flag

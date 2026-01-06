@@ -23,14 +23,44 @@ class FinalizerDecision(BaseModel):
 
 
 class FinalizerNode:   
-    def __init__(self, llm):
+    def __init__(self, llm, error_explainer=None):
         self.llm = llm
+        self.error_explainer = error_explainer
     
     def execute(self, state: ExplainableAgentState) -> Dict[str, Any]:
         query = state.get("query", "")
         steps = state.get("steps", [])
         messages = state.get("messages", [])
         use_explainer = state.get("use_explainer", True)
+        status = state.get("status")
+        error_details = state.get("error_details", [])
+        
+        # Handle cancellation with error explanation
+        if status == "cancelled" and error_details and self.error_explainer:
+            logger.info("Generating friendly error summary for cancelled execution")
+            
+            explanation = self.error_explainer.explain_error(
+                error_info=error_details[0],
+                conversation_messages=messages
+            )
+            
+            # Create friendly cancellation message
+            cancel_message = f"""**Execution Cancelled**
+
+**What happened:** {explanation.what_happened}
+
+**Why it happened:** {explanation.why_it_happened}
+
+**What you can try next:**
+{chr(10).join(f"- {suggestion}" for suggestion in explanation.alternative_suggestions)}
+
+{explanation.user_action_needed}
+"""
+            
+            return {
+                "assistant_response": cancel_message,
+                "messages": [AIMessage(content=cancel_message)]
+            }
         
         # Build steps summary for LLM
         steps_summary = self._build_steps_summary(steps)

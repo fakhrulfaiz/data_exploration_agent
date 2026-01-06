@@ -25,6 +25,7 @@ from app.api.v1.endpoints.streaming.handlers import (
     PlanContentHandler,
     ExplanationContentHandler,
     ReasoningChainContentHandler
+    # ErrorExplanationHandler removed - now handled directly in streaming loop
 )
 from app.api.v1.endpoints.streaming.streaming_persistence import StreamingMessagePersistence
 from app.api.v1.endpoints.streaming.streaming_utils import (
@@ -329,12 +330,14 @@ async def stream_graph(
         explanation_handler = ExplanationContentHandler(context)
         reasoning_chain_handler = ReasoningChainContentHandler(context)
         tool_call_handler = ToolCallHandler(context)
+        # error_explanation_handler removed - now handled directly in streaming loop
         persistence = StreamingMessagePersistence(message_service)
 
         handlers = [
             tool_call_handler,
             explanation_handler,  # Check explanations before text
             reasoning_chain_handler,  # Check reasoning chains before text
+            # error_explanation_handler removed - streamed directly when error_explainer completes
             plan_handler,
             text_handler
         ]
@@ -417,9 +420,26 @@ async def stream_graph(
                         yield {"event": "graph_node", "data": graph_node_event}
                         
                         event_generator.last_emitted_node = context.node_name
-                
-                if context.node_name == 'error_explainer':
-                    continue
+            
+                if mode == "updates" and context.node_name == 'error_explainer':
+                    try:
+                        state = agent.graph.get_state(config)
+                        values = getattr(state, 'values', {}) or {}
+                        error_explanation = values.get("error_explanation")
+                        
+                        if error_explanation:
+                            block_id = f"error_{assistant_message_id}"
+                            error_event = json.dumps({
+                                "block_type": "error",
+                                "block_id": block_id,
+                                "error_explanation": error_explanation,
+                                "message_id": assistant_message_id,
+                                "action": "add_error"
+                            })
+                            yield {"event": "content_block", "data": error_event}
+                            logger.info(f"Streamed error explanation immediately after error_explainer: {block_id}")
+                    except Exception as e:
+                        logger.error(f"Failed to stream error explanation: {e}", exc_info=True)
                 
                 # Only process content handlers if we have a message
                 if not msg:
@@ -462,20 +482,6 @@ async def stream_graph(
             
             state = agent.graph.get_state(config)
             values = getattr(state, 'values', {}) or {}
-            
-            error_explanation = values.get("error_explanation")
-            if error_explanation:
-                logger.info(f"Emitting error explanation: {error_explanation}")
-                error_block_id = f"error_{assistant_message_id or str(uuid4())}"
-                error_event_data = json.dumps({
-                    "block_type": "error",
-                    "block_id": error_block_id,
-                    "error_explanation": error_explanation,
-                    "message_id": assistant_message_id,
-                    "action": "add_error"
-                })
-                yield {"event": "content_block", "data": error_event_data}
-            
             interrupt_data = await check_for_interrupts(state)
             
             if interrupt_data:

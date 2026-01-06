@@ -8,6 +8,7 @@ from .text_handler import TextContentHandler
 from .plan_handler import PlanContentHandler
 from .explanation_handler import ExplanationContentHandler
 from .reasoning_chain_handler import ReasoningChainContentHandler
+from .error_explanation_handler import ErrorExplanationHandler
 
 __all__ = [
     "ContentHandler",
@@ -18,4 +19,5 @@ __all__ = [
     "PlanContentHandler",
     "ExplanationContentHandler",
     "ReasoningChainContentHandler",
+    "ErrorExplanationHandler",
 ]

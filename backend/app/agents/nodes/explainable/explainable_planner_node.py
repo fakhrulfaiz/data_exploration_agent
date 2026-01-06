@@ -98,6 +98,28 @@ Create the plan based on this understanding.
         # No intent context needed anymore
         intent_context = self._build_intent_context(thought_response)
         
+        # Get error explanation if available (from error_explainer)
+        error_explanation = state.get("error_explanation")
+        error_context = ""
+        
+        logger.info(f"Planner checking for error_explanation: {error_explanation is not None}")
+        if error_explanation:
+            logger.info(f"Error explanation found: {error_explanation.get('what_happened', 'N/A')[:100]}")
+        
+        if error_explanation:
+            error_context = f"""
+**IMPORTANT - Previous Error Context:**
+The previous plan failed with the following error:
+- What happened: {error_explanation.get('what_happened', 'Unknown')}
+- Why it happened: {error_explanation.get('why_it_happened', 'Unknown')}
+- Suggestions: {', '.join(error_explanation.get('alternative_suggestions', []))}
+
+**You MUST create a plan that addresses this error and avoids making the same mistake.**
+"""
+            logger.info(f"Error context added to planning prompt (length: {len(error_context)})")
+        else:
+            logger.info("No error_explanation in state - skipping error context")
+        
         tool_descriptions = "\n".join([f"- {tool.name}: {tool.description}" for tool in self.tools])
         
         is_continuation = False
@@ -110,6 +132,8 @@ Create the plan based on this understanding.
     You are given a user query/task and a list of tools.
  
 {intent_context}
+
+{error_context}
 
 **Query**: {user_query}
 
@@ -192,10 +216,16 @@ Plan and list the tasks in a way that each task can be solved by one of these to
             # (Thought was already added to messages earlier)
             
             # Step 10: Determine response type
+            # Check if this is a replan (existing plan + new plan being created)
+            existing_plan = state.get("dynamic_plan")
+            has_existing_plan = existing_plan is not None and hasattr(existing_plan, 'steps') and len(existing_plan.steps) > 0
+            
             if len(response.steps) == 0:
                 response_type = "cancel"
             elif is_continuation:
                 response_type = "continue"
+            elif has_existing_plan:
+                response_type = "replan"
             else:
                 response_type = "plan"
             
