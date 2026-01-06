@@ -4,6 +4,7 @@ import React from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { markdownComponents } from '../../utils/markdownComponents';
+import { ToolErrorInterrupt } from '@/types/chat';
 import {
   Accordion,
   AccordionContent,
@@ -12,7 +13,7 @@ import {
 } from '@/components/ui/accordion';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
-import { Check, X, Clock, AlertCircle, AlertTriangle, CheckCircle2, XCircle, Code, Edit3 } from 'lucide-react';
+import { Check, X, Clock, AlertCircle, AlertTriangle, CheckCircle2, XCircle, Code, Edit3, RotateCw } from 'lucide-react';
 
 type ToolCallStatus = 'pending' | 'approved' | 'rejected' | 'error';
 
@@ -65,6 +66,45 @@ interface ToolCallMessageProps {
   onReject?: () => void;
   onEdit?: (toolCallId: string, editedContent: string) => void;
   disabled?: boolean;
+  // Error interrupt props
+  errorInterrupt?: ToolErrorInterrupt;
+  onRetry?: () => void;
+  onReplan?: () => void;
+  onCancel?: () => void;
+}
+
+// Helper to parse error from tool output
+function parseToolError(output: any): ToolErrorInterrupt | null {
+  if (!output) return null;
+
+  try {
+    // Parse output if it's a string
+    const parsed = typeof output === 'string' ? JSON.parse(output) : output;
+
+    // Check if output contains error
+    if (parsed.error && parsed.error_type) {
+      return {
+        type: 'tool_error',
+        message: parsed.error,
+        error_details: [{
+          tool_name: parsed.tool_name || 'unknown',
+          tool_call_id: '',
+          error_message: parsed.error,
+          error_type: parsed.error_type,
+          details: parsed.details || {},
+          recoverable: parsed.recoverable !== false,
+          full_output: typeof output === 'string' ? output : JSON.stringify(output),
+          detection_method: 'output_parsing'
+        }],
+        current_step_index: 0,
+        options: parsed.recoverable !== false ? ['retry', 'replan', 'cancel'] : ['replan', 'cancel']
+      };
+    }
+  } catch (e) {
+    // Not JSON or doesn't match error format
+  }
+
+  return null;
 }
 
 export const ToolCallMessage: React.FC<ToolCallMessageProps> = ({
@@ -74,11 +114,30 @@ export const ToolCallMessage: React.FC<ToolCallMessageProps> = ({
   onApprove,
   onReject,
   onEdit,
-  disabled = false
+  disabled = false,
+  errorInterrupt,
+  onRetry,
+  onReplan,
+  onCancel
 }) => {
   // Track edited content for each tool call
   const [editedContent, setEditedContent] = React.useState<Record<string, string>>({});
+  const [editingToolId, setEditingToolId] = React.useState<string | null>(null);
   const [isEditing, setIsEditing] = React.useState<Record<string, boolean>>({});
+
+  // Auto-detect errors from tool output
+  const detectedError = React.useMemo(() => {
+    if (errorInterrupt) return errorInterrupt; // Use explicit error if provided
+
+    // Check each tool call for errors in output
+    for (const toolCall of toolCalls) {
+      const error = parseToolError(toolCall.output);
+      if (error) {
+        return error;
+      }
+    }
+    return null;
+  }, [toolCalls, errorInterrupt]);
 
   const handleContentEdit = (toolCallId: string, newContent: string) => {
     setEditedContent(prev => ({ ...prev, [toolCallId]: newContent }));
@@ -100,8 +159,13 @@ export const ToolCallMessage: React.FC<ToolCallMessageProps> = ({
 
   // Determine effective status: enabled if has content OR output, disabled if neither
   const getEffectiveStatus = (call: ToolCall): ToolCallStatus | 'disabled' => {
-    // Check if output contains error
+    // Check if output contains error (using the helper)
     if (call.output) {
+      const error = parseToolError(call.output);
+      if (error) {
+        return 'error';
+      }
+
       const outputStr = typeof call.output === 'string' ? call.output : JSON.stringify(call.output);
       if (outputStr.startsWith('Error:')) {
         return 'error';
@@ -173,8 +237,20 @@ export const ToolCallMessage: React.FC<ToolCallMessageProps> = ({
         </div>
       )}
 
-      {/* Tool approval alert (only shown when needsApproval=true) */}
-      {needsApproval && (
+
+
+      {/* Alert message - different for errors vs normal approval */}
+      {needsApproval && detectedError && (
+        <Alert className="mb-3 border-0 bg-transparent p-0">
+          <AlertCircle className="h-4 w-4 text-red-600 dark:text-red-400" />
+          <AlertTitle className="text-red-900 dark:text-red-100">Tool Execution Error</AlertTitle>
+          <AlertDescription className="text-red-800 dark:text-red-200">
+            The tool encountered an error. Please choose how to proceed.
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {needsApproval && !detectedError && (
         <Alert className="mb-3 border-0 bg-transparent p-0">
           <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400" />
           <AlertTitle className="text-amber-900 dark:text-amber-100">Tool Approval Required</AlertTitle>
@@ -188,6 +264,8 @@ export const ToolCallMessage: React.FC<ToolCallMessageProps> = ({
         {toolCalls.map((call) => {
           const effectiveStatus = getEffectiveStatus(call);
           const isDisabled = effectiveStatus === 'disabled';
+          // Check if this specific call has an error
+          const parsedCallError = parseToolError(call.output);
 
           // Allow clicking when needs approval (even if no output yet)
           const isClickable = needsApproval || !isDisabled;
@@ -302,23 +380,63 @@ export const ToolCallMessage: React.FC<ToolCallMessageProps> = ({
 
                   {call.output && (
                     <div className="min-w-0 w-full">
-                      <h3 className="font-semibold text-sm text-muted-foreground mb-1.5">
-                        Output:
+                      <h3 className="font-semibold text-sm text-muted-foreground mb-1.5 ">
+                        {parsedCallError ? 'Error Details:' : 'Output:'}
                       </h3>
-                      <div className={`p-2 rounded text-sm max-h-60 w-full overflow-auto break-words min-w-0 ${call.status === 'approved'
-                        ? 'bg-accent text-accent-foreground'
-                        : call.status === 'rejected'
-                          ? 'bg-destructive/15 text-destructive'
-                          : call.status === 'error'
-                            ? 'bg-red-50 dark:bg-red-950/20 text-red-900 dark:text-red-100 border border-red-300 dark:border-red-700'
-                            : 'bg-background border border-border text-foreground'
-                        }`}>
-                        <div className="prose prose-sm dark:prose-invert max-w-none prose-pre:overflow-x-auto">
-                          <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                            {formatContent(call.output)}
-                          </ReactMarkdown>
+
+                      {parsedCallError ? (
+                        // Render Formatted Error Inside Output Section
+                        <div className="p-3 rounded-md bg-destructive/5 border border-destructive/20 text-sm space-y-3">
+                          <div className="flex items-center gap-2 text-destructive font-medium">
+                            <AlertCircle className="w-4 h-4" />
+                            <span>Execution Failed</span>
+                            {parsedCallError.error_details[0]?.recoverable && (
+                              <span className="text-xs px-2 py-0.5 rounded-full bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 ml-auto border border-green-200 dark:border-green-800">
+                                Recoverable
+                              </span>
+                            )}
+                          </div>
+
+                          {parsedCallError.error_details.map((error, idx) => (
+                            <div key={idx} className="space-y-2">
+                              <p className="text-destructive/90 font-mono text-xs break-words bg-destructive/5 p-2 rounded">
+                                {error.error_message}
+                              </p>
+
+                              {/* Generic Details Rendering - Simple Text Only */}
+                              {error.details && Object.entries(error.details).map(([key, value]) => {
+                                if (!value) return null;
+
+                                // Format label from key (e.g., 'sql_query' -> 'SQL Query')
+                                const label = key.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+
+                                return (
+                                  <div key={key} className="text-xs text-muted-foreground break-words">
+                                    <span className="font-semibold text-foreground/80">{label}:</span>{' '}
+                                    <span className="font-mono text-foreground/70">{String(value)}</span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          ))}
                         </div>
-                      </div>
+                      ) : (
+                        // Render Regular Output
+                        <div className={`p-2 rounded text-sm max-h-60 w-full overflow-auto break-words min-w-0 ${call.status === 'approved'
+                          ? 'bg-accent text-accent-foreground'
+                          : call.status === 'rejected'
+                            ? 'bg-destructive/15 text-destructive'
+                            : call.status === 'error'
+                              ? 'bg-red-50 dark:bg-red-950/20 text-red-900 dark:text-red-100 border border-red-300 dark:border-red-700'
+                              : 'bg-background border border-border text-foreground'
+                          }`}>
+                          <div className="prose prose-sm dark:prose-invert max-w-none prose-pre:overflow-x-auto">
+                            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                              {formatContent(call.output)}
+                            </ReactMarkdown>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -328,8 +446,8 @@ export const ToolCallMessage: React.FC<ToolCallMessageProps> = ({
         })}
       </Accordion>
 
-      {/* Approval buttons (only shown when needsApproval=true) */}
-      {needsApproval && (onApprove || onReject) && (
+      {/* Approval buttons (shown when needsApproval=true and NO error detected) */}
+      {needsApproval && !detectedError && (onApprove || onReject) && (
         <div className="flex gap-2 mt-3 pt-3 border-t border-border">
           {onApprove && (
             <Button
@@ -338,7 +456,7 @@ export const ToolCallMessage: React.FC<ToolCallMessageProps> = ({
               className="flex-1"
             >
               <CheckCircle2 className="w-4 h-4 mr-2" />
-              {Object.keys(editedContent).length > 0 ? 'Approve with Edits' : 'Approve'}
+              Approve
             </Button>
           )}
           {onReject && (
@@ -354,8 +472,44 @@ export const ToolCallMessage: React.FC<ToolCallMessageProps> = ({
           )}
         </div>
       )}
+
+      {/* Error recovery buttons (shown when needsApproval=true AND error detected) */}
+      {needsApproval && detectedError && (onRetry || onReplan || onCancel) && (
+        <div className="flex gap-2 mt-3 pt-3 border-t border-border">
+          {detectedError.error_details[0]?.recoverable && onRetry && (
+            <Button
+              onClick={onRetry}
+              disabled={disabled}
+              className="flex-1"
+            >
+              <RotateCw className="w-4 h-4 mr-2" />
+              Retry
+            </Button>
+          )}
+          {onReplan && (
+            <Button
+              onClick={onReplan}
+              disabled={disabled}
+              variant="outline"
+              className="flex-1"
+            >
+              <Code className="w-4 h-4 mr-2" />
+              Replan
+            </Button>
+          )}
+          {onCancel && (
+            <Button
+              onClick={onCancel}
+              disabled={disabled}
+              variant="destructive"
+              className="flex-1"
+            >
+              <XCircle className="w-4 h-4 mr-2" />
+              Cancel
+            </Button>
+          )}
+        </div>
+      )}
     </>
   );
 };
-
-

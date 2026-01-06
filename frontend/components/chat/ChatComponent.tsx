@@ -2,13 +2,15 @@
 
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { ThumbsUp, ThumbsDown, ChevronDown } from 'lucide-react';
-import { Message as MessageType, ChatComponentProps, HandlerResponse, ContentBlock, ToolCallsContent, createTextBlock, createToolCallsBlock, createExplorerBlock, createVisualizationsBlock, createPlanBlock, createErrorBlock, createExplanationBlock, createReasoningChainBlock } from '@/types/chat';
+import { Message as MessageType, ChatComponentProps, HandlerResponse, ContentBlock, ToolCallsContent, ToolErrorInterrupt, createTextBlock, createToolCallsBlock, createExplorerBlock, createVisualizationsBlock, createPlanBlock, createErrorBlock, createExplanationBlock, createReasoningChainBlock } from '@/types/chat';
 import Message from './Message';
 import GeneratingIndicator from './GeneratingIndicator';
 import InputForm from './InputForm';
 import ThreadTitle from '../ThreadTitle';
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from '@/components/ui/resizable';
 import GraphFlowPanel from '../graph-flow/GraphFlowPanel';
+import { extractToolError } from '@/utils/interruptDetection';
+import { GraphService } from '@/services/api/graph.service';
 
 
 const EphemeralToolIndicator: React.FC<{
@@ -57,6 +59,7 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
   onFeedback,
   onCancel,
   onRetry,
+  onErrorRecovery,
   currentThreadId,
   initialMessages = [],
   className = "",
@@ -107,6 +110,7 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
       status: 'calling' | 'completed';
     }>;
   } | null>(null);
+
 
   // Use shared state
   const contextThreadId = currentThreadId;
@@ -625,15 +629,19 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
         }
       } else if (blockType === 'plan') {
         // Handle plan blocks from planner node
+        // Get needsApproval from backend event data (defaults to true for backward compatibility)
+        const needsApproval = blockData.needsApproval !== undefined ? blockData.needsApproval : true;
+
         if (action === 'add_planner') {
           // Create or update plan block
           let planBlock = updatedBlocks.find(b => b.id === blockId);
           if (!planBlock) {
-            planBlock = createPlanBlock(blockId, blockData.content, false);
+            planBlock = createPlanBlock(blockId, blockData.content, needsApproval);
             updatedBlocks = [...updatedBlocks, planBlock];
           } else {
             // Update existing plan block
             (planBlock.data as any).plan = blockData.content;
+            planBlock.needsApproval = needsApproval;
           }
         } else if (action === 'replan') {
           setMessages(prev => prev.map(msg => ({
@@ -654,11 +662,11 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
 
           let planBlock = updatedBlocks.find(b => b.id === blockId);
           if (!planBlock) {
-            planBlock = createPlanBlock(blockId, blockData.content, true);
+            planBlock = createPlanBlock(blockId, blockData.content, needsApproval);
             updatedBlocks = [...updatedBlocks, planBlock];
           } else {
             (planBlock.data as any).plan = blockData.content;
-            planBlock.needsApproval = true;
+            planBlock.needsApproval = needsApproval;
           }
         }
       } else if (blockType === 'tool_calls') {
@@ -785,11 +793,24 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
                   ? existingToolCall.input
                   : {});
 
+              // Detect error status from output
+              let toolStatus: 'pending' | 'approved' | 'rejected' | 'error' = 'approved';
+              try {
+                const output = typeof blockData.output === 'string'
+                  ? JSON.parse(blockData.output)
+                  : blockData.output;
+                if (output?.error || output?.error_type) {
+                  toolStatus = 'error';
+                }
+              } catch (e) {
+                // Not JSON, keep as approved
+              }
+
               const updatedToolCall = {
                 ...existingToolCall,
                 input: finalInput,
                 output: blockData.output,
-                status: 'approved' as const
+                status: toolStatus
               };
 
               toolCallsData.toolCalls = [
@@ -798,9 +819,12 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
                 ...toolCallsData.toolCalls.slice(toolCallIndex + 1)
               ];
 
+              // Update block with needsApproval from backend
+              const needsApproval = blockData.needsApproval === true;
+
               updatedBlocks = updatedBlocks.map(block =>
                 block.id === blockIdFromBackend
-                  ? { ...block, data: toolCallsData }
+                  ? { ...block, data: toolCallsData, needsApproval }
                   : block
               );
 
@@ -1126,9 +1150,11 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
                       if (block.type === 'tool_calls') {
                         const toolCallsData = block.data as any;
                         const hasOutput = toolCallsData.toolCalls?.some((tc: any) => tc.output);
+
                         if (!hasOutput) {
                           return { ...block, needsApproval: true };
                         }
+                        return block;
                       } else if (block.type === 'plan') {
                         return { ...block, needsApproval: true };
                       }
@@ -1707,6 +1733,95 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
     // Note: Loading state cleanup is handled by the parent component
   };
 
+  const handleErrorRecovery = async (blockId: string, action: string): Promise<void> => {
+    const message = messages.find(m =>
+      Array.isArray(m.content) && m.content.some(block => block.id === blockId)
+    );
+
+    if (!message) {
+      console.warn('handleErrorRecovery: message not found', { blockId });
+      return;
+    }
+
+    // Immediately clear needsApproval flag from the block to hide buttons
+    setMessages(prevMessages => prevMessages.map(msg => {
+      if (msg.message_id === message.message_id && Array.isArray(msg.content)) {
+        return {
+          ...msg,
+          content: msg.content.map(block =>
+            block.id === blockId
+              ? { ...block, needsApproval: false }
+              : block
+          )
+        };
+      }
+      return msg;
+    }));
+
+    if (onErrorRecovery) {
+      const result = await onErrorRecovery(blockId, action, message);
+
+      // Handle streaming response like handleApprove does
+      if (result && result.isStreaming && result.streamingHandler) {
+        const streamingMsgId = result.backendMessageId || message.message_id;
+
+        setStreamingActive(true);
+        setHasReceivedContent(false);
+
+        try {
+          const existingMessage = messages.find(m => m.message_id === streamingMsgId);
+          let currentContentBlocks: ContentBlock[] = Array.isArray(existingMessage?.content)
+            ? existingMessage.content.map(block => ({
+              ...block,
+              needsApproval: false
+            }))
+            : [];
+
+          await result.streamingHandler(streamingMsgId, updateContentBlocksCallback, (status, eventData, responseType) => {
+            if (!status) return;
+            if (status === 'content_block' && eventData) {
+              currentContentBlocks = handleContentBlockEvent(
+                eventData,
+                streamingMsgId,
+                currentContentBlocks
+              );
+              return;
+            }
+
+            if (status === 'graph_node' && eventData) {
+              try {
+                const nodeData = JSON.parse(eventData);
+                if ((window as any).updateGraphNodeStatus) {
+                  (window as any).updateGraphNodeStatus(
+                    nodeData.node_id,
+                    nodeData.status,
+                    nodeData.previous_node_id
+                  );
+                }
+              } catch (e) {
+                console.error('Failed to parse graph node data:', e);
+              }
+            }
+
+            if (status === 'user_feedback') {
+              setExecutionStatus('user_feedback');
+            } else if (status === 'finished') {
+              setExecutionStatus('idle');
+              setStreamingActive(false);
+            } else if (status === 'error') {
+              setExecutionStatus('error');
+              setStreamingActive(false);
+            }
+          });
+        } catch (error) {
+          console.error('Error recovery streaming failed:', error);
+          setStreamingActive(false);
+          setExecutionStatus('error');
+        }
+      }
+    }
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>): void => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
@@ -1788,6 +1903,7 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
                     onRetry={handleRetry}
                     onApproveBlock={handleApprove}
                     onRejectBlock={handleCancel}
+                    onErrorRecovery={handleErrorRecovery}
                   />
 
                   {(() => {

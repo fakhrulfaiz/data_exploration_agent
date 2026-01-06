@@ -849,8 +849,142 @@ const ChatWithApproval: React.FC = () => {
     }
   };
 
+  // Error interrupt handlers
+  const handleRetryError = async (message: Message): Promise<HandlerResponse> => {
+    const threadId = currentThreadIdRef.current || currentThreadId || selectedChatThreadId || message.threadId;
+
+    if (!threadId) {
+      throw new Error('No active thread to retry');
+    }
+
+    try {
+      setLoading(true);
+      setExecutionStatus('running');
+
+      const resumeResponse = await GraphService.resumeStreamingGraph({
+        thread_id: threadId,
+        message_id: message.message_id,
+        tool_response: { action: 'retry' }
+      });
+
+      setCurrentThreadId(resumeResponse.data?.thread_id || '');
+
+      return {
+        message: '',
+        needsApproval: false,
+        isStreaming: true,
+        backendMessageId: resumeResponse.data?.assistant_message_id as string | undefined,
+        streamingHandler: async (
+          streamingMessageId: string,
+          updateContentCallback: (id: string, contentBlocks: any[]) => void,
+          onStatus?: (status: 'user_feedback' | 'finished' | 'running' | 'error' | 'tool_call' | 'tool_result' | 'completed_payload' | 'visualizations_ready' | 'content_block', eventData?: string, responseType?: 'answer' | 'replan' | 'cancel') => void
+        ) => {
+          await resumeStreamingForMessage(threadId, ApprovalStatus.APPROVED, undefined, streamingMessageId, updateContentCallback, onStatus, resumeResponse);
+        }
+      };
+    } catch (error) {
+      console.error('Error retrying:', error);
+      setLoading(false);
+      throw error;
+    }
+  };
+
+  const handleReplanError = async (message: Message): Promise<HandlerResponse> => {
+    const threadId = currentThreadIdRef.current || currentThreadId || selectedChatThreadId || message.threadId;
+
+    if (!threadId) {
+      throw new Error('No active thread to replan');
+    }
+
+    try {
+      setLoading(true);
+      setExecutionStatus('running');
+
+      const resumeResponse = await GraphService.resumeStreamingGraph({
+        thread_id: threadId,
+        message_id: message.message_id,
+        tool_response: { action: 'replan' }
+      });
+
+      setCurrentThreadId(resumeResponse.data?.thread_id || '');
+
+      return {
+        message: '',
+        needsApproval: false,
+        isStreaming: true,
+        backendMessageId: resumeResponse.data?.assistant_message_id as string | undefined,
+        streamingHandler: async (
+          streamingMessageId: string,
+          updateContentCallback: (id: string, contentBlocks: any[]) => void,
+          onStatus?: (status: 'user_feedback' | 'finished' | 'running' | 'error' | 'tool_call' | 'tool_result' | 'completed_payload' | 'visualizations_ready' | 'content_block', eventData?: string, responseType?: 'answer' | 'replan' | 'cancel') => void
+        ) => {
+          await resumeStreamingForMessage(threadId, ApprovalStatus.FEEDBACK, undefined, streamingMessageId, updateContentCallback, onStatus, resumeResponse);
+        }
+      };
+    } catch (error) {
+      console.error('Error replanning:', error);
+      setLoading(false);
+      throw error;
+    }
+  };
+
+  const handleCancelError = async (message: Message): Promise<HandlerResponse> => {
+    const threadId = currentThreadIdRef.current || currentThreadId || selectedChatThreadId || message.threadId;
+
+    if (!threadId) {
+      throw new Error('No active thread to cancel');
+    }
+
+    try {
+      setLoading(true);
+      setExecutionStatus('running');
+
+      const resumeResponse = await GraphService.resumeStreamingGraph({
+        thread_id: threadId,
+        message_id: message.message_id,
+        tool_response: { action: 'cancel' }
+      });
+
+      setCurrentThreadId(resumeResponse.data?.thread_id || '');
+
+      return {
+        message: '',
+        needsApproval: false,
+        isStreaming: true,
+        backendMessageId: resumeResponse.data?.assistant_message_id as string | undefined,
+        streamingHandler: async (
+          streamingMessageId: string,
+          updateContentCallback: (id: string, contentBlocks: any[]) => void,
+          onStatus?: (status: 'user_feedback' | 'finished' | 'running' | 'error' | 'tool_call' | 'tool_result' | 'completed_payload' | 'visualizations_ready' | 'content_block', eventData?: string, responseType?: 'answer' | 'replan' | 'cancel') => void
+        ) => {
+          await resumeStreamingForMessage(threadId, ApprovalStatus.APPROVED, undefined, streamingMessageId, updateContentCallback, onStatus, resumeResponse);
+        }
+      };
+    } catch (error) {
+      console.error('Error cancelling execution:', error);
+      setLoading(false);
+      throw error;
+    }
+  };
 
 
+
+  // Unified error recovery handler that routes to the appropriate action
+  const handleErrorRecovery = async (blockId: string, action: string, message: Message): Promise<HandlerResponse | void> => {
+    console.log(`Error recovery requested: ${action} for block ${blockId}`);
+
+    switch (action) {
+      case 'retry':
+        return await handleRetryError(message);
+      case 'replan':
+        return await handleReplanError(message);
+      case 'cancel':
+        return await handleCancelError(message);
+      default:
+        console.warn(`Unknown error recovery action: ${action}`);
+        return;
+    }
+  };
 
   // Handle thread selection
   const handleThreadSelect = async (threadId: string | null) => {
@@ -1025,6 +1159,7 @@ const ChatWithApproval: React.FC = () => {
                 onSendMessage={handleSendMessage}
                 onApprove={handleApprove}
                 onFeedback={handleFeedback}
+                onErrorRecovery={handleErrorRecovery}
                 currentThreadId={currentThreadId || selectedChatThreadId}
                 initialMessages={restoredMessages}
                 placeholder="Ask me anything..."

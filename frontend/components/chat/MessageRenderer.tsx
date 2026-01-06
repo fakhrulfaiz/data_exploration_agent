@@ -128,7 +128,7 @@ export const MessageRenderer: React.FC<MessageRendererProps> = ({ message, onAct
 
     switch (block.messageStatus) {
       case 'approved':
-        return 'border border-green-500/50 rounded-lg p-3';
+        return ''; // Removed green box styling
       case 'rejected':
         return 'border border-red-500/50 rounded-lg p-3';
       case 'error':
@@ -244,6 +244,9 @@ export const MessageRenderer: React.FC<MessageRendererProps> = ({ message, onAct
             onApprove={onAction ? () => onAction('approveToolCall', block) : undefined}
             onReject={onAction ? () => onAction('rejectToolCall', block) : undefined}
             onEdit={onAction ? (toolCallId, editedContent) => onAction('editToolCall', { block, toolCallId, editedContent }) : undefined}
+            onRetry={onAction ? () => onAction('retryToolCall', block) : undefined}
+            onReplan={onAction ? () => onAction('replanToolCall', block) : undefined}
+            onCancel={onAction ? () => onAction('cancelToolCall', block) : undefined}
           />
         </div>
       );

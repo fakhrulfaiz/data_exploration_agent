@@ -8,7 +8,7 @@ export interface ToolCallsContent {
     name: string;
     input: any;
     output?: any;
-    status: 'pending' | 'approved' | 'rejected';
+    status: 'pending' | 'approved' | 'rejected' | 'error';
     internalTools?: Array<{
       name: string;
       status: 'completed' | 'running' | 'error';
@@ -240,6 +240,7 @@ export interface ChatComponentProps {
   onFeedback?: (messageId: string | undefined, content: string, message: Message) => Promise<HandlerResponse | void> | HandlerResponse | void;
   onCancel?: (messageId: string | undefined, content: string, message: Message) => Promise<string> | string;
   onRetry?: (message: Message) => Promise<HandlerResponse | void> | HandlerResponse | void;
+  onErrorRecovery?: (blockId: string, action: string, message: Message) => Promise<HandlerResponse | void> | HandlerResponse | void; // Error recovery handler
   currentThreadId?: string | null;
   initialMessages?: Message[];
   className?: string;
@@ -264,6 +265,7 @@ export interface MessageComponentProps {
   showIcon?: boolean; // Whether to show the assistant icon (for grouping consecutive messages)
   onApproveBlock?: (blockId: string) => void; // Handler for approving a block
   onRejectBlock?: (blockId: string) => void; // Handler for rejecting a block
+  onErrorRecovery?: (blockId: string, action: string) => void; // Handler for error recovery actions (retry/replan/cancel)
 }
 
 
@@ -379,4 +381,29 @@ export interface InterruptData {
  */
 export interface GraphResponseWithInterrupt extends GraphResponse {
   __interrupt__?: InterruptData[];
+}
+
+/**
+ * Tool error details from backend
+ */
+export interface ToolErrorDetails {
+  tool_name: string;
+  tool_call_id: string;
+  error_message: string;
+  error_type: string;
+  details?: Record<string, any>;
+  recoverable: boolean;
+  full_output?: string;
+  detection_method?: string;
+}
+
+/**
+ * Tool error interrupt from backend
+ */
+export interface ToolErrorInterrupt {
+  type: 'tool_error';
+  message: string;
+  error_details: ToolErrorDetails[];
+  current_step_index: number;
+  options: ('retry' | 'replan' | 'cancel')[];
 }

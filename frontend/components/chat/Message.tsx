@@ -8,7 +8,8 @@ const Message: React.FC<MessageComponentProps> = ({
   onRetry: _onRetry,
   showIcon = true, // Default to true for backward compatibility
   onApproveBlock,
-  onRejectBlock
+  onRejectBlock,
+  onErrorRecovery
 }) => {
   const hasToolCalls = message.content?.some(block => block.type === 'tool_calls') || false;
 
@@ -49,6 +50,14 @@ const Message: React.FC<MessageComponentProps> = ({
       case 'rejectPlan':
         if (onRejectBlock && data?.id) {
           onRejectBlock(data.id);
+        }
+        break;
+      case 'retryToolCall':
+      case 'replanToolCall':
+      case 'cancelToolCall':
+        if (onErrorRecovery && data?.id) {
+          const recoveryAction = action.replace('ToolCall', '').toLowerCase(); // 'retry', 'replan', 'cancel'
+          onErrorRecovery(data.id, recoveryAction);
         }
         break;
       case 'openExplorer':
