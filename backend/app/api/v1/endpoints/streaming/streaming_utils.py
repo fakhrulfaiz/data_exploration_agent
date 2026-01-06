@@ -354,7 +354,7 @@ async def handle_error(
                 "id": f"tool_{tool_call_id}",
                 "type": "tool_calls",
                 "sequence": tool_state.sequence,
-                "needsApproval": False,
+                "needsApproval": True, 
                 "data": {
                     "toolCalls": [],
                     "content": tool_state.content
@@ -379,6 +379,7 @@ async def handle_error(
                 "node": "agent",
                 "input": parsed_args,
                 "error": error_message,
+                "needsApproval": True,  # Include in streaming event
                 "action": "update_tool_error"
             })
         }

@@ -269,22 +269,18 @@ async def stream_graph(
     elif run_data["type"] == "tool_resume":
         event_type = "tool_resume"
         
-        # Use LangGraph Command API to resume from interrupt
         from langgraph.types import Command
         
         tool_response = run_data.get("tool_response", {})
         logger.info(f"Resuming from tool interrupt with response: {tool_response}")
-        
+
         input_state = Command(resume=tool_response)
         
     else:
         event_type = "resume"
         
-        # Save user feedback message to database
-        logger.info(f"Feedback debug - message_service: {message_service is not None}, human_comment: '{run_data.get('human_comment')}'")
         if message_service and run_data.get("human_comment"):
             try:
-                logger.info(f"Calling save_user_message for feedback with thread_id: {thread_id}, user_id: {user_id}, content: '{run_data['human_comment']}'")
                 saved_feedback = await message_service.save_user_message(
                     thread_id=thread_id,
                     content=run_data["human_comment"],
@@ -297,12 +293,24 @@ async def stream_graph(
         else:
             logger.warning(f"Skipping feedback save - message_service: {message_service is not None}, human_comment: '{run_data.get('human_comment')}'")
         
-        state_update = {"status": run_data["review_action"].value}
-        if run_data["human_comment"] is not None:
-            state_update["human_comment"] = run_data["human_comment"]
+        from langgraph.types import Command
         
-        agent.graph.update_state(config, state_update)
-        input_state = None
+        action = None
+        if run_data["review_action"] == ApprovalStatus.APPROVED:
+            action = "approve"
+        elif run_data["review_action"] == ApprovalStatus.REJECTED:
+            action = "reject"
+        elif run_data["review_action"] == ApprovalStatus.FEEDBACK:
+            action = "replan"
+        else:
+            action = run_data["review_action"].value  # fallback
+        
+        feedback_response = {"action": action}
+        if run_data["human_comment"] is not None:
+            feedback_response["comment"] = run_data["human_comment"]
+        
+        logger.info(f"Resuming with feedback: {feedback_response}")
+        input_state = Command(resume=feedback_response)
     
     async def event_generator():
         nonlocal assistant_message_id
