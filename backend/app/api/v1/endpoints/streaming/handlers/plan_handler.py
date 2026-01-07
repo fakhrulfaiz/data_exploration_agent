@@ -58,43 +58,16 @@ class PlanContentHandler(ContentHandler):
                 })
             }
             
-            # Save plan block IMMEDIATELY to database
-            # This ensures block exists before plan approval interrupt
-            if hasattr(self.context, 'message_service') and self.context.message_service:
-                try:
-                    from app.api.v1.endpoints.streaming.streaming_persistence import StreamingMessagePersistence
-                    persistence = StreamingMessagePersistence(self.context.message_service)
-                    
-                    plan_block = {
-                        "id": block_id,
-                        "type": "plan",
-                        "needsApproval": needs_approval,
-                        "data": {"plan": msg.content}
-                    }
-                    
-                    user_id = self.context.config.get('configurable', {}).get('user_id')
-                    checkpoint_id = self._extract_checkpoint_id(state)
-                    
-                    await persistence.save_with_content_blocks(
-                        thread_id=self.context.thread_id,
-                        user_id=user_id,
-                        assistant_message_id=self.context.assistant_message_id,
-                        content_blocks=[plan_block],
-                        checkpoint_id=checkpoint_id,
-                        needs_approval=needs_approval
-                    )
-                    logger.info(f"✅ Plan block {block_id} saved immediately (needsApproval={needs_approval})")
-                except Exception as e:
-                    logger.error(f"Failed to save plan block immediately: {e}", exc_info=True)
-            
-            # Append plan block to context in stream order
+            # Create plan block
             plan_block = {
                 "id": block_id,
                 "type": "plan",
                 "needsApproval": needs_approval,
                 "data": {"plan": msg.content}
             }
-            self.context.completed_blocks.append(plan_block)
+            await self.context.save_block(plan_block)
+            logger.info(f"✅ Plan block {block_id} saved immediately (needsApproval={needs_approval})")
+            
         elif response_type == "answer":
             block_id = f"text_{self.context.assistant_message_id}"
             yield {

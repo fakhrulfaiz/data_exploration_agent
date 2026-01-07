@@ -59,6 +59,7 @@ class ErrorExplanationHandler(ContentHandler):
                         "block_id": block_id,
                         "error_explanation": error_explanation,
                         "message_id": self.context.assistant_message_id,
+                        "needsApproval": False,
                         "action": "add_error"
                     })
                 }
@@ -66,13 +67,15 @@ class ErrorExplanationHandler(ContentHandler):
                 logger.info(f"Streamed error explanation block: {block_id}")
                 self.error_streamed = True  # Mark as streamed
                 
-                # Append to completed blocks
-                self.context.completed_blocks.append({
+                # Save error block immediately to database
+                error_block = {
                     "id": block_id,
                     "type": "error",
                     "needsApproval": False,
                     "data": error_explanation
-                })
+                }
+                await self.context.save_block(error_block)
+                logger.info(f"✅ Error block {block_id} saved immediately")
             else:
                 logger.warning("Error explainer node executed but no error_explanation in state")
                 

@@ -434,6 +434,7 @@ async def stream_graph(
                                 "block_id": block_id,
                                 "error_explanation": error_explanation,
                                 "message_id": assistant_message_id,
+                                "needsApproval": False,
                                 "action": "add_error"
                             })
                             yield {"event": "content_block", "data": error_event}

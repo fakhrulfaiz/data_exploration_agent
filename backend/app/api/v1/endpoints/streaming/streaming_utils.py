@@ -169,29 +169,25 @@ async def handle_tool_interrupt(
     
     interrupt_dict = _serialize_interrupt(interrupt_data)
     
-    content_blocks = tool_handler.get_content_blocks(needs_approval=True)
-    
-    values = getattr(state, 'values', {}) or {}
     checkpoint_id = _extract_checkpoint_id(state)
-    
-    user_id = config.get('configurable', {}).get('user_id')
-    await persistence.save_with_content_blocks(
-        thread_id=context.thread_id,
-        user_id=user_id,
-        assistant_message_id=context.assistant_message_id,
-        content_blocks=content_blocks,
-        checkpoint_id=checkpoint_id,
-        needs_approval=False
-    )
+    if checkpoint_id and context.message_service:
+        await context.message_service.update_message_checkpoint(
+            thread_id=context.thread_id,
+            message_id=context.assistant_message_id,
+            checkpoint_id=checkpoint_id
+        )
+        logger.info(f"Updated checkpoint_id to {checkpoint_id} for tool interrupt")
     
     yield {
         "event": "status",
         "data": json.dumps({
             "status": "user_feedback",
+            "approval_type": "tool",  # Explicit: this is a tool approval
             "thread_id": context.thread_id,
             "__interrupt__": [{"value": interrupt_dict}]
         })
     }
+
 
 
 async def handle_plan_approval(
@@ -210,35 +206,33 @@ async def handle_plan_approval(
         logger.info(f"Replan detected - clearing previous approvals in thread {context.thread_id}")
         await persistence.clear_previous_approvals(context.thread_id)
     
-    # Determine if approval is needed based on response type
-    needs_approval = response_type in ["plan", "replan"]
-    
-    content_blocks = []
-    content_blocks.extend(tool_handler.get_content_blocks())
-    content_blocks.extend(plan_handler.get_content_blocks(needs_approval=needs_approval))
-    content_blocks.extend(text_handler.get_content_blocks())
-    
+    # Blocks are already saved during streaming via save_block()
+    # Only need to save explorer block if it exists
     checkpoint_id = _extract_checkpoint_id(state)
     if values.get("steps") and checkpoint_id:
-        content_blocks.append({
+        explorer_block = {
             "id": f"explorer_{checkpoint_id}",
             "type": "explorer",
             "needsApproval": True,
             "data": {"checkpointId": checkpoint_id}
-        })
+        }
+        await context.save_block(explorer_block)
+        logger.info(f"✅ Explorer block saved for checkpoint {checkpoint_id}")
     
-    user_id = config.get('configurable', {}).get('user_id')
-    await persistence.save_with_content_blocks(
-        thread_id=context.thread_id,
-        user_id=user_id,
-        assistant_message_id=context.assistant_message_id,
-        content_blocks=content_blocks,
-        checkpoint_id=checkpoint_id,
-        needs_approval=needs_approval
-    )
+    # Update checkpoint_id on the message
+    if checkpoint_id and context.message_service:
+        await context.message_service.update_message_checkpoint(
+            thread_id=context.thread_id,
+            message_id=context.assistant_message_id,
+            checkpoint_id=checkpoint_id
+        )
+        logger.info(f"Updated checkpoint_id to {checkpoint_id} for plan approval")
     
-    # Always emit user_feedback status since we're in human_feedback node waiting for user input
-    yield {"event": "status", "data": json.dumps({"status": "user_feedback"})}
+    yield {"event": "status", "data": json.dumps({
+        "status": "user_feedback",
+        "approval_type": "plan"  # Explicit: this is a plan approval
+    })}
+
 
 
 async def handle_completion(
@@ -252,32 +246,23 @@ async def handle_completion(
 ) -> AsyncGenerator[Dict, None]:
     values = getattr(state, 'values', {}) or {}
     
-    content_blocks = []
-    
-    # Include existing blocks (plan, text) if they were loaded during resume
-    if hasattr(context, 'existing_blocks') and context.existing_blocks:
-        content_blocks.extend(context.existing_blocks)
-        logger.info(f"Including {len(context.existing_blocks)} existing blocks from context")
-    
-    
-    # Add blocks that were tracked during streaming (already in correct order)
-    content_blocks.extend(context.completed_blocks)
-    logger.info(f"Collected {len(context.completed_blocks)} blocks from stream in order")
-    
+    # All content blocks are already saved during streaming via save_block()
+    # Only need to save additional blocks (explorer, visualizations)
     checkpoint_id = _extract_checkpoint_id(state)
-    content_blocks.extend(_build_additional_blocks(values, checkpoint_id, context))
+    additional_blocks = _build_additional_blocks(values, checkpoint_id, context)
     
-    # No need to sort - blocks are already in stream order!
+    for block in additional_blocks:
+        await context.save_block(block)
+        logger.info(f"✅ Additional block {block['id']} saved during completion")
     
-    user_id = config.get('configurable', {}).get('user_id')
-    await persistence.save_with_content_blocks(
-        thread_id=context.thread_id,
-        user_id=user_id,
-        assistant_message_id=context.assistant_message_id,
-        content_blocks=content_blocks,
-        checkpoint_id=checkpoint_id,
-        needs_approval=False
-    )
+    # Update checkpoint_id on the message
+    if checkpoint_id and context.message_service:
+        await context.message_service.update_message_checkpoint(
+            thread_id=context.thread_id,
+            message_id=context.assistant_message_id,
+            checkpoint_id=checkpoint_id
+        )
+        logger.info(f"Updated checkpoint_id to {checkpoint_id} for completion")
     
     yield {"event": "status", "data": json.dumps({"status": "finished"})}
     
@@ -311,6 +296,7 @@ async def handle_completion(
         yield viz_event
 
 
+
 async def handle_error(
     error: Exception,
     tool_handler: ToolCallHandler,
@@ -327,7 +313,7 @@ async def handle_error(
         context.assistant_message_id = str(uuid4())
         run_data["assistant_message_id"] = context.assistant_message_id
     
-    # Flush pending tool calls with error state
+    # Flush pending tool calls with error state and save them immediately
     for tool_key, tool_state in list(tool_handler.pending_tools.items()):
         tool_call_id = tool_state.tool_call_id
         
@@ -338,25 +324,25 @@ async def handle_error(
             except json.JSONDecodeError:
                 parsed_args = {}
         
-        if tool_call_id not in tool_handler.completed_tools:
-            tool_handler.completed_tools[tool_call_id] = {
-                "id": f"tool_{tool_call_id}",
-                "type": "tool_calls",
-                "sequence": tool_state.sequence,
-                "needsApproval": True, 
-                "data": {
-                    "toolCalls": [],
-                    "content": tool_state.content
-                }
+        tool_error_block = {
+            "id": f"tool_{tool_call_id}",
+            "type": "tool_calls",
+            "needsApproval": True,
+            "data": {
+                "toolCalls": [{
+                    "name": tool_state.tool_name,
+                    "input": parsed_args,
+                    "output": f"Error: {error_message}",
+                    "status": "error",
+                    "error": error_message
+                }],
+                "content": tool_state.content
             }
+        }
         
-        tool_handler.completed_tools[tool_call_id]["data"]["toolCalls"].append({
-            "name": tool_state.tool_name,
-            "input": parsed_args,
-            "output": f"Error: {error_message}",
-            "status": "error",
-            "error": error_message
-        })
+        # Save tool error block immediately
+        await context.save_block(tool_error_block)
+        logger.info(f"✅ Tool error block {tool_call_id} saved")
         
         yield {
             "event": "content_block",
@@ -368,14 +354,24 @@ async def handle_error(
                 "node": "agent",
                 "input": parsed_args,
                 "error": error_message,
-                "needsApproval": True,  # Include in streaming event
+                "needsApproval": True,
                 "action": "update_tool_error"
             })
         }
     
     tool_handler.pending_tools.clear()
     
+    # Save error text block immediately
     error_block_id = f"error_{context.assistant_message_id or str(uuid4())}"
+    error_text_block = {
+        "id": error_block_id,
+        "type": "text",
+        "needsApproval": False,
+        "data": {"text": f"Error: {error_message}"}
+    }
+    await context.save_block(error_text_block)
+    logger.info(f"Error text block {error_block_id} saved")
+    
     yield {
         "event": "content_block",
         "data": json.dumps({
@@ -388,6 +384,7 @@ async def handle_error(
         })
     }
     
+    # Get checkpoint_id and update message
     steps = []
     plan = ""
     query = run_data.get("human_request", "")
@@ -403,32 +400,14 @@ async def handle_error(
     except Exception:
         pass
     
-    user_id = config.get('configurable', {}).get('user_id')
-    content_blocks = []
-    
-    sorted_tool_calls = sorted(
-        tool_handler.completed_tools.items(),
-        key=lambda x: x[1].get('sequence', 0)
-    )
-    for _, content_block in sorted_tool_calls:
-        if len(content_block["data"]["toolCalls"]) > 0:
-            content_blocks.append(content_block)
-    
-    content_blocks.append({
-        "id": error_block_id,
-        "type": "text",
-        "needsApproval": False,
-        "data": {"text": f"Error: {error_message}"}
-    })
-    
-    saved_error_message = await persistence.save_with_content_blocks(
-        thread_id=context.thread_id,
-        user_id=user_id,
-        assistant_message_id=context.assistant_message_id,
-        content_blocks=content_blocks,
-        checkpoint_id=checkpoint_id,
-        needs_approval=False
-    )
+    # Update checkpoint_id on the message
+    if checkpoint_id and context.message_service:
+        await context.message_service.update_message_checkpoint(
+            thread_id=context.thread_id,
+            message_id=context.assistant_message_id,
+            checkpoint_id=checkpoint_id
+        )
+        logger.info(f"Updated checkpoint_id to {checkpoint_id} for error")
     
     yield {
         "event": "status",
@@ -456,6 +435,7 @@ async def handle_error(
         "message": f"Execution failed: {error_message}"
     }
     yield {"event": "completed", "data": json.dumps(error_payload)}
+
 
 
 async def check_for_interrupts(state: Any) -> Optional[Any]:

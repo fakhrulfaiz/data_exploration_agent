@@ -210,7 +210,7 @@ class ToolCallHandler(ContentHandler):
         
         tool_state.saved = True
         
-        # Append completed block to context in stream order
+        # Save completed tool block immediately to database
         block_to_save = {
             "id": f"tool_{tool_call_id}",
             "type": "tool_calls",
@@ -220,8 +220,7 @@ class ToolCallHandler(ContentHandler):
                 "content": tool_state.content
             }
         }
-        self.context.completed_blocks.append(block_to_save)
-        
+        await self.context.save_block(block_to_save) 
         yield {
             "event": "content_block",
             "data": json.dumps({

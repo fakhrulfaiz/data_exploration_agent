@@ -4,7 +4,7 @@ import logging
 from typing import Dict, Any, List, Optional
 from datetime import datetime
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, asc
+from sqlalchemy import select, asc, func
 from sqlalchemy.exc import SQLAlchemyError
 
 from .base_repository import BaseRepository
@@ -258,3 +258,17 @@ class MessageContentRepository(BaseRepository[MessageContent]):
         except Exception as e:
             logger.error(f"Error finding block {block_id}: {e}")
             return None
+    
+    async def get_max_sequence(self, chat_message_id: str) -> Optional[int]:
+        try:
+            stmt = select(func.max(MessageContent.sequence)).where(
+                MessageContent.chat_message_id == chat_message_id
+            )
+            result = await self.session.execute(stmt)
+            max_seq = result.scalar()
+            logger.debug(f"Max sequence for message {chat_message_id}: {max_seq}")
+            return max_seq
+        except SQLAlchemyError as e:
+            logger.error(f"Error getting max sequence for message {chat_message_id}: {e}")
+            return None
+
