@@ -25,46 +25,30 @@ class DataExplorationAgentTool(BaseTool):
     name: str = "data_exploration_tool"
     description: str = """COMPLETE SUB-AGENT for database exploration and retrieval.
     
-    This is a COMPLETE SUB-AGENT that handles the entire database query workflow:
-    1. Natural language question → SQL generation (with full SQL capabilities)
-    2. SQL validation and execution
-    3. Result retrieval and storage
+    Handles the entire workflow: Natural language → SQL generation → Execution → Storage.
     
-    ONE CALL to this tool completes the entire database query process.
-    DO NOT split into separate "generate SQL" and "execute SQL" steps.
+    CAPABILITIES (Native SQL):
+    - Filtering (WHERE), Sorting (ORDER BY), Aggregation (COUNT, SUM, AVG)
+    - Grouping (GROUP BY), Joins, Subqueries
+    - Finding specific records (oldest, newest, top N)
     
-    This tool can ANSWER QUESTIONS DIRECTLY using SQL:
-    - Finding oldest/newest/min/max values (ORDER BY, MIN, MAX)
-    - Counting, summing, averaging (COUNT, SUM, AVG)
-    - Grouping and aggregating data (GROUP BY)
-    - Filtering with conditions (WHERE)
-    - Joining multiple tables
-    - Complex queries with subqueries and CTEs
-
-    Use this tool for ANY database-related question:
-    - Simple data retrieval
-    - Complex analytical queries
-    - Questions requiring aggregation, sorting, or filtering
+    Use this for ALL database queries, including simple retrieval and complex analysis.
+    ONE CALL completes the entire process.
     
     Parameters:
-    - question (str): Natural language question about the data
-    - context (optional str): Additional context for the query
+    - question (str): The natural language query
+    - context (optional str): Extra context
     
-    Returns: JSON containing:
-    - data_context: Metadata about the stored DataFrame (ID, shape, columns, etc.)
-    - description: Human-readable summary of what was retrieved
-    - data_preview: First 5 rows of data for immediate inspection
-    - sql_query: The generated SQL query that was executed
-    
-    The retrieved data is automatically stored in Redis and available for:
-    - python_repl (only if additional computation is needed)
-    - smart_transform_for_viz (for creating charts)
-    - large_plotting_tool (for matplotlib plots)
+    Returns: JSON with data_preview, row_count, sql_query, and data_context (ID for next steps).
+    Data is automatically stored in Redis for use by other tools (python_repl, visualization).
     """
     
     llm: Any = Field(description="Language model for SQL generation")
     db_path: str = Field(description="Path to SQLite database")
     db_engine: Any = Field(description="Database engine for SQL execution")
+    
+    # # Mock error testing - automatically simulates failure on first call, success on retry
+    # _mock_error_triggered: bool = False
     
     def model_post_init(self, __context):
         super().model_post_init(__context)
@@ -180,6 +164,23 @@ Your final answer must be ONLY the SQL query, no explanation.""")
 
             # Step 2: Execute SQL and get DataFrame
             try:
+                # # MOCK ERROR TESTING: Automatically simulate SQL execution failure on first call
+                # # This helps test error detection and retry flow in frontend
+                # if not self._mock_error_triggered:
+                #     object.__setattr__(self, '_mock_error_triggered', True)
+                #     logger.warning("🧪 MOCK ERROR: Simulating SQL execution failure for testing")
+                #     # Return standardized error to test JSON error detection
+                #     return json.dumps({
+                #         "error": "Generated SQL failed to execute: MOCK ERROR - Simulated transient database error",
+                #         "error_type": "execution_error",
+                #         "tool_name": "data_exploration_tool",
+                #         "details": {
+                #             "sql_query": sql_query,
+                #             "db_error": "MOCK: Connection timeout (testing error handling)"
+                #         },
+                #         "recoverable": True  # Should trigger retry
+                #     })
+                
                 df = pd.read_sql_query(sql_query, self.db_engine)
             except Exception as e:
                 logger.error(f"SQL Execution failed: {str(e)}")
