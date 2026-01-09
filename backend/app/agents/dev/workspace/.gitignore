@@ -1,0 +1,9 @@
+# Ignore all PNG files (plots)
+*.png
+
+# Ignore all CSV files globally
+*.csv
+
+# Exception: Don't ignore CSV files in tasks folder
+!tasks/
+!tasks/**/*.csv
