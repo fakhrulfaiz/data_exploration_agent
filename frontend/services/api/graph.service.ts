@@ -155,6 +155,7 @@ export class GraphService {
                 onMessage({
                     status: data.status,
                     response_type: data.response_type,
+                    approval_type: data.approval_type, 
                 });
 
                 if (!window._hasReceivedStatusEvent) {

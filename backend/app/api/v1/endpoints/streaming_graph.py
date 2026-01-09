@@ -506,6 +506,13 @@ async def stream_graph(
                 ):
                     yield event
         
+        
+        except GeneratorExit:
+            # Client disconnected - clean up gracefully
+            logger.info(f"Client disconnected during streaming for thread {thread_id}")
+            if thread_id in run_configs:
+                del run_configs[thread_id]
+            raise  
         except Exception as e:
             async for event in handle_error(
                 e, tool_call_handler, persistence, context, agent, config, run_data

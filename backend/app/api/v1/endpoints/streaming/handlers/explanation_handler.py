@@ -35,7 +35,18 @@ class ExplanationContentHandler(ContentHandler):
             # Generate unique block ID for this specific explanation
             block_id = f"explanation-{uuid4().hex[:12]}"
             
-            # Yield as content_block event with type 'explanation'
+            # Create explanation block for database
+            explanation_block = {
+                "id": block_id,
+                "type": "explanation",
+                "needsApproval": False,
+                "data": explanation_data
+            }
+            
+            # Save to database immediately
+            await self.context.save_block(explanation_block)
+            
+            # Yield as content_block event for frontend streaming
             yield {
                 "event": "content_block",
                 "data": json.dumps({

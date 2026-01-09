@@ -642,9 +642,8 @@ const ChatWithApproval: React.FC = () => {
       throw new Error('No active thread to approve');
     }
 
-    // Check if this is a tool approval by looking at message content
-    const isToolApproval = Array.isArray(message.content) &&
-      message.content.some(block => block.type === 'tool_calls');
+    const approvalType = message.approvalType || 'plan';
+    const isToolApproval = approvalType === 'tool';
 
     try {
       setLoading(true);
@@ -701,7 +700,7 @@ const ChatWithApproval: React.FC = () => {
           : {
             thread_id: threadId,
             message_id: messageId,
-            review_action: ApprovalStatus.APPROVED,  // Plan approval
+            review_action: ApprovalStatus.APPROVED,  // Plan approval (including replans)
             human_comment: undefined
           };
 
