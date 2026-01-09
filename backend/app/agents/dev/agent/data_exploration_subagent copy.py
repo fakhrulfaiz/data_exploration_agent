@@ -128,13 +128,10 @@ Your final response must not be a conversational summary. It must be structured 
 3. **Data Block**: Provide the raw CSV string of the results inside a code block labeled `### FINAL_CSV_DATA ###`. This is for system automation.
 
 ## Constraints
-- Need syntactically correct {dialect} query to run
 - No DML (INSERT, UPDATE, DELETE).
 - If the user's intent is ambiguous, prioritize a JOIN that provides a comprehensive view.
 - Only limit results (e.g., LIMIT 5) during exploration. For the final consolidated output, provide the full dataset required by the task.
-""".format(
-    dialect=db.dialect,
-)
+"""
 
 
 def generate_query(state: DataExplorationState):
