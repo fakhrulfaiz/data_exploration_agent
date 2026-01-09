@@ -104,9 +104,13 @@ image_qna_agent = build_image_qna_agent()
 @tool("image_qna_agent", description="Use this expert agent to answer questions related to the visual aspects of images in the database. You can query multiple images at once and the agent will answer it in parallel. Use this tool when you want to answer questions that needs visual information from an image. This tool only works with image path. Example path = `images/img_0.jpg`")
 def call_image_qna_agent(query: str, img_path: List[str]) -> str:
     """
-    Call the image QNA agent to answer questions related to the images in the database. You can query multiple images at once and the agent will answer it in parallel.
+    Call the image QNA agent to answer questions related to the images in the database and stored it in csv file for plotting.
+    Even if you does not need to store the result in csv file, the agent will always store the result in csv file for plotting purpose.
+    
+    You can query multiple images at once and the agent will answer it in parallel.
     Use this tool when you want to answer questions that needs visual information from an image. This tool only works with image path. Example path = `images/img_0.jpg`
-
+    ALWAYS use multiple image in one call when possible.
+    
     Args:
         query: A natural language question about the images in the database. Provide details goals of the query. The query can be done on multiple images at once.
         img_path: A list of image path for the related images to be accessed. Example path = [images/img_0.jpg] or [images/img_1.jpg, images/img_2.jpg, ...]
@@ -122,11 +126,32 @@ def call_image_qna_agent(query: str, img_path: List[str]) -> str:
     reply = result["messages"][-1].content + "\n\n```json" + result["messages"][-2].content + "```"
     return reply
 
+from data_plotting_tool import build_plotting_agent
+data_plotting_agent = build_plotting_agent()
+@tool("data_plotting_agent", description="use this tool to plot the data from a given csv file. Mentions what type of plot you want.")
+def call_data_plotting_agent(task: str, file_path: str) -> str:
+    """
+    Use this tool to plot the data from a given csv file. Mentions what type of plot you want.
+    
+    Args:
+        task: The task to accomplish.
+        file_path: The path to the csv file.
+        
+    Returns:
+        The response from the data plotting agent. 
+    """
+    result = data_plotting_agent.invoke(
+        {"messages": [{"role": "user", "content": f"{task}\n\nfile_path={file_path}"}]}
+    )
+
+    reply = result["messages"][-1].content
+    return reply
+
 # Define tools list
 tools = [
-    # image_qna_tool,
     call_image_qna_agent,
     call_data_exploration_agent,
+    call_data_plotting_agent,
 ]
 
 tools_by_name = {tool.name: tool for tool in tools}
@@ -177,8 +202,9 @@ def plan_and_list_tasks(state: MainAgentState):
     plan and list the tasks in a way that each task can be solved by one of these tools.
 
     tools:
-    1. image_qna_agent: This tool equipped with an expert agent with visual question answering tool that can answer questions related to the images in the database. If the question are simmilar, you can populate multiply image path to query multiple images at once.
+    1. image_qna_agent: This tool equipped with an expert agent with visual question answering tool that can answer questions related to the images in the database. If the question are simmilar, you can populate multiply image path to query multiple images at once. This tool will always store the result in csv file, explicitly mention the format or structure of the data/table to be stored.
     2. database_exploration_agent: This tool can answer questions related to the database but limited to the scope of the schema. Always be explicit on the total number of rows you want to return for most accurate result.
+    3. data_plotting_agent: This tool can plot the data from a given csv file. The csv file should be generated and stored from the database_exploration_agent or image_qna_agent. Remember to ask these tools to format the data properly in storing the file.
 
     Remember that you need to use image_qna_tool to solve tasks that needs to understand the visuals in the images.
 
@@ -272,7 +298,7 @@ You also have access to a tool that can answer questions related to the images i
 Your limitation in data exploration agent is that it can only query the database and tasks that demands context outside the database schema are beyond its scope.
 
 When users ask questions about the art database, use the data_exploration_agent tool to find the answers, if the schema and context relates.
-When users ask questions in regard to the visuals in the images, use the image_qna_agent to solve the tasks.
+When users ask questions in regard to the visuals in the images, use the image_qna_agent to solve the tasks. Dont use this tool of it is not necessery to accomplish the task.
 
 You can ask the agent multi-step questions and use the results to provide comprehensive responses.
 """
@@ -353,10 +379,10 @@ def tool_node(state: MainAgentState):
 
 def interrupt_for_replan(state: MainAgentState) -> Command[Literal["plan_and_list_tasks", "cleanup"]]:
 
-    # is_approved = interrupt({
-    #     "question": "Do you want to proceed with replanning?",
-    # }) 
-    is_approved = True
+    is_approved = interrupt({
+        "question": "Do you want to proceed with replanning?",
+    }) 
+    # is_approved = True
 
     if is_approved:
         print("Replanning...")
@@ -420,7 +446,45 @@ def build_main_agent(checkpointer):
     return builder.compile(checkpointer=checkpointer)
 
 from langgraph.checkpoint.memory import MemorySaver
-# Initialize the main agent
+
+
+def initialize_agent_with_checkpointer():
+    """
+    Initialize the main agent with a MemorySaver checkpointer.
+
+    Returns:
+        tuple: (compiled_agent, checkpointer)
+            - compiled_agent: The compiled LangGraph agent ready for streaming
+            - checkpointer: The MemorySaver instance for state persistence
+
+    Usage:
+        agent, checkpointer = initialize_agent_with_checkpointer()
+        config = create_thread_config("unique-thread-id")
+        agent.stream(input_data, config=config)
+    """
+    checkpointer = MemorySaver()
+    agent = build_main_agent(checkpointer)
+    return agent, checkpointer
+
+
+def create_thread_config(thread_id: str) -> dict:
+    """
+    Create a configuration dictionary for a specific thread.
+
+    Args:
+        thread_id: Unique identifier for the conversation thread
+
+    Returns:
+        dict: Configuration dictionary with thread_id
+
+    Usage:
+        config = create_thread_config("user-session-123")
+        agent.stream(input_data, config=config)
+    """
+    return {"configurable": {"thread_id": thread_id}}
+
+
+# Initialize the main agent (for backward compatibility and testing)
 main_agent = build_main_agent(MemorySaver())
 
 
