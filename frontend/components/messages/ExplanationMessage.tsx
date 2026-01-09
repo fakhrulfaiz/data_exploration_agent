@@ -1,25 +1,68 @@
 import React from 'react';
 
-interface PolicyAudit {
-    policy_name: string;
-    passed: boolean;
-    message: string;
-    severity: 'info' | 'warning' | 'error';
-}
-
 interface ExplanationData {
-    tool_justification?: string;
-    contrastive_explanation?: string;
+    task_completion_status?: string; 
+    execution_summary?: string;
     data_evidence?: string;
-    policy_audits?: PolicyAudit[];
-    counterfactual?: string | null;
+    confidence_score?: number;
+    confidence_factors?: string[];
+    next_actions?: string[];
 }
 
 interface ExplanationMessageProps {
     data: ExplanationData;
+    onActionClick?: (action: string) => void;
 }
 
-export const ExplanationMessage: React.FC<ExplanationMessageProps> = ({ data }) => {
+export const ExplanationMessage: React.FC<ExplanationMessageProps> = ({ data, onActionClick }) => {
+    // Determine status badge color
+    const getStatusBadge = (status?: string) => {
+        if (!status) return null;
+        
+        let bgColor = 'bg-muted text-muted-foreground';
+        let icon = '•';
+        
+        if (status.toLowerCase().startsWith('success')) {
+            bgColor = 'bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300';
+            icon = '✓';
+        } else if (status.toLowerCase().startsWith('partial')) {
+            bgColor = 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-300';
+            icon = '⚠';
+        } else if (status.toLowerCase().startsWith('failed')) {
+            bgColor = 'bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-300';
+            icon = '✗';
+        } else if (status.toLowerCase().startsWith('unknown')) {
+            bgColor = 'bg-gray-100 dark:bg-gray-900/30 text-gray-800 dark:text-gray-300';
+            icon = '?';
+        }
+        
+        return { bgColor, icon, status };
+    };
+    
+    // P1: Confidence badge helper
+    const getConfidenceBadge = (score?: number) => {
+        if (score === undefined || score === null) return null;
+        
+        let bgColor = 'bg-gray-100 dark:bg-gray-900/30 text-gray-800 dark:text-gray-300';
+        let label = 'Unknown';
+        
+        if (score >= 0.8) {
+            bgColor = 'bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300';
+            label = `High (${Math.round(score * 100)}%)`;
+        } else if (score >= 0.5) {
+            bgColor = 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-300';
+            label = `Medium (${Math.round(score * 100)}%)`;
+        } else {
+            bgColor = 'bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-300';
+            label = `Low (${Math.round(score * 100)}%)`;
+        }
+        
+        return { bgColor, label };
+    };
+    
+    const statusBadge = getStatusBadge(data.task_completion_status);
+    const confidenceBadge = getConfidenceBadge(data.confidence_score);
+    
     return (
         <div className="explanation-message bg-card border border-border rounded-lg p-4 my-2">
             <div className="flex items-start gap-2 mb-3">
@@ -33,81 +76,77 @@ export const ExplanationMessage: React.FC<ExplanationMessageProps> = ({ data }) 
                         Step Explanation
                     </h4>
 
-                    {/* Policy Audits */}
-                    {data.policy_audits && data.policy_audits.length > 0 && (
+                    {/* Task Completion Status */}
+                    {statusBadge && (
                         <div className="mb-3">
                             <span className="text-xs font-medium text-muted-foreground block mb-1.5">
-                                Policy Validation:
+                                Task Status:
                             </span>
-                            <div className="flex flex-wrap gap-1.5">
-                                {data.policy_audits.map((audit, idx) => {
-                                    let bgColor = 'bg-muted text-muted-foreground';
-                                    let icon = '•';
-
-                                    if (audit.passed) {
-                                        bgColor = 'bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300';
-                                        icon = '✓';
-                                    } else if (audit.severity === 'warning') {
-                                        bgColor = 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-300';
-                                        icon = '⚠';
-                                    } else if (audit.severity === 'error') {
-                                        bgColor = 'bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-300';
-                                        icon = '✗';
-                                    }
-
-                                    return (
-                                        <span
-                                            key={idx}
-                                            className={`inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium ${bgColor}`}
-                                            title={audit.message}
-                                        >
-                                            <span>{icon}</span>
-                                            <span>{audit.policy_name}</span>
-                                        </span>
-                                    );
-                                })}
-                            </div>
+                            <span
+                                className={`inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium ${statusBadge.bgColor}`}
+                            >
+                                <span>{statusBadge.icon}</span>
+                                <span>{statusBadge.status}</span>
+                            </span>
                         </div>
                     )}
 
-                    {/* Counterfactual */}
-                    {data.counterfactual && (
-                        <div className="mt-3 pt-3 border-t border-border">
-                            <div className="flex items-start gap-2">
-                                <span className="text-xs font-medium text-foreground flex-shrink-0">
-                                    💡 What-if:
-                                </span>
-                                <p className="text-xs italic text-muted-foreground">
-                                    {data.counterfactual}
-                                </p>
-                            </div>
+                    {/* Execution Summary */}
+                    {data.execution_summary && (
+                        <div className="mb-3">
+                            <p className="text-sm text-foreground">
+                                {data.execution_summary}
+                            </p>
                         </div>
                     )}
 
-                    {/* Additional details (collapsible) */}
-                    {(data.tool_justification || data.contrastive_explanation || data.data_evidence) && (
+                    {/* Data Evidence (collapsible) */}
+                    {data.data_evidence && (
                         <details className="mt-3 pt-3 border-t border-border">
                             <summary className="text-xs font-medium text-foreground cursor-pointer hover:text-primary">
-                                View detailed explanation
+                                View evidence
                             </summary>
-                            <div className="mt-2 space-y-2 text-xs text-foreground">
-                                {data.tool_justification && (
-                                    <div>
-                                        <span className="font-medium">Tool Performance:</span> {data.tool_justification}
-                                    </div>
-                                )}
-                                {data.contrastive_explanation && (
-                                    <div>
-                                        <span className="font-medium">Alternative:</span> {data.contrastive_explanation}
-                                    </div>
-                                )}
-                                {data.data_evidence && (
-                                    <div>
-                                        <span className="font-medium">Evidence:</span> {data.data_evidence}
-                                    </div>
-                                )}
+                            <div className="mt-2 text-xs text-foreground">
+                                {data.data_evidence}
                             </div>
                         </details>
+                    )}
+
+                    {/* P1: Confidence Score */}
+                    {confidenceBadge && (
+                        <div className="mt-3 pt-3 border-t border-border">
+                            <div className="flex items-center gap-2 mb-2">
+                                <span className="text-xs font-medium text-muted-foreground">Confidence:</span>
+                                <span className={`px-2 py-0.5 rounded text-xs font-medium ${confidenceBadge.bgColor}`}>
+                                    {confidenceBadge.label}
+                                </span>
+                            </div>
+                            {data.confidence_factors && data.confidence_factors.length > 0 && (
+                                <ul className="text-xs text-muted-foreground list-disc list-inside">
+                                    {data.confidence_factors.map((factor, idx) => (
+                                        <li key={idx}>{factor}</li>
+                                    ))}
+                                </ul>
+                            )}
+                        </div>
+                    )}
+
+                    {/* P1: Clickable Next Actions */}
+                    {data.next_actions && data.next_actions.length > 0 && (
+                        <div className="mt-3 pt-3 border-t border-border">
+                            <span className="text-xs font-medium text-muted-foreground block mb-2">Try next:</span>
+                            <div className="flex flex-wrap gap-2">
+                                {data.next_actions.map((action, idx) => (
+                                    <button
+                                        key={idx}
+                                        className="text-xs px-3 py-1.5 rounded-full bg-primary/10 text-primary hover:bg-primary/20 transition-colors cursor-pointer"
+                                        onClick={() => onActionClick?.(action)}
+                                    >
+                                        {action}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
                     )}
                 </div>
             </div>

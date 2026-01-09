@@ -82,7 +82,13 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
   // Local state for loading and execution
   const [isLoading, setIsLoading] = useState(false);
   const [executionStatus, setExecutionStatus] = useState<'idle' | 'running' | 'user_feedback' | 'error'>('idle');
-  const [useStreaming, setUseStreaming] = useState(true);
+  const [useStreaming, setUseStreaming] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('useStreaming');
+      return saved !== null ? JSON.parse(saved) : true; // Default to true
+    }
+    return true;
+  });
 
   const [messages, setMessages] = useState<MessageType[]>(initialMessages);
   const [inputValue, setInputValue] = useState<string>('');
@@ -94,10 +100,43 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
   const [streamingActive, setStreamingActive] = useState<boolean>(false);
   const [hasReceivedContent, setHasReceivedContent] = useState<boolean>(false);
 
-  // Enhanced input state
-  const [usePlanning, setUsePlanning] = useState<boolean>(false);
-  const [useExplainer, setUseExplainer] = useState<boolean>(false);
+  // Enhanced input state with localStorage persistence
+  const [usePlanning, setUsePlanning] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('usePlanning');
+      return saved !== null ? JSON.parse(saved) : false;
+    }
+    return false;
+  });
+  
+  const [useExplainer, setUseExplainer] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('useExplainer');
+      return saved !== null ? JSON.parse(saved) : false;
+    }
+    return false;
+  });
+  
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
+
+  // Save preferences to localStorage when they change
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('usePlanning', JSON.stringify(usePlanning));
+    }
+  }, [usePlanning]);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('useExplainer', JSON.stringify(useExplainer));
+    }
+  }, [useExplainer]);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('useStreaming', JSON.stringify(useStreaming));
+    }
+  }, [useStreaming]);
 
   // Tool call state for ephemeral indicators - now tracks step history
   const [toolStepHistory, setToolStepHistory] = useState<{
@@ -257,8 +296,10 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
       return;
     }
 
-    // Find a block that has needsApproval (block-level only)
-    const blockNeedingApproval = message.content.find(block => block.needsApproval === true);
+
+    const blockNeedingApproval = message.content.find(block => 
+      block.needsApproval === true && block.type !== 'text'
+    );
 
     if (blockNeedingApproval) {
       setPendingApproval(blockNeedingApproval.id);
@@ -1486,8 +1527,11 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
                   // Set pending approval to the first block that needs approval
                   const streamingMessage = messagesRef.current.find(m => m.message_id === streamingMsgId);
                   if (streamingMessage && Array.isArray(streamingMessage.content)) {
-                    // Find the first block that actually needs approval
-                    const blockNeedingApproval = streamingMessage.content.find(block => block.needsApproval === true);
+                    // Find the first block that actually needs approval AND is not a text block
+                    // Text blocks (thoughts) should never trigger pending approval state
+                    const blockNeedingApproval = streamingMessage.content.find(block => 
+                      block.needsApproval === true && block.type !== 'text'
+                    );
                     if (blockNeedingApproval) {
                       setPendingApproval(blockNeedingApproval.id);
                     }

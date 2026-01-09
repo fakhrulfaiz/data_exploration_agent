@@ -177,8 +177,7 @@ const ChatWithApproval: React.FC = () => {
       if (Array.isArray(msg.content)) {
         // Update each block that has status changes
         for (const block of msg.content) {
-          // Skip explanation blocks - they don't need approval
-          if (block.type === 'explanation') {
+          if (block.type === 'explanation' || block.type === 'text') {
             continue;
           }
 
@@ -990,6 +989,9 @@ const ChatWithApproval: React.FC = () => {
     if (threadId === selectedChatThreadId) return;
 
     setLoadingThread(true);
+    setDataFrameData(null);
+    setDataFrameOpen(false);
+    
     try {
       setSelectedChatThreadId(threadId);
       currentThreadIdRef.current = threadId;
@@ -1010,8 +1012,6 @@ const ChatWithApproval: React.FC = () => {
         setExplorerOpen(false);
         setVisualizationCharts(null);
         setVisualizationOpen(false);
-        setDataFrameOpen(false);
-        setDataFrameData(null);
 
         // Check for data context: try to load preview silently if DataFrame still exists in Redis.
         // If missing, offer to recreate it using the original SQL query and also refresh agent state.
@@ -1021,9 +1021,14 @@ const ChatWithApproval: React.FC = () => {
             setDataFrameData(previewResponse.data || null);
             // Do NOT auto-open the panel; user can open via the button in the input form.
           } catch (err: any) {
-            console.error("Failed to load data frame preview:", err);
+            setDataFrameData(null);
             const hasSql = !!data_context.sql_query;
+            
             if (hasSql) {
+              console.warn("DataFrame preview expired, offering to recreate:", {
+                dfId: data_context.df_id,
+                hasSqlQuery: true
+              });
               const shouldReload = window.confirm(
                 "Previous data context has expired or is unavailable. Do you want to recreate it using the original SQL query?"
               );
@@ -1037,6 +1042,12 @@ const ChatWithApproval: React.FC = () => {
                   alert("Failed to recreate data context. Please rerun your original request.");
                 }
               }
+            } else {
+              // No SQL query available, log as error since we cannot recover
+              console.error("DataFrame preview failed and cannot be recreated (no SQL query):", {
+                dfId: data_context.df_id,
+                error: err?.response?.data || err?.message
+              });
             }
           }
         }

@@ -107,7 +107,7 @@ export interface Message {
   isStreaming?: boolean;
   threadId?: string;
   checkpointId?: string;
-  approvalType?: 'plan' | 'tool' | 'sql'; 
+  approvalType?: 'plan' | 'tool'; 
   metadata?: {
     explorerData?: any;
     visualizations?: any[];
