@@ -4,7 +4,7 @@ import logging
 from typing import Dict, Any, List, Optional
 from datetime import datetime
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, asc
+from sqlalchemy import select, asc, func
 from sqlalchemy.exc import SQLAlchemyError
 
 from .base_repository import BaseRepository
@@ -72,7 +72,7 @@ class MessageContentRepository(BaseRepository[MessageContent]):
             
             if content_entities:
                 self.session.add_all(content_entities)
-                await self.session.flush()
+                await self.session.commit()
                 logger.info(f"Inserted {len(content_entities)} content blocks for message {chat_message_id}")
                 return True
             return True
@@ -111,20 +111,35 @@ class MessageContentRepository(BaseRepository[MessageContent]):
                     logger.warning(f"Invalid message_status: {message_status}")
                     message_status = None
             
-            content = MessageContent(
-                chat_message_id=chat_message_id,
-                block_id=block_id,
-                type=block_type,
-                needs_approval=needs_approval,
-                message_status=message_status,
-                data=block_data,
-                sequence=next_sequence,  # Auto-assigned sequence
-                created_at=datetime.now()
-            )
+            # Check if block already exists
+            existing_block_stmt = select(MessageContent).where(MessageContent.block_id == block_id)
+            result = await self.session.execute(existing_block_stmt)
+            existing_content = result.scalars().first()
             
-            self.session.add(content)
-            await self.session.flush()
-            logger.info(f"Inserted content block {block_id} with sequence {next_sequence} for message {chat_message_id}")
+            if existing_content:
+                # Update existing block
+                existing_content.data = block_data
+                existing_content.needs_approval = needs_approval
+                if message_status:
+                    existing_content.message_status = message_status
+                
+                logger.info(f"Updated existing content block {block_id} for message {chat_message_id}")
+            else:
+                # Insert new block
+                content = MessageContent(
+                    chat_message_id=chat_message_id,
+                    block_id=block_id,
+                    type=block_type,
+                    needs_approval=needs_approval,
+                    message_status=message_status,
+                    data=block_data,
+                    sequence=next_sequence,  # Auto-assigned sequence
+                    created_at=datetime.now()
+                )
+                self.session.add(content)
+                logger.info(f"Inserted content block {block_id} with sequence {next_sequence} for message {chat_message_id}")
+            
+            await self.session.commit()
             return True
         except SQLAlchemyError as e:
             logger.error(f"Error adding content block for message {chat_message_id}: {e}")
@@ -219,6 +234,7 @@ class MessageContentRepository(BaseRepository[MessageContent]):
             result = await self.update_by_id(block_id, normalized_updates, id_field="block_id")
             
             if result:
+                await self.session.commit()
                 logger.info(f"Updated block {block_id} with fields: {list(normalized_updates.keys())}")
             return result
         except SQLAlchemyError as e:
@@ -258,3 +274,17 @@ class MessageContentRepository(BaseRepository[MessageContent]):
         except Exception as e:
             logger.error(f"Error finding block {block_id}: {e}")
             return None
+    
+    async def get_max_sequence(self, chat_message_id: str) -> Optional[int]:
+        try:
+            stmt = select(func.max(MessageContent.sequence)).where(
+                MessageContent.chat_message_id == chat_message_id
+            )
+            result = await self.session.execute(stmt)
+            max_seq = result.scalar()
+            logger.debug(f"Max sequence for message {chat_message_id}: {max_seq}")
+            return max_seq
+        except SQLAlchemyError as e:
+            logger.error(f"Error getting max sequence for message {chat_message_id}: {e}")
+            return None
+

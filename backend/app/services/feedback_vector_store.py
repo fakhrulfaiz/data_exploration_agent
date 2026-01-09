@@ -1,14 +1,3 @@
-"""
-Vector store for explanation feedback with scalable architecture.
-
-Features:
-- Semantic search using embeddings
-- Automatic archival of old data
-- Size limits with cleanup
-- PostgreSQL metadata storage
-- Analytics and insights
-"""
-
 import chromadb
 from chromadb.config import Settings
 from sentence_transformers import SentenceTransformer

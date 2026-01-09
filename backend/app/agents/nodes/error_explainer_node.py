@@ -175,8 +175,6 @@ Generate a structured explanation following the ErrorExplanation model."""
         
         return {
             "error_explanation": explanation_dict,
-            # We do NOT append a new message here to avoid cluttering history with duplicate error text,
-            # as the original tool error message is already in history.
-            # But we might need to if the frontend expects it.
-            # "messages": messages 
+            "error_details": [],  # Clear error details to prevent rerunning error_explainer
+            "feedback": None  # Clear feedback as well
         }

@@ -55,6 +55,12 @@ export const API_ENDPOINTS = {
         EXPLORER: '/v1/graph/explorer',
         VISUALIZATION: '/v1/graph/visualization',
     },
+
+    // ==================== Profile Endpoints ====================
+    PROFILE: {
+        GET: '/v1/profile',
+        UPDATE: '/v1/profile',
+    },
 } as const;
 
 /**

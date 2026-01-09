@@ -28,18 +28,42 @@ class StreamingMessagePersistence:
         checkpoint_id: Optional[str] = None,
         needs_approval: bool = False
     ) -> Optional[Any]:
-        """Save assistant message with content blocks"""
+        """Save assistant message with content blocks, preserving existing blocks"""
         try:
+            # Load existing blocks to preserve them
+            _, _, existing_other_blocks = await self.load_existing_blocks(
+                thread_id=thread_id,
+                assistant_message_id=assistant_message_id
+            )
+            
+            # Create a map of existing block IDs
+            existing_block_ids = {block.get('id') for block in existing_other_blocks}
+            
+            # Merge: keep existing blocks that aren't being replaced
+            merged_blocks = []
+            new_block_ids = {block.get('id') for block in content_blocks}
+            
+            # Add existing blocks that aren't being replaced
+            for block in existing_other_blocks:
+                if block.get('id') not in new_block_ids:
+                    merged_blocks.append(block)
+                    logger.info(f"Preserving existing block: {block.get('id')} (type: {block.get('type')})")
+            
+            # Add new blocks
+            merged_blocks.extend(content_blocks)
+            
             logger.info(
                 f"Saving assistant message - thread: {thread_id}, "
                 f"message_id: {assistant_message_id}, "
-                f"blocks: {len(content_blocks)}, "
+                f"new_blocks: {len(content_blocks)}, "
+                f"existing_blocks: {len(existing_other_blocks)}, "
+                f"total_blocks: {len(merged_blocks)}, "
                 f"needs_approval: {needs_approval}"
             )
             
             saved_message = await self.message_service.save_assistant_message(
                 thread_id=thread_id,
-                content=content_blocks,
+                content=merged_blocks,  # Use merged blocks instead of content_blocks
                 checkpoint_id=checkpoint_id,
                 needs_approval=needs_approval,
                 message_id=assistant_message_id,

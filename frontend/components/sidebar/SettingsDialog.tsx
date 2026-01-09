@@ -1,11 +1,12 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
     Dialog,
     DialogContent,
     DialogTitle,
 } from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -19,6 +20,7 @@ import {
 import { Settings, User, X } from 'lucide-react';
 import DarkModeToggle from './DarkModeToggle';
 import { cn } from '@/lib/utils';
+import { profileService, type ProfileResponse } from '@/services';
 
 interface SettingsDialogProps {
     open: boolean;
@@ -36,6 +38,86 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({ open, onOpenChange }) =
     const [aboutUser, setAboutUser] = useState('');
     const [customInstructions, setCustomInstructions] = useState('');
     const [communicationStyle, setCommunicationStyle] = useState<'concise' | 'detailed' | 'balanced'>('balanced');
+
+    // Original profile for comparison and reset
+    const [originalProfile, setOriginalProfile] = useState<ProfileResponse | null>(null);
+
+    // UI states
+    const [isSaving, setIsSaving] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+
+    // Fetch profile when dialog opens
+    useEffect(() => {
+        if (open) {
+            fetchProfile();
+        }
+    }, [open]);
+
+    const fetchProfile = async () => {
+        try {
+            const profile = await profileService.getProfile();
+            setOriginalProfile(profile);
+
+            // Set form values
+            setNickname(profile.nickname || '');
+            setRole(profile.role || '');
+            setAboutUser(profile.about_user || '');
+            setCustomInstructions(profile.custom_instructions || '');
+            setCommunicationStyle(profile.communication_style as 'concise' | 'detailed' | 'balanced' || 'balanced');
+            setError(null);
+        } catch (err) {
+            console.error('Failed to fetch profile:', err);
+            setError('Failed to load profile data');
+        }
+    };
+
+    // Check if any changes were made
+    const isDirty = originalProfile && (
+        nickname !== (originalProfile.nickname || '') ||
+        role !== (originalProfile.role || '') ||
+        aboutUser !== (originalProfile.about_user || '') ||
+        customInstructions !== (originalProfile.custom_instructions || '') ||
+        communicationStyle !== (originalProfile.communication_style || 'balanced')
+    );
+
+    const handleSave = async () => {
+        if (!isDirty) return;
+
+        setIsSaving(true);
+        setError(null);
+
+        try {
+            const updates: any = {};
+
+            if (nickname !== (originalProfile?.nickname || '')) updates.nickname = nickname;
+            if (role !== (originalProfile?.role || '')) updates.role = role;
+            if (aboutUser !== (originalProfile?.about_user || '')) updates.about_user = aboutUser;
+            if (customInstructions !== (originalProfile?.custom_instructions || '')) updates.custom_instructions = customInstructions;
+            if (communicationStyle !== (originalProfile?.communication_style || 'balanced')) updates.communication_style = communicationStyle;
+
+            await profileService.updateProfile(updates);
+
+            // Update original profile to reflect saved state
+            await fetchProfile();
+        } catch (err: any) {
+            console.error('Failed to save profile:', err);
+            setError(err.message || 'Failed to save profile');
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
+    const handleCancel = () => {
+        if (!originalProfile) return;
+
+        // Reset to original values
+        setNickname(originalProfile.nickname || '');
+        setRole(originalProfile.role || '');
+        setAboutUser(originalProfile.about_user || '');
+        setCustomInstructions(originalProfile.custom_instructions || '');
+        setCommunicationStyle(originalProfile.communication_style as 'concise' | 'detailed' | 'balanced' || 'balanced');
+        setError(null);
+    };
 
     const tabs = [
         { id: 'general' as TabType, label: 'General', icon: Settings },
@@ -186,6 +268,32 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({ open, onOpenChange }) =
                                 </div>
                             )}
                         </div>
+
+                        {/* Save/Cancel Footer - appears when changes detected */}
+                        {isDirty && (
+                            <div className="border-t px-6 py-4 flex items-center justify-between bg-muted/30 flex-shrink-0">
+                                <div className="flex-1">
+                                    {error && (
+                                        <p className="text-sm text-destructive">{error}</p>
+                                    )}
+                                </div>
+                                <div className="flex gap-3">
+                                    <Button
+                                        variant="outline"
+                                        onClick={handleCancel}
+                                        disabled={isSaving}
+                                    >
+                                        Cancel
+                                    </Button>
+                                    <Button
+                                        onClick={handleSave}
+                                        disabled={isSaving}
+                                    >
+                                        {isSaving ? 'Saving...' : 'Save Changes'}
+                                    </Button>
+                                </div>
+                            </div>
+                        )}
                     </div>
                 </div>
             </DialogContent>

@@ -8,7 +8,7 @@ export interface ToolCallsContent {
     name: string;
     input: any;
     output?: any;
-    status: 'pending' | 'approved' | 'rejected';
+    status: 'pending' | 'approved' | 'rejected' | 'error';
     internalTools?: Array<{
       name: string;
       status: 'completed' | 'running' | 'error';
@@ -107,6 +107,7 @@ export interface Message {
   isStreaming?: boolean;
   threadId?: string;
   checkpointId?: string;
+  approvalType?: 'plan' | 'tool'; 
   metadata?: {
     explorerData?: any;
     visualizations?: any[];
@@ -229,7 +230,7 @@ export interface HandlerResponse {
   streamingHandler?: (
     streamingMessageId: string,
     updateContentCallback: (id: string, contentBlocks?: ContentBlock[]) => void,
-    onStatus?: (status: 'user_feedback' | 'finished' | 'running' | 'error' | 'tool_call' | 'tool_result' | 'completed_payload' | 'visualizations_ready' | 'content_block', eventData?: string, responseType?: 'answer' | 'replan' | 'cancel') => void
+    onStatus?: (status: 'user_feedback' | 'finished' | 'running' | 'error' | 'tool_call' | 'tool_result' | 'completed_payload' | 'visualizations_ready' | 'content_block' | 'graph_node', eventData?: string, responseType?: 'answer' | 'replan' | 'cancel') => void
   ) => Promise<void>;
 }
 
@@ -240,6 +241,7 @@ export interface ChatComponentProps {
   onFeedback?: (messageId: string | undefined, content: string, message: Message) => Promise<HandlerResponse | void> | HandlerResponse | void;
   onCancel?: (messageId: string | undefined, content: string, message: Message) => Promise<string> | string;
   onRetry?: (message: Message) => Promise<HandlerResponse | void> | HandlerResponse | void;
+  onErrorRecovery?: (blockId: string, action: string, message: Message) => Promise<HandlerResponse | void> | HandlerResponse | void; // Error recovery handler
   currentThreadId?: string | null;
   initialMessages?: Message[];
   className?: string;
@@ -253,6 +255,9 @@ export interface ChatComponentProps {
   onOpenDataContext?: () => void;
   onDataFrameDetected?: (dfId: string) => void; // Callback when df_id is detected in tool output
   onCancelStream?: () => Promise<void>; // Callback to cancel ongoing stream
+  onToggleGraphPanel?: () => void; // Callback to toggle graph flow panel
+  graphPanelOpen?: boolean; // Whether graph panel is currently open
+  graphStructure?: any; // Graph structure data for visualization (GraphStructure from types/graph.ts)
 }
 
 export interface MessageComponentProps {
@@ -261,6 +266,7 @@ export interface MessageComponentProps {
   showIcon?: boolean; // Whether to show the assistant icon (for grouping consecutive messages)
   onApproveBlock?: (blockId: string) => void; // Handler for approving a block
   onRejectBlock?: (blockId: string) => void; // Handler for rejecting a block
+  onErrorRecovery?: (blockId: string, action: string) => void; // Handler for error recovery actions (retry/replan/cancel)
 }
 
 
@@ -376,4 +382,29 @@ export interface InterruptData {
  */
 export interface GraphResponseWithInterrupt extends GraphResponse {
   __interrupt__?: InterruptData[];
+}
+
+/**
+ * Tool error details from backend
+ */
+export interface ToolErrorDetails {
+  tool_name: string;
+  tool_call_id: string;
+  error_message: string;
+  error_type: string;
+  details?: Record<string, any>;
+  recoverable: boolean;
+  full_output?: string;
+  detection_method?: string;
+}
+
+/**
+ * Tool error interrupt from backend
+ */
+export interface ToolErrorInterrupt {
+  type: 'tool_error';
+  message: string;
+  error_details: ToolErrorDetails[];
+  current_step_index: number;
+  options: ('retry' | 'replan' | 'cancel')[];
 }

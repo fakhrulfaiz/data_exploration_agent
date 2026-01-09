@@ -7,7 +7,8 @@ from typing import Dict, Any, Optional
 from pydantic import BaseModel
 
 from app.services.profile_service import ProfileService
-from app.services.dependencies import get_profile_service
+from app.services.redis_profile_service import RedisProfileService
+from app.services.dependencies import get_profile_service, get_redis_profile_service
 from app.models.supabase_user import SupabaseUser
 from app.core.auth import get_current_user
 
@@ -74,7 +75,8 @@ async def get_profile(
 async def update_profile(
     request: ProfileUpdateRequest,
     current_user: SupabaseUser = Depends(get_current_user),
-    profile_service: ProfileService = Depends(get_profile_service)
+    profile_service: ProfileService = Depends(get_profile_service),
+    redis_service: RedisProfileService = Depends(get_redis_profile_service)
 ):
     """
     Update user profile.
@@ -99,6 +101,9 @@ async def update_profile(
         
         if not success:
             raise HTTPException(status_code=400, detail="Failed to update profile")
+        
+        # Invalidate Redis cache
+        redis_service.invalidate_preferences(current_user.user_id)
         
         return {
             "success": True,

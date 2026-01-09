@@ -19,7 +19,8 @@ class TextContentHandler(ContentHandler):
             'tool_explanation',# tool explanation node
             'joiner',          # data_exploration_agent joiner node
             'process_query',   # main_agent execution node
-            'finalizer'        # main_agent finalizer node
+            'finalizer',        # main_agent finalizer node
+            'planner'
         ]
         # Track text per message ID instead of accumulating per node
         self.message_texts: Dict[str, Dict[str, Any]] = {}  # msg_id -> {text, node, block_id}
@@ -63,6 +64,7 @@ class TextContentHandler(ContentHandler):
         else:
             # Track text per message ID - each message gets its own block
             if msg_id not in self.message_texts:
+                # Save the previous message's text block immediately
                 if self.message_texts:
                     last_msg_id = list(self.message_texts.keys())[-1]
                     last_msg_data = self.message_texts[last_msg_id]
@@ -73,15 +75,37 @@ class TextContentHandler(ContentHandler):
                             "needsApproval": False,
                             "data": {"text": last_msg_data["text"]}
                         }
-                        self.context.completed_blocks.append(block)
+                        await self.context.save_block(block)
                 
                 self.message_texts[msg_id] = {
                     "text": "",
                     "node": node_name,
                     "block_id": f"text_{msg_id}"
                 }
+                
+                # Pre-save block to establish sequence
+                initial_block = {
+                    "id": f"text_{msg_id}",
+                    "type": "text",
+                    "needsApproval": False,
+                    "data": {"text": chunk_text}
+                }
+                await self.context.save_block(initial_block)
             
             self.message_texts[msg_id]["text"] += chunk_text
+            
+            if (type(msg).__name__ == 'AIMessage' and 
+                node_name == 'planner' and 
+                self.message_texts[msg_id]["text"].strip()):
+                block = {
+                    "id": self.message_texts[msg_id]["block_id"],
+                    "type": "text",
+                    "needsApproval": False,
+                    "data": {"text": self.message_texts[msg_id]["text"]}
+                }
+                await self.context.save_block(block)
+                # Clear the text so we don't save it again in finalize()
+                self.message_texts[msg_id]["text"] = ""
             
             yield {
                 "event": "content_block",
@@ -142,8 +166,8 @@ class TextContentHandler(ContentHandler):
         return blocks
     
     async def finalize(self) -> AsyncGenerator[Dict, None]:
-        """Append the last text block to context when streaming completes."""
-        # Only append the last message (all previous ones were appended when new messages started)
+        """Save the last text block when streaming completes."""
+        # Save the last message immediately
         if self.message_texts:
             last_msg_id = list(self.message_texts.keys())[-1]
             last_msg_data = self.message_texts[last_msg_id]
@@ -155,8 +179,10 @@ class TextContentHandler(ContentHandler):
                     "needsApproval": False,
                     "data": {"text": text}
                 }
-                self.context.completed_blocks.append(block)
+                # Save immediately instead of appending to completed_blocks
+                await self.context.save_block(block)
         
         # Make this a generator
         if False:
             yield {}
+

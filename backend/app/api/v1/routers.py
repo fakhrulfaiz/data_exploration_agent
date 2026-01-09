@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter
 
-from app.api.v1.endpoints import agent, graph, streaming_graph, conversation, data, profile, memories
+from app.api.v1.endpoints import agent, graph, streaming_graph, conversation, data, profile, memories, graph_structure
 
 api_router = APIRouter()
 
@@ -14,3 +14,4 @@ api_router.include_router(conversation.router)
 api_router.include_router(data.router)
 api_router.include_router(profile.router)
 api_router.include_router(memories.router)
+api_router.include_router(graph_structure.router)

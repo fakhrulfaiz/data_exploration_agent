@@ -242,7 +242,7 @@ export interface ResumeGraphRequest {
     message_id?: string;
     review_action?: ApprovalStatus;
     human_comment?: string;
-    tool_response?: { type: 'accept' | 'ignore' | 'edit'; args?: any };
+    tool_response?: { type?: 'accept' | 'ignore' | 'edit'; action?: 'retry' | 'replan' | 'cancel'; args?: any };
 }
 
 export interface GraphData {

@@ -1,4 +1,4 @@
-from typing import Dict, Any, AsyncGenerator, List
+from typing import Dict, Any, AsyncGenerator, List, Optional
 import json
 import logging
 
@@ -28,10 +28,22 @@ class PlanContentHandler(ContentHandler):
         state = self.agent.graph.get_state(self.context.config)
         values = getattr(state, 'values', {}) or {}
         response_type = values.get("response_type")
-        
+        use_planning = values.get("use_planning", True)
+     
         if response_type in ["plan", "replan"]:
-            block_id = f"plan_{self.context.assistant_message_id}"
+            # Generate block ID based on response type
+            if response_type == "replan":
+                # For replans, create a new block ID to show plan evolution
+                import time
+                block_id = f"plan_{self.context.assistant_message_id}_replan_{int(time.time() * 1000)}"
+            else:
+                # For initial plans, use standard block ID
+                block_id = f"plan_{self.context.assistant_message_id}"
+            
             action = "replan" if response_type == "replan" else "add_planner"
+            
+            # Determine if approval is needed based on use_planning flag
+            needs_approval = use_planning
             
             yield {
                 "event": "content_block",
@@ -41,18 +53,21 @@ class PlanContentHandler(ContentHandler):
                     "content": msg.content,
                     "node": "planner",
                     "message_id": self.context.assistant_message_id,
+                    "needsApproval": needs_approval,  # Include in streaming event
                     "action": action
                 })
             }
             
-            # Append plan block to context in stream order
+            # Create plan block
             plan_block = {
                 "id": block_id,
                 "type": "plan",
-                "needsApproval": False,
+                "needsApproval": needs_approval,
                 "data": {"plan": msg.content}
             }
-            self.context.completed_blocks.append(plan_block)
+            await self.context.save_block(plan_block)
+            logger.info(f"✅ Plan block {block_id} saved immediately (needsApproval={needs_approval})")
+            
         elif response_type == "answer":
             block_id = f"text_{self.context.assistant_message_id}"
             yield {
@@ -66,6 +81,17 @@ class PlanContentHandler(ContentHandler):
                     "action": "append_text"
                 })
             }
+    
+    def _extract_checkpoint_id(self, state: Any) -> Optional[str]:
+        """Extract checkpoint ID from state."""
+        try:
+            if hasattr(state, 'config') and state.config and 'configurable' in state.config:
+                configurable = state.config['configurable']
+                if 'checkpoint_id' in configurable:
+                    return str(configurable['checkpoint_id'])
+        except Exception:
+            pass
+        return None
     
     def get_content_blocks(self, needs_approval: bool = False) -> List[Dict]:
         if not self.plan_content:

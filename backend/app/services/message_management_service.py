@@ -429,6 +429,106 @@ class MessageManagementService:
             logger.error(f"Error updating block {block_id} status in message {message_id}: {e}")
             raise
     
+    async def append_content_block(
+        self,
+        thread_id: str,
+        message_id: str,
+        block: Dict[str, Any],
+        sequence: int
+    ) -> None:
+        """
+        Append a single content block to an existing message.
+        This is used for incremental persistence during streaming.
+        
+        Args:
+            thread_id: Thread ID
+            message_id: Message ID (UUID string)
+            block: Block dictionary with id, type, needsApproval, data
+            sequence: Sequence number for this block
+        """
+        try:
+            # Ensure message exists
+            message = await self._get_message_by_id(thread_id, message_id)
+            if not message:
+                # Create message if it doesn't exist
+                logger.info(f"Creating new assistant message {message_id} for block append")
+                await self.save_assistant_message(
+                    thread_id=thread_id,
+                    content=[],
+                    message_id=message_id,
+                    user_id=None  # Will be fetched from thread
+                )
+            
+            # Add sequence to block
+            block_with_sequence = {**block, "sequence": sequence}
+            
+            # Insert content block
+            await self.message_content_repo.add_content_block_with_sequence(
+                chat_message_id=message_id,
+                block=block_with_sequence
+            )
+            
+            logger.info(
+                f"Appended block {block['id']} (type: {block['type']}) "
+                f"to message {message_id} with sequence {sequence}"
+            )
+        except Exception as e:
+            logger.error(f"Failed to append block to message {message_id}: {e}")
+            raise
+    
+    async def get_max_sequence(self, thread_id: str, message_id: str) -> Optional[int]:
+        """
+        Get the maximum sequence number for a message's content blocks.
+        
+        Args:
+            thread_id: Thread ID (for validation)
+            message_id: Message ID (UUID string)
+            
+        Returns:
+            Maximum sequence number, or None if no blocks exist
+        """
+        try:
+            return await self.message_content_repo.get_max_sequence(message_id)
+        except Exception as e:
+            logger.error(f"Failed to get max sequence for message {message_id}: {e}")
+            return None
+    
+    async def update_message_checkpoint(
+        self,
+        thread_id: str,
+        message_id: str,
+        checkpoint_id: str
+    ) -> bool:
+        """
+        Update the checkpoint_id for an existing message without touching content blocks.
+        Used in incremental persistence where blocks are already saved.
+        
+        Args:
+            thread_id: Thread ID
+            message_id: Message ID (UUID string)
+            checkpoint_id: New checkpoint ID
+            
+        Returns:
+            True if successful
+        """
+        try:
+            message = await self.messages_repo.get_message_by_id(thread_id, message_id)
+            if not message:
+                logger.warning(f"Message {message_id} not found in thread {thread_id}")
+                return False
+            
+            # Update checkpoint_id
+            await self.messages_repo.update_message_by_message_id(
+                message_id=message_id,
+                updates={"checkpoint_id": checkpoint_id}
+            )
+            
+            logger.info(f"Updated checkpoint_id for message {message_id} to {checkpoint_id}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to update checkpoint for message {message_id}: {e}")
+            return False
+    
     async def clear_previous_approvals(self, thread_id: str) -> None:
         try:
          

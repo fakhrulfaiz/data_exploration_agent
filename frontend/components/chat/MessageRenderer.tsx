@@ -87,13 +87,13 @@ const ToolHistoryCollapsible: React.FC<ToolHistoryCollapsibleProps> = ({
 };
 
 const ThoughtCollapsible: React.FC<{ content: string }> = ({ content }) => {
-  const [isExpanded, setIsExpanded] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(true); // Changed to true - visible by default
 
   return (
-    <Collapsible open={isExpanded} onOpenChange={setIsExpanded} className="border border-muted rounded-md bg-muted/30">
+    <Collapsible open={isExpanded} onOpenChange={setIsExpanded} className="">
       <CollapsibleTrigger asChild>
         <button
-          className="flex items-center gap-2 p-2 w-full hover:bg-muted/50 transition-colors rounded-t-md text-left"
+          className="flex items-center gap-2 py-2 w-full hover:opacity-80 transition-opacity text-left"
           type="button"
         >
           {isExpanded ? (
@@ -101,14 +101,14 @@ const ThoughtCollapsible: React.FC<{ content: string }> = ({ content }) => {
           ) : (
             <ChevronRight className="w-4 h-4 text-muted-foreground" />
           )}
-          <span className="font-semibold text-sm text-foreground">
+          <span className="font-semibold text-sm text-muted-foreground">
             Thought Process
           </span>
         </button>
       </CollapsibleTrigger>
 
       <CollapsibleContent className="data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:slide-out-to-top-2 data-[state=open]:slide-in-from-top-2 duration-200">
-        <div className="p-3 pt-0 text-sm text-muted-foreground">
+        <div className="pl-6 pb-2 text-sm text-muted-foreground">
           <ReactMarkdown
             components={markdownComponents}
             remarkPlugins={[remarkGfm]}
@@ -128,7 +128,7 @@ export const MessageRenderer: React.FC<MessageRendererProps> = ({ message, onAct
 
     switch (block.messageStatus) {
       case 'approved':
-        return 'border border-green-500/50 rounded-lg p-3';
+        return ''; // Removed green box styling
       case 'rejected':
         return 'border border-red-500/50 rounded-lg p-3';
       case 'error':
@@ -244,6 +244,9 @@ export const MessageRenderer: React.FC<MessageRendererProps> = ({ message, onAct
             onApprove={onAction ? () => onAction('approveToolCall', block) : undefined}
             onReject={onAction ? () => onAction('rejectToolCall', block) : undefined}
             onEdit={onAction ? (toolCallId, editedContent) => onAction('editToolCall', { block, toolCallId, editedContent }) : undefined}
+            onRetry={onAction ? () => onAction('retryToolCall', block) : undefined}
+            onReplan={onAction ? () => onAction('replanToolCall', block) : undefined}
+            onCancel={onAction ? () => onAction('cancelToolCall', block) : undefined}
           />
         </div>
       );

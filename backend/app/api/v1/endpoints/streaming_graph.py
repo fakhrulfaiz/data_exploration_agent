@@ -25,6 +25,7 @@ from app.api.v1.endpoints.streaming.handlers import (
     PlanContentHandler,
     ExplanationContentHandler,
     ReasoningChainContentHandler
+    # ErrorExplanationHandler removed - now handled directly in streaming loop
 )
 from app.api.v1.endpoints.streaming.streaming_persistence import StreamingMessagePersistence
 from app.api.v1.endpoints.streaming.streaming_utils import (
@@ -262,28 +263,25 @@ async def stream_graph(
             use_planning=use_planning_value,
             use_explainer=run_data.get("use_explainer", True),
             agent_type="data_exploration_agent",
-            visualizations=[]
+            visualizations=[],
+            user_id=user_id  # Add user_id for preference fetching
         )
         input_state = initial_state
     elif run_data["type"] == "tool_resume":
         event_type = "tool_resume"
         
-        # Use LangGraph Command API to resume from interrupt
         from langgraph.types import Command
         
         tool_response = run_data.get("tool_response", {})
         logger.info(f"Resuming from tool interrupt with response: {tool_response}")
-        
+
         input_state = Command(resume=tool_response)
         
     else:
         event_type = "resume"
         
-        # Save user feedback message to database
-        logger.info(f"Feedback debug - message_service: {message_service is not None}, human_comment: '{run_data.get('human_comment')}'")
         if message_service and run_data.get("human_comment"):
             try:
-                logger.info(f"Calling save_user_message for feedback with thread_id: {thread_id}, user_id: {user_id}, content: '{run_data['human_comment']}'")
                 saved_feedback = await message_service.save_user_message(
                     thread_id=thread_id,
                     content=run_data["human_comment"],
@@ -296,12 +294,24 @@ async def stream_graph(
         else:
             logger.warning(f"Skipping feedback save - message_service: {message_service is not None}, human_comment: '{run_data.get('human_comment')}'")
         
-        state_update = {"status": run_data["review_action"].value}
-        if run_data["human_comment"] is not None:
-            state_update["human_comment"] = run_data["human_comment"]
+        from langgraph.types import Command
         
-        agent.graph.update_state(config, state_update)
-        input_state = None
+        action = None
+        if run_data["review_action"] == ApprovalStatus.APPROVED:
+            action = "approve"
+        elif run_data["review_action"] == ApprovalStatus.REJECTED:
+            action = "reject"
+        elif run_data["review_action"] == ApprovalStatus.FEEDBACK:
+            action = "replan"
+        else:
+            action = run_data["review_action"].value  # fallback
+        
+        feedback_response = {"action": action}
+        if run_data["human_comment"] is not None:
+            feedback_response["comment"] = run_data["human_comment"]
+        
+        logger.info(f"Resuming with feedback: {feedback_response}")
+        input_state = Command(resume=feedback_response)
     
     async def event_generator():
         nonlocal assistant_message_id
@@ -320,12 +330,14 @@ async def stream_graph(
         explanation_handler = ExplanationContentHandler(context)
         reasoning_chain_handler = ReasoningChainContentHandler(context)
         tool_call_handler = ToolCallHandler(context)
+        # error_explanation_handler removed - now handled directly in streaming loop
         persistence = StreamingMessagePersistence(message_service)
 
         handlers = [
             tool_call_handler,
             explanation_handler,  # Check explanations before text
             reasoning_chain_handler,  # Check reasoning chains before text
+            # error_explanation_handler removed - streamed directly when error_explainer completes
             plan_handler,
             text_handler
         ]
@@ -347,13 +359,91 @@ async def stream_graph(
         yield {"event": event_type, "data": initial_data}
         
         try:
-            for msg, metadata in agent.graph.stream(input_state, config, stream_mode="messages"):
+            for mode, value in agent.graph.stream(input_state, config, stream_mode=["messages", "updates"]):
                 if await request.is_disconnected():
                     break
                 
-                context.node_name = metadata.get('langgraph_node', 'unknown')
+                msg = None
+                metadata = {}
                 
-                if context.node_name == 'error_explainer':
+                if mode == "messages":
+                    msg, metadata = value
+                    context.node_name = metadata.get('langgraph_node', 'unknown')
+                elif mode == "updates":
+                    if value:
+                        # value is {node: ...}
+                        context.node_name = next(iter(value.keys()))
+                
+                # [DEBUG] Log first message of EVERY node transition
+                try:
+                    debug_file_path = "debug_stream_log.txt"
+                    
+                    # Initialize tracker for the last logged node in this stream
+                    if not hasattr(event_generator, "last_logged_node"):
+                        event_generator.last_logged_node = None
+                    
+                    # If this message belongs to a NEW node (or first node), log it
+                    if context.node_name != event_generator.last_logged_node and context.node_name != 'unknown':
+                        with open(debug_file_path, "a", encoding="utf-8") as f:
+                            debug_entry = {
+                                "timestamp": datetime.now().isoformat(),
+                                "event": "NODE_TRANSITION",
+                                "new_node": context.node_name,
+                                "previous_node": event_generator.last_logged_node,
+                                "metadata": metadata,
+                                "metadata": metadata,
+                                "first_msg_type": type(msg).__name__ if msg else "state_update",
+                                "first_msg_content": (str(msg.content) if hasattr(msg, "content") else str(msg)) if msg else "N/A",
+                                "first_msg_repr": repr(msg) if msg else "N/A"
+                            }
+                            f.write(json.dumps(debug_entry, indent=2, default=str) + "\n" + "="*50 + "\n")
+                        
+                        # Update tracker so we don't log subsequent chunks for this node
+                        event_generator.last_logged_node = context.node_name
+                        
+                except Exception as log_err:
+                    logger.error(f"Debug logging failed: {log_err}")
+                
+                # Emit graph node event for visualization - ONLY ON TRANSITION
+                if context.node_name != 'unknown':
+                    # Initialize tracker for visualization events
+                    if not hasattr(event_generator, "last_emitted_node"):
+                        event_generator.last_emitted_node = None
+                    
+                    if context.node_name != event_generator.last_emitted_node:
+                        graph_node_event = json.dumps({
+                            "node_id": context.node_name,
+                            "status": "active",
+                            "previous_node_id": event_generator.last_emitted_node,
+                            "timestamp": datetime.now().isoformat()
+                        })
+                        yield {"event": "graph_node", "data": graph_node_event}
+                        
+                        event_generator.last_emitted_node = context.node_name
+            
+                if mode == "updates" and context.node_name == 'error_explainer':
+                    try:
+                        state = agent.graph.get_state(config)
+                        values = getattr(state, 'values', {}) or {}
+                        error_explanation = values.get("error_explanation")
+                        
+                        if error_explanation:
+                            block_id = f"error_{assistant_message_id}"
+                            error_event = json.dumps({
+                                "block_type": "error",
+                                "block_id": block_id,
+                                "error_explanation": error_explanation,
+                                "message_id": assistant_message_id,
+                                "needsApproval": False,
+                                "action": "add_error"
+                            })
+                            yield {"event": "content_block", "data": error_event}
+                            logger.info(f"Streamed error explanation immediately after error_explainer: {block_id}")
+                    except Exception as e:
+                        logger.error(f"Failed to stream error explanation: {e}", exc_info=True)
+                
+                # Only process content handlers if we have a message
+                if not msg:
                     continue
                 
                 checkpoint_ns = metadata.get('langgraph_checkpoint_ns')
@@ -387,28 +477,12 @@ async def stream_graph(
                         async for event in tool_call_handler.handle_explanation(msg, metadata):
                             yield event
                     else:
-                        # Regular text content
-                        if context.node_name == 'planner':
-                            continue
+                        # Regular text content (including planner thought process)
                         async for event in text_handler.handle(msg, metadata):
                             yield event
             
             state = agent.graph.get_state(config)
             values = getattr(state, 'values', {}) or {}
-            
-            error_explanation = values.get("error_explanation")
-            if error_explanation:
-                logger.info(f"Emitting error explanation: {error_explanation}")
-                error_block_id = f"error_{assistant_message_id or str(uuid4())}"
-                error_event_data = json.dumps({
-                    "block_type": "error",
-                    "block_id": error_block_id,
-                    "error_explanation": error_explanation,
-                    "message_id": assistant_message_id,
-                    "action": "add_error"
-                })
-                yield {"event": "content_block", "data": error_event_data}
-            
             interrupt_data = await check_for_interrupts(state)
             
             if interrupt_data:
@@ -432,6 +506,13 @@ async def stream_graph(
                 ):
                     yield event
         
+        
+        except GeneratorExit:
+            # Client disconnected - clean up gracefully
+            logger.info(f"Client disconnected during streaming for thread {thread_id}")
+            if thread_id in run_configs:
+                del run_configs[thread_id]
+            raise  
         except Exception as e:
             async for event in handle_error(
                 e, tool_call_handler, persistence, context, agent, config, run_data

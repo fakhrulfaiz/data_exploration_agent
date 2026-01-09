@@ -9,39 +9,17 @@ import logging
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any, List
 import pandas as pd
-import redis
-from app.core.config import settings
+from app.services.redis_service import RedisService
 
 logger = logging.getLogger(__name__)
 
-class RedisDataFrameService:
+class RedisDataFrameService(RedisService):
     """Service for managing pandas DataFrames in Redis with automatic cleanup and TTL"""
     
     def __init__(self):
         """Initialize Redis DataFrame service from settings"""
-        # Create Redis client from settings
-        if settings.redis_url:
-            self.redis = redis.from_url(
-                settings.redis_url,
-                decode_responses=False,  # We need bytes for pickle
-                socket_timeout=5.0,
-                socket_connect_timeout=5.0,
-                retry_on_timeout=True
-            )
-        else:
-            self.redis = redis.Redis(
-                host=settings.redis_host,
-                port=settings.redis_port,
-                db=settings.redis_db,
-                password=settings.redis_password if settings.redis_password else None,
-                decode_responses=False,  # We need bytes for pickle
-                socket_timeout=5.0,
-                socket_connect_timeout=5.0,
-                retry_on_timeout=True
-            )
-        
-        self.ttl = settings.redis_ttl
-        logger.info(f"Initialized RedisDataFrameService with TTL: {self.ttl}s")
+        # Initialize base Redis service
+        super().__init__()
     
     def _generate_key(self, prefix: str = "df") -> str:
         """Generate a unique Redis key for DataFrame storage"""

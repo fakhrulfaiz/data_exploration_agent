@@ -155,6 +155,7 @@ export class GraphService {
                 onMessage({
                     status: data.status,
                     response_type: data.response_type,
+                    approval_type: data.approval_type, 
                 });
 
                 if (!window._hasReceivedStatusEvent) {
@@ -218,6 +219,21 @@ export class GraphService {
                     (event as MessageEvent).data
                 );
                 onError(error as Error);
+            }
+        });
+
+        // Handle graph_node events (visualization updates)
+        eventSource.addEventListener('graph_node', (event) => {
+            try {
+                // Pass directly to onMessage with status='graph_node'
+                // event.data is already a JSON string containing { node_id, status, previous_node_id }
+                onMessage({
+                    status: 'graph_node',
+                    eventData: event.data,
+                });
+            } catch (error) {
+                console.error('Error parsing graph_node event:', error);
+                // Don't error out the stream for visualization frame errors
             }
         });
 

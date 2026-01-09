@@ -52,8 +52,8 @@ class ReasoningChainContentHandler(ContentHandler):
                 }
             }
             
-            # Add to context.completed_blocks for database persistence
-            self.context.completed_blocks.append(reasoning_chain_block)
+            # Save immediately to database
+            await self.context.save_block(reasoning_chain_block)
             
             # Yield as content_block event for frontend streaming
             yield {

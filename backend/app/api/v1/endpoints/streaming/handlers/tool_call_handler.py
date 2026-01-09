@@ -153,19 +153,26 @@ class ToolCallHandler(ContentHandler):
             except json.JSONDecodeError:
                 parsed_args = {}
         
-        # NEW: Check if tool output signals approval needed
+        # NEW: Check if tool output signals approval needed OR contains an error
         needs_approval = False
-        internal_tools = None
+        internal_tools = None 
         generated_content = None
+        has_error = False
         
         try:
             if isinstance(msg.content, str):
                 output_data = json.loads(msg.content)
+                # Check for explicit approval request
                 if output_data.get("status") == "awaiting_approval":
                     needs_approval = True
                     internal_tools = output_data.get("internal_tools", [])
                     generated_content = output_data.get("generated_content")
                     logger.info(f"Tool {tool_name} requires approval. Type: {output_data.get('approval_type')}")
+                # Check for error in output
+                elif output_data.get("error") or output_data.get("error_type"):
+                    needs_approval = True  # Errors require user action
+                    has_error = True
+                    logger.info(f"Tool {tool_name} has error, setting needsApproval=true")
         except (json.JSONDecodeError, AttributeError):
             pass
         
@@ -173,7 +180,7 @@ class ToolCallHandler(ContentHandler):
             "name": tool_name,
             "input": parsed_args,
             "output": msg.content,
-            "status": "pending" if needs_approval else "approved"
+            "status": "error" if has_error else ("pending" if needs_approval else "approved")
         }
         
         # Add internal tools and generated content if present
@@ -188,7 +195,7 @@ class ToolCallHandler(ContentHandler):
                 "id": f"tool_{tool_call_id}",
                 "type": "tool_calls",
                 "sequence": tool_state.sequence,
-                "needsApproval": needs_approval,  # Set based on detection
+                "needsApproval": needs_approval,  # Set based on detection (approval or error)
                 "data": {
                     "toolCalls": [tool_call_object],
                     "content": tool_state.content
@@ -203,18 +210,17 @@ class ToolCallHandler(ContentHandler):
         
         tool_state.saved = True
         
-        # Append completed block to context in stream order
+        # Save completed tool block immediately to database
         block_to_save = {
             "id": f"tool_{tool_call_id}",
             "type": "tool_calls",
-            "needsApproval": False,
+            "needsApproval": needs_approval,  # Use detected value instead of hardcoded False
             "data": {
                 "toolCalls": [tool_call_object],
                 "content": tool_state.content
             }
         }
-        self.context.completed_blocks.append(block_to_save)
-        
+        await self.context.save_block(block_to_save) 
         yield {
             "event": "content_block",
             "data": json.dumps({
@@ -225,6 +231,7 @@ class ToolCallHandler(ContentHandler):
                 "node": node_name,
                 "input": parsed_args,
                 "output": msg.content,
+                "needsApproval": needs_approval,  # Include in streaming event
                 "action": "update_tool_result"
             })
         }

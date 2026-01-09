@@ -2,11 +2,15 @@
 
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { ThumbsUp, ThumbsDown, ChevronDown } from 'lucide-react';
-import { Message as MessageType, ChatComponentProps, HandlerResponse, ContentBlock, ToolCallsContent, createTextBlock, createToolCallsBlock, createExplorerBlock, createVisualizationsBlock, createPlanBlock, createErrorBlock, createExplanationBlock, createReasoningChainBlock } from '@/types/chat';
+import { Message as MessageType, ChatComponentProps, HandlerResponse, ContentBlock, ToolCallsContent, ToolErrorInterrupt, createTextBlock, createToolCallsBlock, createExplorerBlock, createVisualizationsBlock, createPlanBlock, createErrorBlock, createExplanationBlock, createReasoningChainBlock } from '@/types/chat';
 import Message from './Message';
 import GeneratingIndicator from './GeneratingIndicator';
 import InputForm from './InputForm';
 import ThreadTitle from '../ThreadTitle';
+import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from '@/components/ui/resizable';
+import GraphFlowPanel from '../graph-flow/GraphFlowPanel';
+import { extractToolError } from '@/utils/interruptDetection';
+import { GraphService } from '@/services/api/graph.service';
 
 
 const EphemeralToolIndicator: React.FC<{
@@ -55,6 +59,7 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
   onFeedback,
   onCancel,
   onRetry,
+  onErrorRecovery,
   currentThreadId,
   initialMessages = [],
   className = "",
@@ -68,13 +73,22 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
   onOpenDataContext,
   onDataFrameDetected,
   onCancelStream,
+  onToggleGraphPanel,
+  graphPanelOpen = false,
+  graphStructure,
 }) => {
 
 
   // Local state for loading and execution
   const [isLoading, setIsLoading] = useState(false);
   const [executionStatus, setExecutionStatus] = useState<'idle' | 'running' | 'user_feedback' | 'error'>('idle');
-  const [useStreaming, setUseStreaming] = useState(true);
+  const [useStreaming, setUseStreaming] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('useStreaming');
+      return saved !== null ? JSON.parse(saved) : true; // Default to true
+    }
+    return true;
+  });
 
   const [messages, setMessages] = useState<MessageType[]>(initialMessages);
   const [inputValue, setInputValue] = useState<string>('');
@@ -86,10 +100,43 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
   const [streamingActive, setStreamingActive] = useState<boolean>(false);
   const [hasReceivedContent, setHasReceivedContent] = useState<boolean>(false);
 
-  // Enhanced input state
-  const [usePlanning, setUsePlanning] = useState<boolean>(false);
-  const [useExplainer, setUseExplainer] = useState<boolean>(false);
+  // Enhanced input state with localStorage persistence
+  const [usePlanning, setUsePlanning] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('usePlanning');
+      return saved !== null ? JSON.parse(saved) : false;
+    }
+    return false;
+  });
+  
+  const [useExplainer, setUseExplainer] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('useExplainer');
+      return saved !== null ? JSON.parse(saved) : false;
+    }
+    return false;
+  });
+  
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
+
+  // Save preferences to localStorage when they change
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('usePlanning', JSON.stringify(usePlanning));
+    }
+  }, [usePlanning]);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('useExplainer', JSON.stringify(useExplainer));
+    }
+  }, [useExplainer]);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('useStreaming', JSON.stringify(useStreaming));
+    }
+  }, [useStreaming]);
 
   // Tool call state for ephemeral indicators - now tracks step history
   const [toolStepHistory, setToolStepHistory] = useState<{
@@ -102,6 +149,7 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
       status: 'calling' | 'completed';
     }>;
   } | null>(null);
+
 
   // Use shared state
   const contextThreadId = currentThreadId;
@@ -209,7 +257,22 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
         setIsAtBottom(false);
       }
     }
-  }, [messages, streamingActive]);
+  }, [messages, streamingActive]); // Trigger on any messages change
+
+  // Additional effect to handle rapid content updates during streaming
+  // This ensures scroll happens even when messages array reference doesn't change
+  useEffect(() => {
+    if (streamingActive && isAtBottom) {
+      const scrollInterval = setInterval(() => {
+        const nearBottom = checkIfNearBottom();
+        if (nearBottom) {
+          messagesEndRef.current?.scrollIntoView({ behavior: 'instant' });
+        }
+      }, 100); // Check every 100ms during streaming
+
+      return () => clearInterval(scrollInterval);
+    }
+  }, [streamingActive, isAtBottom]);
 
   // Auto-scroll for new non-streaming messages (only if near bottom)
   useEffect(() => {
@@ -233,8 +296,10 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
       return;
     }
 
-    // Find a block that has needsApproval (block-level only)
-    const blockNeedingApproval = message.content.find(block => block.needsApproval === true);
+
+    const blockNeedingApproval = message.content.find(block => 
+      block.needsApproval === true && block.type !== 'text'
+    );
 
     if (blockNeedingApproval) {
       setPendingApproval(blockNeedingApproval.id);
@@ -605,15 +670,33 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
         }
       } else if (blockType === 'plan') {
         // Handle plan blocks from planner node
+        // Get needsApproval from backend event data (defaults to true for backward compatibility)
+        const needsApproval = blockData.needsApproval !== undefined ? blockData.needsApproval : true;
+
         if (action === 'add_planner') {
           // Create or update plan block
           let planBlock = updatedBlocks.find(b => b.id === blockId);
-          if (!planBlock) {
-            planBlock = createPlanBlock(blockId, blockData.content, false);
+          
+          // Check if this is a replan (plan content changed)
+          const isReplan = planBlock && (planBlock.data as any).plan !== blockData.content;
+          
+          if (isReplan && planBlock) {
+            // This is a replan - just update the existing block with new content
+            (planBlock.data as any).plan = blockData.content;
+            planBlock.needsApproval = needsApproval;
+            
+            // Force re-render by updating the block reference
+            updatedBlocks = updatedBlocks.map(block =>
+              block.id === blockId ? { ...block } : block
+            );
+          } else if (!planBlock) {
+            // First time seeing this plan - create it
+            planBlock = createPlanBlock(blockId, blockData.content, needsApproval);
             updatedBlocks = [...updatedBlocks, planBlock];
           } else {
-            // Update existing plan block
+            // Same plan, just update (e.g., streaming in progress)
             (planBlock.data as any).plan = blockData.content;
+            planBlock.needsApproval = needsApproval;
           }
         } else if (action === 'replan') {
           setMessages(prev => prev.map(msg => ({
@@ -632,13 +715,15 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
               : block
           );
 
+          // Create new plan block with the new block ID from backend
           let planBlock = updatedBlocks.find(b => b.id === blockId);
           if (!planBlock) {
-            planBlock = createPlanBlock(blockId, blockData.content, true);
+            planBlock = createPlanBlock(blockId, blockData.content, needsApproval);
             updatedBlocks = [...updatedBlocks, planBlock];
           } else {
+            // Streaming update for the same replan
             (planBlock.data as any).plan = blockData.content;
-            planBlock.needsApproval = true;
+            planBlock.needsApproval = needsApproval;
           }
         }
       } else if (blockType === 'tool_calls') {
@@ -765,11 +850,24 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
                   ? existingToolCall.input
                   : {});
 
+              // Detect error status from output
+              let toolStatus: 'pending' | 'approved' | 'rejected' | 'error' = 'approved';
+              try {
+                const output = typeof blockData.output === 'string'
+                  ? JSON.parse(blockData.output)
+                  : blockData.output;
+                if (output?.error || output?.error_type) {
+                  toolStatus = 'error';
+                }
+              } catch (e) {
+                // Not JSON, keep as approved
+              }
+
               const updatedToolCall = {
                 ...existingToolCall,
                 input: finalInput,
                 output: blockData.output,
-                status: 'approved' as const
+                status: toolStatus
               };
 
               toolCallsData.toolCalls = [
@@ -778,9 +876,12 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
                 ...toolCallsData.toolCalls.slice(toolCallIndex + 1)
               ];
 
+              // Update block with needsApproval from backend
+              const needsApproval = blockData.needsApproval === true;
+
               updatedBlocks = updatedBlocks.map(block =>
                 block.id === blockIdFromBackend
-                  ? { ...block, data: toolCallsData }
+                  ? { ...block, data: toolCallsData, needsApproval }
                   : block
               );
 
@@ -1040,6 +1141,19 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
           await response.streamingHandler(streamingMsgId, updateContentBlocksCallback, (status, eventData, responseType) => {
             if (!status) return;
 
+            // Handle graph node events for visualization
+            if (status === 'graph_node' && eventData) {
+              try {
+                const graphNodeData = JSON.parse(eventData);
+                if (typeof window !== 'undefined' && (window as any).handleGraphNodeEvent) {
+                  (window as any).handleGraphNodeEvent(graphNodeData);
+                }
+              } catch (error) {
+                console.error('Error handling graph_node event:', error);
+              }
+              return;
+            }
+
             if (status === 'content_block' && eventData) {
               currentContentBlocks = handleContentBlockEvent(
                 eventData,
@@ -1093,9 +1207,11 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
                       if (block.type === 'tool_calls') {
                         const toolCallsData = block.data as any;
                         const hasOutput = toolCallsData.toolCalls?.some((tc: any) => tc.output);
+
                         if (!hasOutput) {
                           return { ...block, needsApproval: true };
                         }
+                        return block;
                       } else if (block.type === 'plan') {
                         return { ...block, needsApproval: true };
                       }
@@ -1285,6 +1401,21 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
                   return;
                 }
 
+                if (status === 'graph_node' && eventData) {
+                  try {
+                    const nodeData = JSON.parse(eventData);
+                    if ((window as any).updateGraphNodeStatus) {
+                      (window as any).updateGraphNodeStatus(
+                        nodeData.node_id,
+                        nodeData.status,
+                        nodeData.previous_node_id
+                      );
+                    }
+                  } catch (e) {
+                    console.error("Failed to parse graph_node event", e);
+                  }
+                }
+
                 if (status === 'tool_call' && eventData) {
                   const toolData = JSON.parse(eventData);
                   setToolStepHistory(prev => {
@@ -1396,8 +1527,11 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
                   // Set pending approval to the first block that needs approval
                   const streamingMessage = messagesRef.current.find(m => m.message_id === streamingMsgId);
                   if (streamingMessage && Array.isArray(streamingMessage.content)) {
-                    // Find the first block that actually needs approval
-                    const blockNeedingApproval = streamingMessage.content.find(block => block.needsApproval === true);
+                    // Find the first block that actually needs approval AND is not a text block
+                    // Text blocks (thoughts) should never trigger pending approval state
+                    const blockNeedingApproval = streamingMessage.content.find(block => 
+                      block.needsApproval === true && block.type !== 'text'
+                    );
                     if (blockNeedingApproval) {
                       setPendingApproval(blockNeedingApproval.id);
                     }
@@ -1659,6 +1793,95 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
     // Note: Loading state cleanup is handled by the parent component
   };
 
+  const handleErrorRecovery = async (blockId: string, action: string): Promise<void> => {
+    const message = messages.find(m =>
+      Array.isArray(m.content) && m.content.some(block => block.id === blockId)
+    );
+
+    if (!message) {
+      console.warn('handleErrorRecovery: message not found', { blockId });
+      return;
+    }
+
+    // Immediately clear needsApproval flag from the block to hide buttons
+    setMessages(prevMessages => prevMessages.map(msg => {
+      if (msg.message_id === message.message_id && Array.isArray(msg.content)) {
+        return {
+          ...msg,
+          content: msg.content.map(block =>
+            block.id === blockId
+              ? { ...block, needsApproval: false }
+              : block
+          )
+        };
+      }
+      return msg;
+    }));
+
+    if (onErrorRecovery) {
+      const result = await onErrorRecovery(blockId, action, message);
+
+      // Handle streaming response like handleApprove does
+      if (result && result.isStreaming && result.streamingHandler) {
+        const streamingMsgId = result.backendMessageId || message.message_id;
+
+        setStreamingActive(true);
+        setHasReceivedContent(false);
+
+        try {
+          const existingMessage = messages.find(m => m.message_id === streamingMsgId);
+          let currentContentBlocks: ContentBlock[] = Array.isArray(existingMessage?.content)
+            ? existingMessage.content.map(block => ({
+              ...block,
+              needsApproval: false
+            }))
+            : [];
+
+          await result.streamingHandler(streamingMsgId, updateContentBlocksCallback, (status, eventData, responseType) => {
+            if (!status) return;
+            if (status === 'content_block' && eventData) {
+              currentContentBlocks = handleContentBlockEvent(
+                eventData,
+                streamingMsgId,
+                currentContentBlocks
+              );
+              return;
+            }
+
+            if (status === 'graph_node' && eventData) {
+              try {
+                const nodeData = JSON.parse(eventData);
+                if ((window as any).updateGraphNodeStatus) {
+                  (window as any).updateGraphNodeStatus(
+                    nodeData.node_id,
+                    nodeData.status,
+                    nodeData.previous_node_id
+                  );
+                }
+              } catch (e) {
+                console.error('Failed to parse graph node data:', e);
+              }
+            }
+
+            if (status === 'user_feedback') {
+              setExecutionStatus('user_feedback');
+            } else if (status === 'finished') {
+              setExecutionStatus('idle');
+              setStreamingActive(false);
+            } else if (status === 'error') {
+              setExecutionStatus('error');
+              setStreamingActive(false);
+            }
+          });
+        } catch (error) {
+          console.error('Error recovery streaming failed:', error);
+          setStreamingActive(false);
+          setExecutionStatus('error');
+        }
+      }
+    }
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>): void => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
@@ -1684,131 +1907,159 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
   };
 
   return (
-    <div
-      className={`relative flex flex-col h-full min-h-0 ${className}`}
+    <ResizablePanelGroup
+      key={graphPanelOpen ? 'split' : 'full'}
+      orientation="horizontal"
+      className={`h-full ${className}`}
     >
-      {/* Thread Title - responsive background */}
-      {threadTitle && (
-        <>
-          {/* Mobile: Full-width background with gradient bottom */}
-          <div className={`md:hidden fixed top-0 left-0 right-0 z-30 transition-[left] duration-300 ease-in-out`}>
-            {/* Main background */}
-            <div className="bg-background py-3 pr-4 pl-14">
-              <ThreadTitle
-                title={threadTitle}
-                threadId={currentThreadId || undefined}
-                onTitleChange={onTitleChange}
-              />
+      {/* Chat Panel */}
+      <ResizablePanel defaultSize={graphPanelOpen ? 60 : 100} minSize={5}>
+        <div
+          className={`relative flex flex-col h-full min-h-0 ${messages.length === 0 && !currentThreadId ? 'justify-end md:justify-center md:pb-32' : ''}`}
+        >
+          {/* Thread Title - responsive background */}
+          {threadTitle && (
+            <>
+              {/* Mobile: Full-width background with gradient bottom */}
+              <div className={`md:hidden absolute top-0 left-0 right-0 z-30 transition-[left] duration-300 ease-in-out`}>
+                {/* Main background */}
+                <div className="bg-background py-3 pr-4 pl-14">
+                  <ThreadTitle
+                    title={threadTitle}
+                    threadId={currentThreadId || undefined}
+                    onTitleChange={onTitleChange}
+                  />
+                </div>
+                {/* Very sharp gradient fade at bottom */}
+                <div className="h-3 bg-gradient-to-b from-background via-background/20 to-transparent"></div>
+              </div>
+
+              {/* Desktop: Background with gradient bottom */}
+              <div className={`hidden md:block absolute top-0 left-0 right-0 z-30 transition-[left] duration-300 ease-in-out`}>
+                {/* Main background */}
+                <div className={`bg-background py-3 pr-4 pl-4 transition-[padding-left] duration-300 ease-in-out`}>
+                  <ThreadTitle
+                    title={threadTitle}
+                    threadId={currentThreadId || undefined}
+                    onTitleChange={onTitleChange}
+                  />
+                </div>
+                {/* Very sharp gradient fade at bottom */}
+                <div className="h-3 bg-gradient-to-b from-background via-background/20 to-transparent"></div>
+              </div>
+            </>
+          )}
+
+          {/* Messages - scrollable area with padding for fixed input and header */}
+          <div
+            ref={messagesContainerRef}
+            className={`relative space-y-4 min-h-0 slim-scroll pb-40 overflow-y-auto ${messages.length === 0 && !currentThreadId ? '' : 'flex-1'} ${threadTitle ? 'pt-38' : 'pt-8'}`}
+          >
+            <div className="max-w-3xl mx-auto px-4">
+              {messages.map((message) => (
+                <React.Fragment key={message.message_id}>
+                  <Message
+                    message={message}
+                    onRetry={handleRetry}
+                    onApproveBlock={handleApprove}
+                    onRejectBlock={handleCancel}
+                    onErrorRecovery={handleErrorRecovery}
+                  />
+
+                  {(() => {
+                    const shouldShow = message.isStreaming &&
+                      toolStepHistory?.messageId === message.message_id &&
+                      toolStepHistory.steps.length > 0;
+                    return shouldShow && (
+                      <EphemeralToolIndicator steps={toolStepHistory.steps} />
+                    );
+                  })()}
+                </React.Fragment>
+              ))}
+
+              {/* Loading indicator - shows when waiting for content */}
+              {(isLoading || (useStreaming && streamingActive && !hasReceivedContent)) && (
+                <GeneratingIndicator
+                  activeTools={toolStepHistory?.steps.filter(s => s.status === 'calling').map(s => s.name)}
+                />
+              )}
+              <div ref={messagesEndRef} />
             </div>
-            {/* Very sharp gradient fade at bottom */}
-            <div className="h-3 bg-gradient-to-b from-background via-background/20 to-transparent"></div>
+
+            {/* Scroll to bottom button - fixed above input form, aligned with messages */}
+            {!isAtBottom && messages.length > 0 && (
+              <div className={`absolute left-0 right-0 bottom-42 z-30 pointer-events-none px-4`}>
+                <div className="max-w-3xl px-4 mx-auto">
+                  <div className="flex justify-end">
+                    <button
+                      onClick={() => scrollToBottom()}
+                      className="pointer-events-auto w-10 h-10 rounded-full bg-muted border-1 border-foreground/20 shadow-lg hover:bg-accent hover:border-foreground/30 hover:shadow-xl transition-all duration-200 flex items-center justify-center group"
+                      title="Scroll to bottom"
+                      aria-label="Scroll to bottom"
+                    >
+                      <ChevronDown className="w-5 h-5 text-foreground group-hover:text-foreground" />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
 
-          {/* Desktop: Background with gradient bottom */}
-          <div className={`hidden md:block fixed top-0 left-0 right-0 z-30 transition-[left] duration-300 ease-in-out`}>
-            {/* Main background */}
-            <div className={`bg-background py-3 pr-4 ${sidebarExpanded ? 'pl-84' : 'pl-16'} transition-[padding-left] duration-300 ease-in-out`}>
-              <ThreadTitle
-                title={threadTitle}
-                threadId={currentThreadId || undefined}
-                onTitleChange={onTitleChange}
+          <div className={`z-10 transition-all duration-300 ease-in-out bg-background/80 backdrop-blur-sm ${messages.length === 0 && !currentThreadId
+            ? 'w-full flex justify-center pb-3'
+            : 'absolute left-0 right-0 bottom-0 pb-3'
+            }`}>
+
+            <div className={`${messages.length === 0 && !currentThreadId ? 'max-w-4xl px-6' : 'max-w-3xl px-4'} min-w-[320px] w-full mx-auto`}>
+              {messages.length === 0 && !currentThreadId && (
+                <div className="hidden md:block mb-5 text-center text-muted-foreground">
+                  <span className="text-3xl">Hi User! Start a conversation</span>
+                </div>
+              )}
+              <InputForm
+                value={inputValue}
+                onChange={setInputValue}
+                onSend={handleSend}
+                onKeyDown={handleKeyDown}
+                placeholder={pendingApproval ? "Your feedback..." : placeholder}
+                disabled={disabled}
+                isLoading={isLoading}
+                usePlanning={usePlanning}
+                useExplainer={useExplainer}
+                useStreaming={useStreaming}
+                onPlanningToggle={handlePlanningToggle}
+                onExplainerToggle={handleExplainerToggle}
+                onStreamingToggle={handleStreamingToggle}
+                onFilesChange={handleFilesChange}
+                attachedFiles={attachedFiles}
+                hasDataContext={hasDataContext}
+                onOpenDataContext={onOpenDataContext}
+                isStreaming={streamingActive}
+                onStopStream={handleStopStream}
+                onToggleGraphPanel={onToggleGraphPanel}
               />
             </div>
-            {/* Very sharp gradient fade at bottom */}
-            <div className="h-3 bg-gradient-to-b from-background via-background/20 to-transparent"></div>
           </div>
-        </>
+        </div>
+      </ResizablePanel>
+
+      {/* Resizable Handle - only show when graph panel is open */}
+      {graphPanelOpen && (
+        <ResizableHandle withHandle className="w-1.5 hover:w-2 hover:bg-primary/50 transition-all cursor-col-resize" />
       )}
 
-      {/* Messages - scrollable area with padding for fixed input and header */}
-      <div
-        ref={messagesContainerRef}
-        className={`relative flex-1 space-y-4 min-h-0 pb-40 overflow-y-auto slim-scroll ${threadTitle ? 'pt-38' : 'pt-8'}`}
-      >
-        <div className="max-w-3xl mx-auto px-4">
-          {messages.map((message) => (
-            <React.Fragment key={message.message_id}>
-              <Message
-                message={message}
-                onRetry={handleRetry}
-                onApproveBlock={handleApprove}
-                onRejectBlock={handleCancel}
-              />
-
-              {(() => {
-                const shouldShow = message.isStreaming &&
-                  toolStepHistory?.messageId === message.message_id &&
-                  toolStepHistory.steps.length > 0;
-                return shouldShow && (
-                  <EphemeralToolIndicator steps={toolStepHistory.steps} />
-                );
-              })()}
-            </React.Fragment>
-          ))}
-
-          {/* Loading indicator - shows when waiting for content */}
-          {(isLoading || (useStreaming && streamingActive && !hasReceivedContent)) && (
-            <GeneratingIndicator
-              activeTools={toolStepHistory?.steps.filter(s => s.status === 'calling').map(s => s.name)}
-            />
-          )}
-          <div ref={messagesEndRef} />
-        </div>
-
-        {/* Scroll to bottom button - fixed above input form, aligned with messages */}
-        {!isAtBottom && messages.length > 0 && (
-          <div className={`fixed ${sidebarExpanded ? 'md:left-82' : 'md:left-14'} right-0 bottom-42 md:bottom-42 z-30 pointer-events-none`}>
-            <div className="max-w-3xl px-4 mx-auto">
-              <div className="flex justify-end">
-                <button
-                  onClick={() => scrollToBottom()}
-                  className="pointer-events-auto w-10 h-10 rounded-full bg-muted border-1 border-foreground/20 shadow-lg hover:bg-accent hover:border-foreground/30 hover:shadow-xl transition-all duration-200 flex items-center justify-center group"
-                  title="Scroll to bottom"
-                  aria-label="Scroll to bottom"
-                >
-                  <ChevronDown className="w-5 h-5 text-foreground group-hover:text-foreground" />
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-
-      <div className={`fixed left-0 ${sidebarExpanded ? 'md:left-82' : 'md:left-14'} right-0 z-10 transition-all duration-300 ease-in-out ${messages.length === 0 && !currentThreadId
-        ? 'bottom-0 pb-3 md:top-1/2 md:transform md:-translate-y-1/2 md:flex md:items-center md:justify-center'
-        : 'bottom-0 pb-3 md:flex md:items-center'
-        }`}>
-
-        <div className={`${messages.length === 0 && !currentThreadId ? 'max-w-4xl px-6' : 'max-w-3xl px-4'} min-w-[320px] w-full mx-auto`}>
-          {messages.length === 0 && !currentThreadId && (
-            <div className="hidden md:block mb-5 text-center text-muted-foreground">
-              <span className="text-3xl">Hi User! Start a conversation</span>
-            </div>
-          )}
-          <InputForm
-            value={inputValue}
-            onChange={setInputValue}
-            onSend={handleSend}
-            onKeyDown={handleKeyDown}
-            placeholder={pendingApproval ? "Your feedback..." : placeholder}
-            disabled={disabled}
-            isLoading={isLoading}
-            usePlanning={usePlanning}
-            useExplainer={useExplainer}
-            useStreaming={useStreaming}
-            onPlanningToggle={handlePlanningToggle}
-            onExplainerToggle={handleExplainerToggle}
-            onStreamingToggle={handleStreamingToggle}
-            onFilesChange={handleFilesChange}
-            attachedFiles={attachedFiles}
-            hasDataContext={hasDataContext}
-            onOpenDataContext={onOpenDataContext}
-            isStreaming={streamingActive}
-            onStopStream={handleStopStream}
+      {/* Graph Panel - only render when open */}
+      {graphPanelOpen && (
+        <ResizablePanel defaultSize={40} minSize={5}>
+          <GraphFlowPanel
+            open={true}
+            onClose={() => onToggleGraphPanel?.()}
+            threadId={currentThreadId || undefined}
+            graphStructure={graphStructure}
           />
-        </div>
-      </div>
-    </div>
+        </ResizablePanel>
+      )}
+    </ResizablePanelGroup>
   );
 };
 

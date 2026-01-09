@@ -1,13 +1,24 @@
 import { GraphResponseWithInterrupt, HumanInterrupt } from '@/types/chat';
 
 /**
- * Detect if response contains a tool-level interrupt
+ * Detect if response contains a tool-level interrupt (legacy)
  */
 export function hasToolInterrupt(response: any): boolean {
     return !!(
         response?.__interrupt__ &&
         response.__interrupt__.length > 0 &&
         response.__interrupt__[0]?.value?.action_request
+    );
+}
+
+/**
+ * Detect if response contains a tool error interrupt
+ */
+export function hasToolError(response: any): boolean {
+    return !!(
+        response?.__interrupt__ &&
+        response.__interrupt__.length > 0 &&
+        response.__interrupt__[0]?.value?.type === 'tool_error'
     );
 }
 
@@ -23,16 +34,35 @@ export function extractToolInterrupt(response: GraphResponseWithInterrupt): Huma
 }
 
 /**
+ * Extract tool error interrupt from response
+ */
+export function extractToolError(response: any): any | null {
+    if (!hasToolError(response)) {
+        return null;
+    }
+
+    return response.__interrupt__![0].value;
+}
+
+/**
  * Check if response is a plan approval (node-level interrupt)
  */
 export function hasPlanApproval(response: any): boolean {
-    return response?.run_status === 'user_feedback' && !!response?.plan;
+    return !!(
+        response?.__interrupt__ &&
+        response.__interrupt__.length > 0 &&
+        response.__interrupt__[0]?.value?.type === 'plan_approval'
+    );
 }
 
 /**
  * Detect interrupt type from response
  */
-export function detectInterruptType(response: any): 'tool' | 'plan' | 'none' {
+export function detectInterruptType(response: any): 'tool' | 'plan' | 'tool_error' | 'none' {
+    if (hasToolError(response)) {
+        return 'tool_error';
+    }
+
     if (hasToolInterrupt(response)) {
         return 'tool';
     }

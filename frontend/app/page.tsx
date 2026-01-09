@@ -11,6 +11,9 @@ import ExecutionHistory from '@/components/ExecutionHistory';
 import ExplorerPanel from '@/components/panels/ExplorerPanel';
 import VisualizationPanel from '@/components/panels/VisualizationPanel';
 import DataFramePanel from '@/components/panels/DataFramePanel';
+import GraphFlowPanel from '@/components/graph-flow/GraphFlowPanel';
+import { GraphStructure } from '@/types/graph';
+import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from '@/components/ui/resizable';
 
 const ChatWithApproval: React.FC = () => {
   // Local state management (replacing UIStateContext)
@@ -34,6 +37,8 @@ const ChatWithApproval: React.FC = () => {
   const [visualizationCharts, setVisualizationCharts] = useState<any>(null);
   const [dataFrameOpen, setDataFrameOpen] = useState(false);
   const [dataFrameData, setDataFrameData] = useState<DataFramePreviewData | null>(null);
+  const [graphPanelOpen, setGraphPanelOpen] = useState(false);
+  const [graphStructure, setGraphStructure] = useState<GraphStructure | null>(null);
 
   const eventSourceRef = useRef<EventSource | null>(null);
   const currentThreadIdRef = useRef<string | null>(null);
@@ -42,6 +47,24 @@ const ChatWithApproval: React.FC = () => {
   useEffect(() => {
     // Observe context value updates
   }, [useStreaming]);
+
+  // Preload graph structure on mount
+  useEffect(() => {
+    const loadGraphStructure = async () => {
+      try {
+        const response = await fetch('/api/v1/graph/structure');
+        if (response.ok) {
+          const result = await response.json();
+          if (result.success && result.data) {
+            setGraphStructure(result.data);
+          }
+        }
+      } catch (error) {
+        console.error('Failed to preload graph structure:', error);
+      }
+    };
+    loadGraphStructure();
+  }, []);
 
   const convertChatHistoryToMessages = (chatMessages: any[]): Message[] => {
     return chatMessages.map((msg, index) => {
@@ -154,8 +177,7 @@ const ChatWithApproval: React.FC = () => {
       if (Array.isArray(msg.content)) {
         // Update each block that has status changes
         for (const block of msg.content) {
-          // Skip explanation blocks - they don't need approval
-          if (block.type === 'explanation') {
+          if (block.type === 'explanation' || block.type === 'text') {
             continue;
           }
 
@@ -619,9 +641,8 @@ const ChatWithApproval: React.FC = () => {
       throw new Error('No active thread to approve');
     }
 
-    // Check if this is a tool approval by looking at message content
-    const isToolApproval = Array.isArray(message.content) &&
-      message.content.some(block => block.type === 'tool_calls');
+    const approvalType = message.approvalType || 'plan';
+    const isToolApproval = approvalType === 'tool';
 
     try {
       setLoading(true);
@@ -678,7 +699,7 @@ const ChatWithApproval: React.FC = () => {
           : {
             thread_id: threadId,
             message_id: messageId,
-            review_action: ApprovalStatus.APPROVED,  // Plan approval
+            review_action: ApprovalStatus.APPROVED,  // Plan approval (including replans)
             human_comment: undefined
           };
 
@@ -826,14 +847,151 @@ const ChatWithApproval: React.FC = () => {
     }
   };
 
+  // Error interrupt handlers
+  const handleRetryError = async (message: Message): Promise<HandlerResponse> => {
+    const threadId = currentThreadIdRef.current || currentThreadId || selectedChatThreadId || message.threadId;
+
+    if (!threadId) {
+      throw new Error('No active thread to retry');
+    }
+
+    try {
+      setLoading(true);
+      setExecutionStatus('running');
+
+      const resumeResponse = await GraphService.resumeStreamingGraph({
+        thread_id: threadId,
+        message_id: message.message_id,
+        tool_response: { action: 'retry' }
+      });
+
+      setCurrentThreadId(resumeResponse.data?.thread_id || '');
+
+      return {
+        message: '',
+        needsApproval: false,
+        isStreaming: true,
+        backendMessageId: resumeResponse.data?.assistant_message_id as string | undefined,
+        streamingHandler: async (
+          streamingMessageId: string,
+          updateContentCallback: (id: string, contentBlocks: any[]) => void,
+          onStatus?: (status: 'user_feedback' | 'finished' | 'running' | 'error' | 'tool_call' | 'tool_result' | 'completed_payload' | 'visualizations_ready' | 'content_block', eventData?: string, responseType?: 'answer' | 'replan' | 'cancel') => void
+        ) => {
+          await resumeStreamingForMessage(threadId, ApprovalStatus.APPROVED, undefined, streamingMessageId, updateContentCallback, onStatus, resumeResponse);
+        }
+      };
+    } catch (error) {
+      console.error('Error retrying:', error);
+      setLoading(false);
+      throw error;
+    }
+  };
+
+  const handleReplanError = async (message: Message): Promise<HandlerResponse> => {
+    const threadId = currentThreadIdRef.current || currentThreadId || selectedChatThreadId || message.threadId;
+
+    if (!threadId) {
+      throw new Error('No active thread to replan');
+    }
+
+    try {
+      setLoading(true);
+      setExecutionStatus('running');
+
+      const resumeResponse = await GraphService.resumeStreamingGraph({
+        thread_id: threadId,
+        message_id: message.message_id,
+        tool_response: { action: 'replan' }
+      });
+
+      setCurrentThreadId(resumeResponse.data?.thread_id || '');
+
+      return {
+        message: '',
+        needsApproval: false,
+        isStreaming: true,
+        backendMessageId: resumeResponse.data?.assistant_message_id as string | undefined,
+        streamingHandler: async (
+          streamingMessageId: string,
+          updateContentCallback: (id: string, contentBlocks: any[]) => void,
+          onStatus?: (status: 'user_feedback' | 'finished' | 'running' | 'error' | 'tool_call' | 'tool_result' | 'completed_payload' | 'visualizations_ready' | 'content_block', eventData?: string, responseType?: 'answer' | 'replan' | 'cancel') => void
+        ) => {
+          await resumeStreamingForMessage(threadId, ApprovalStatus.FEEDBACK, undefined, streamingMessageId, updateContentCallback, onStatus, resumeResponse);
+        }
+      };
+    } catch (error) {
+      console.error('Error replanning:', error);
+      setLoading(false);
+      throw error;
+    }
+  };
+
+  const handleCancelError = async (message: Message): Promise<HandlerResponse> => {
+    const threadId = currentThreadIdRef.current || currentThreadId || selectedChatThreadId || message.threadId;
+
+    if (!threadId) {
+      throw new Error('No active thread to cancel');
+    }
+
+    try {
+      setLoading(true);
+      setExecutionStatus('running');
+
+      const resumeResponse = await GraphService.resumeStreamingGraph({
+        thread_id: threadId,
+        message_id: message.message_id,
+        tool_response: { action: 'cancel' }
+      });
+
+      setCurrentThreadId(resumeResponse.data?.thread_id || '');
+
+      return {
+        message: '',
+        needsApproval: false,
+        isStreaming: true,
+        backendMessageId: resumeResponse.data?.assistant_message_id as string | undefined,
+        streamingHandler: async (
+          streamingMessageId: string,
+          updateContentCallback: (id: string, contentBlocks: any[]) => void,
+          onStatus?: (status: 'user_feedback' | 'finished' | 'running' | 'error' | 'tool_call' | 'tool_result' | 'completed_payload' | 'visualizations_ready' | 'content_block', eventData?: string, responseType?: 'answer' | 'replan' | 'cancel') => void
+        ) => {
+          await resumeStreamingForMessage(threadId, ApprovalStatus.APPROVED, undefined, streamingMessageId, updateContentCallback, onStatus, resumeResponse);
+        }
+      };
+    } catch (error) {
+      console.error('Error cancelling execution:', error);
+      setLoading(false);
+      throw error;
+    }
+  };
 
 
+
+  // Unified error recovery handler that routes to the appropriate action
+  const handleErrorRecovery = async (blockId: string, action: string, message: Message): Promise<HandlerResponse | void> => {
+    console.log(`Error recovery requested: ${action} for block ${blockId}`);
+
+    switch (action) {
+      case 'retry':
+        return await handleRetryError(message);
+      case 'replan':
+        return await handleReplanError(message);
+      case 'cancel':
+        return await handleCancelError(message);
+      default:
+        console.warn(`Unknown error recovery action: ${action}`);
+        return;
+    }
+  };
 
   // Handle thread selection
   const handleThreadSelect = async (threadId: string | null) => {
     if (threadId === selectedChatThreadId) return;
 
     setLoadingThread(true);
+    setDataFrameData(null);
+    setDataFrameOpen(false);
+    
     try {
       setSelectedChatThreadId(threadId);
       currentThreadIdRef.current = threadId;
@@ -854,8 +1012,6 @@ const ChatWithApproval: React.FC = () => {
         setExplorerOpen(false);
         setVisualizationCharts(null);
         setVisualizationOpen(false);
-        setDataFrameOpen(false);
-        setDataFrameData(null);
 
         // Check for data context: try to load preview silently if DataFrame still exists in Redis.
         // If missing, offer to recreate it using the original SQL query and also refresh agent state.
@@ -865,9 +1021,14 @@ const ChatWithApproval: React.FC = () => {
             setDataFrameData(previewResponse.data || null);
             // Do NOT auto-open the panel; user can open via the button in the input form.
           } catch (err: any) {
-            console.error("Failed to load data frame preview:", err);
+            setDataFrameData(null);
             const hasSql = !!data_context.sql_query;
+            
             if (hasSql) {
+              console.warn("DataFrame preview expired, offering to recreate:", {
+                dfId: data_context.df_id,
+                hasSqlQuery: true
+              });
               const shouldReload = window.confirm(
                 "Previous data context has expired or is unavailable. Do you want to recreate it using the original SQL query?"
               );
@@ -881,6 +1042,12 @@ const ChatWithApproval: React.FC = () => {
                   alert("Failed to recreate data context. Please rerun your original request.");
                 }
               }
+            } else {
+              // No SQL query available, log as error since we cannot recover
+              console.error("DataFrame preview failed and cannot be recreated (no SQL query):", {
+                dfId: data_context.df_id,
+                error: err?.response?.data || err?.message
+              });
             }
           }
         }
@@ -991,33 +1158,35 @@ const ChatWithApproval: React.FC = () => {
 
           {/* Chat Container or Execution History */}
           <div className="flex-1 min-h-0">
-            <div className="w-full h-full">
-              {showExecutionHistory ? (
-                <ExecutionHistory
-                  onCheckpointClick={handleCheckpointClick}
-                  onBack={handleExecutionHistoryBack}
-                />
-              ) : (
-                <ChatComponent
-                  key={`chat-approval-${chatKey}`}
-                  onSendMessage={handleSendMessage}
-                  onApprove={handleApprove}
-                  onFeedback={handleFeedback}
-                  currentThreadId={currentThreadId || selectedChatThreadId}
-                  initialMessages={restoredMessages}
-                  placeholder="Ask me anything..."
-                  className="h-full"
-                  onMessageUpdated={handleMessageUpdated}
-                  threadTitle={currentThreadTitle}
-                  onTitleChange={handleTitleChange}
-                  sidebarExpanded={sidebarExpanded}
-                  hasDataContext={!!dataFrameData}
-                  onOpenDataContext={() => setDataFrameOpen(true)}
-                  onDataFrameDetected={handleDataFrameDetected}
-                  onCancelStream={handleCancelStream}
-                />
-              )}
-            </div>
+            {showExecutionHistory ? (
+              <ExecutionHistory
+                onCheckpointClick={handleCheckpointClick}
+                onBack={handleExecutionHistoryBack}
+              />
+            ) : (
+              <ChatComponent
+                key={`chat-approval-${chatKey}`}
+                onSendMessage={handleSendMessage}
+                onApprove={handleApprove}
+                onFeedback={handleFeedback}
+                onErrorRecovery={handleErrorRecovery}
+                currentThreadId={currentThreadId || selectedChatThreadId}
+                initialMessages={restoredMessages}
+                placeholder="Ask me anything..."
+                className="h-full"
+                onMessageUpdated={handleMessageUpdated}
+                threadTitle={currentThreadTitle}
+                onTitleChange={handleTitleChange}
+                sidebarExpanded={sidebarExpanded}
+                hasDataContext={!!dataFrameData}
+                onOpenDataContext={() => setDataFrameOpen(true)}
+                onDataFrameDetected={handleDataFrameDetected}
+                onCancelStream={handleCancelStream}
+                onToggleGraphPanel={() => setGraphPanelOpen(!graphPanelOpen)}
+                graphPanelOpen={graphPanelOpen}
+                graphStructure={graphStructure}
+              />
+            )}
           </div>
         </div>
 
@@ -1037,6 +1206,7 @@ const ChatWithApproval: React.FC = () => {
           onClose={() => setDataFrameOpen(false)}
           data={dataFrameData}
         />
+        {/* GraphFlowPanel now rendered inline in split view above */}
       </div>
     </div>
   );

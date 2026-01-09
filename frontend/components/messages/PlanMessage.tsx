@@ -41,6 +41,77 @@ interface PlanMessageProps {
     disabled?: boolean;
 }
 
+const PlanStepItem: React.FC<{ step: PlanStep }> = ({ step }) => {
+    const [isToolsExpanded, setIsToolsExpanded] = useState(false);
+
+    return (
+        <div className="border border-border rounded-lg bg-background shadow-sm overflow-hidden">
+            {/* Step header */}
+            <div className="px-4 py-3 bg-accent/50">
+                <div className="flex items-start gap-2">
+                    <span className="flex-shrink-0 flex items-center justify-center w-6 h-6 rounded-full bg-primary text-primary-foreground text-xs font-bold">
+                        {step.stepNumber}
+                    </span>
+                    <div className="flex-1 min-w-0">
+                        <p className="font-medium text-foreground">{step.title}</p>
+                    </div>
+                </div>
+            </div>
+
+            {/* Tool options */}
+            {step.toolOptions.length > 0 && (
+                <div className="border-t border-border">
+                    <button
+                        onClick={() => setIsToolsExpanded(!isToolsExpanded)}
+                        className="w-full px-4 py-2 flex items-center justify-between hover:bg-muted/50 transition-colors group"
+                    >
+                        <div className="flex items-center gap-2">
+                            <Wrench className="w-3.5 h-3.5 text-muted-foreground group-hover:text-foreground transition-colors" />
+                            <span className="text-xs font-semibold text-muted-foreground group-hover:text-foreground uppercase tracking-wide transition-colors">
+                                Suggested Tool Options
+                            </span>
+                        </div>
+                        {isToolsExpanded ? (
+                            <ChevronDown className="w-4 h-4 text-muted-foreground group-hover:text-foreground transition-colors" />
+                        ) : (
+                            <ChevronRight className="w-4 h-4 text-muted-foreground group-hover:text-foreground transition-colors" />
+                        )}
+                    </button>
+
+                    {isToolsExpanded && (
+                        <div className="px-4 pb-3 pt-1">
+                            <ul className="space-y-2">
+                                {step.toolOptions.map((tool, idx) => (
+                                    <li key={idx} className="flex gap-2 items-start text-sm">
+                                        <span className="flex-shrink-0 text-muted-foreground font-medium">
+                                            {idx + 1}.
+                                        </span>
+                                        <div className="flex-1 min-w-0">
+                                            <span className="font-mono text-xs bg-muted px-1.5 py-0.5 rounded">
+                                                {tool.name}
+                                            </span>
+                                            <span className="text-muted-foreground ml-2">
+                                                {tool.description}
+                                            </span>
+                                        </div>
+                                    </li>
+                                ))}
+                            </ul>
+                        </div>
+                    )}
+                </div>
+            )}
+
+            {/* Requirements */}
+            {step.requires && (
+                <div className="px-4 py-2 bg-muted/50 text-xs text-muted-foreground border-t border-border">
+                    <span className="font-semibold">Requires:</span> {step.requires}
+                </div>
+            )}
+        </div>
+    );
+};
+
 export const PlanMessage: React.FC<PlanMessageProps> = ({
     plan,
     needsApproval = false,
@@ -155,25 +226,7 @@ export const PlanMessage: React.FC<PlanMessageProps> = ({
 
     return (
         <div className="plan-message">
-            {/* Intent section - minimal, above strategy */}
-            {parsedIntent && (
-                <div className="mb-4 text-foreground">
-                    {/* Main Intent - simple text */}
-                    <p className="mb-2">
-                        <span className="font-medium">Intent: </span>
-                        {parsedIntent.main_intent}
-                    </p>
-
-                    {/* Sub-Intents - simple list, no borders */}
-                    {parsedIntent.sub_intents && parsedIntent.sub_intents.length > 0 && (
-                        <div className="ml-4 text-sm text-muted-foreground space-y-0.5">
-                            {parsedIntent.sub_intents.map((subIntent: string, idx: number) => (
-                                <div key={idx}>• {subIntent}</div>
-                            ))}
-                        </div>
-                    )}
-                </div>
-            )}
+            {/* Intent removed - will be streamed as "Thought: " text block */}
 
             {/* Strategy header */}
             {strategy && (
@@ -208,58 +261,7 @@ export const PlanMessage: React.FC<PlanMessageProps> = ({
                     {isExpanded && (
                         <div className="space-y-3">
                             {steps.map((step) => (
-                                <div
-                                    key={step.stepNumber}
-                                    className="border border-border rounded-lg bg-background shadow-sm overflow-hidden"
-                                >
-                                    {/* Step header */}
-                                    <div className="px-4 py-3 bg-accent/50">
-                                        <div className="flex items-start gap-2">
-                                            <span className="flex-shrink-0 flex items-center justify-center w-6 h-6 rounded-full bg-primary text-primary-foreground text-xs font-bold">
-                                                {step.stepNumber}
-                                            </span>
-                                            <div className="flex-1 min-w-0">
-                                                <p className="font-medium text-foreground">{step.title}</p>
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    {/* Tool options */}
-                                    {step.toolOptions.length > 0 && (
-                                        <div className="px-4 py-3 border-t border-border">
-                                            <div className="flex items-center gap-2 mb-2">
-                                                <Wrench className="w-3.5 h-3.5 text-muted-foreground" />
-                                                <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-                                                    Tool Options
-                                                </span>
-                                            </div>
-                                            <ul className="space-y-2">
-                                                {step.toolOptions.map((tool, idx) => (
-                                                    <li key={idx} className="flex gap-2 items-start text-sm">
-                                                        <span className="flex-shrink-0 text-muted-foreground font-medium">
-                                                            {idx + 1}.
-                                                        </span>
-                                                        <div className="flex-1 min-w-0">
-                                                            <span className="font-mono text-xs bg-muted px-1.5 py-0.5 rounded">
-                                                                {tool.name}
-                                                            </span>
-                                                            <span className="text-muted-foreground ml-2">
-                                                                {tool.description}
-                                                            </span>
-                                                        </div>
-                                                    </li>
-                                                ))}
-                                            </ul>
-                                        </div>
-                                    )}
-
-                                    {/* Requirements */}
-                                    {step.requires && (
-                                        <div className="px-4 py-2 bg-muted/50 text-xs text-muted-foreground border-t border-border">
-                                            <span className="font-semibold">Requires:</span> {step.requires}
-                                        </div>
-                                    )}
-                                </div>
+                                <PlanStepItem key={step.stepNumber} step={step} />
                             ))}
                         </div>
                     )}
