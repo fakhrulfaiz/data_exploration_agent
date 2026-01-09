@@ -1,7 +1,7 @@
 # Database context - simple overview of what data exists
 DATABASE_CONTEXT = """
 **Available Data**:
-- Paintings database containing artwork information
+- SQL Database of Paintings (supports direct filtering, sorting, and aggregation)
   - Fields: title, inception date, art movement, genre, image URLs
   - Contains historical paintings with metadata and images
 """
@@ -9,7 +9,7 @@ DATABASE_CONTEXT = """
 # Capabilities context - what the system can do (without mentioning specific tools)
 CAPABILITIES_CONTEXT = """
 **System Capabilities**:
-- Query and retrieve data from the database
+- Query and retrieve data from the database (supports filtering, sorting, limits, and aggregation)
 - Analyze images to extract visual information and answer questions about artwork
 - Create visualizations to display data patterns and insights
 """

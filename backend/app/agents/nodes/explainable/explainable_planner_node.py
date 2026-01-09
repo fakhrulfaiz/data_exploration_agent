@@ -144,6 +144,7 @@ The previous plan failed with the following error:
 3. **Think Through Data Flow** - Ask yourself: "Does this tool have the data it needs to execute?"
 4. **Write CLEAR step goals** - Each goal will be used as a prompt for the execution agent, so be specific and actionable
 5. **One Step Can Mean Multiple Tool Calls** - The execution agent can call the same tool multiple times with different arguments for a single step
+6. **Prefer SQL over Python** - If a sub-agent can filter/sort/limit data in the database (e.g., "oldest", "top 5"), do it in the query step instead of retrieving all data and using python_repl.
 
 **Dependency Recognition Examples**:
 - BAD: "Use image_qa_mock to analyze the 2 oldest paintings" (Where do the image URLs come from?)
