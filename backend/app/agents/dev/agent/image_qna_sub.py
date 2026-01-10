@@ -1,12 +1,19 @@
-# image_qna_subagent_v2.py - Redesigned with proper state management and evaluator context
+# image_qna_sub.py - Enhanced version with configurable LLM and GPU support
 
 """
-Key Fixes:
-1. State tracks: original_task, images_processed, analysis_history (structured)
-2. Tool properly updates state with structured data
-3. Evaluator has full context of what was analyzed
-4. Agent can synthesize from accumulated history
-5. Fixed conditional edges routing
+Improvements over image_qna_subagent_v2.py:
+1. Configurable LLM model name - pass any supported model via init_chat_model
+2. GPU-aware image analysis tool with automatic device detection
+3. Efficient batch processing with device placement optimization
+4. Flexible model initialization throughout the graph
+
+Key Features:
+- State tracks: original_task, images_processed, analysis_history (structured)
+- Tool properly updates state with structured data
+- Evaluator has full context of what was analyzed
+- Agent can synthesize from accumulated history
+- GPU acceleration for BLIP model when available
+- Configurable LLM backbone
 """
 
 import json
@@ -21,11 +28,44 @@ from transformers import BlipProcessor, BlipForQuestionAnswering
 from langchain_core.messages import ToolMessage, AIMessage, SystemMessage, HumanMessage
 from langchain_core.tools import tool
 from langgraph.types import Command
-from typing_extensions import Annotated, TypedDict
+from typing_extensions import Annotated
 import operator
 from langgraph.graph.message import add_messages
 from langgraph.graph import StateGraph, START, END, MessagesState
 from langgraph.prebuilt import ToolNode
+
+
+# ============================================================================
+# DEVICE AND GPU UTILITIES
+# ============================================================================
+
+def get_device():
+    """Detect and return the best available device (CUDA > MPS > CPU)."""
+    if torch.cuda.is_available():
+        device = "cuda"
+        gpu_info = f"CUDA (GPU: {torch.cuda.get_device_name(0)})"
+    elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+        device = "mps"
+        gpu_info = "MPS (Apple Silicon)"
+    else:
+        device = "cpu"
+        gpu_info = "CPU (No GPU available)"
+    
+    return device, gpu_info
+
+
+def get_memory_info():
+    """Get GPU memory information if available."""
+    if torch.cuda.is_available():
+        total_memory = torch.cuda.get_device_properties(0).total_memory / (1024**3)
+        reserved = torch.cuda.memory_reserved(0) / (1024**3)
+        allocated = torch.cuda.memory_allocated(0) / (1024**3)
+        return {
+            "total_gb": round(total_memory, 2),
+            "reserved_gb": round(reserved, 2),
+            "allocated_gb": round(allocated, 2)
+        }
+    return None
 
 
 # ============================================================================
@@ -153,22 +193,51 @@ def _load_image(img_url: str) -> Image.Image:
 
 
 # ============================================================================
-# BUILD IMAGE QNA TOOL WITH PROPER STATE UPDATES
+# BUILD GPU-AWARE IMAGE QNA TOOL
 # ============================================================================
 
-def build_image_qna_tool():
+def build_image_qna_tool(use_gpu: Optional[bool] = None):
     """
-    Build the image QnA tool with proper state management.
-    The tool now returns structured data that updates state correctly.
+    Build the image QnA tool with GPU acceleration support.
+    
+    Args:
+        use_gpu: Explicitly set GPU usage. If None, auto-detect.
+                 If False, force CPU even if GPU available.
+                 If True, require GPU (fail if unavailable).
+    
+    Returns:
+        The image_qna_tool function.
     """
-    # Initialize BLIP model
+    # Determine device
+    device, device_info = get_device()
+    
+    # Handle explicit GPU requirements
+    if use_gpu is True and device == "cpu":
+        raise RuntimeError("GPU requested but not available")
+    if use_gpu is False:
+        device = "cpu"
+    
+    print(f"🔧 Image QnA Tool initialized on: {device_info}")
+    
+    # Log memory if using GPU
+    if device != "cpu":
+        mem_info = get_memory_info()
+        if mem_info:
+            print(f"   GPU Memory: {mem_info['total_gb']}GB total, "
+                  f"{mem_info['allocated_gb']}GB allocated")
+    
+    # Initialize BLIP model on the selected device
     processor = BlipProcessor.from_pretrained("Salesforce/blip-vqa-base")
     model = BlipForQuestionAnswering.from_pretrained("Salesforce/blip-vqa-base")
+    model = model.to(device)
+    
+    # Set eval mode for inference
+    model.eval()
     
     @tool("image_qna_tool")
     def image_qna_tool(img_url: str, query: str) -> str:
         """
-        Extracts visual data from an image using BLIP VQA model.
+        Extracts visual data from an image using BLIP VQA model with GPU acceleration.
         
         Args:
             img_url: Path or URL to the image. Example: `images/img_0.jpg`
@@ -179,12 +248,16 @@ def build_image_qna_tool():
                    GOOD: "art style and technique used"
             
         Returns:
-            The extracted information from the image.
+            JSON string containing the extraction result with status, image_url, query, and answer.
         """
         try:
             image = _load_image(str(img_url))
-            inputs = processor(image, query, return_tensors="pt")
             
+            # Prepare inputs on the device
+            inputs = processor(image, query, return_tensors="pt")
+            inputs = {k: v.to(device) for k, v in inputs.items()}
+            
+            # Run inference with torch.no_grad for efficiency
             with torch.no_grad():
                 output_ids = model.generate(**inputs, max_length=50)
             
@@ -195,7 +268,8 @@ def build_image_qna_tool():
                 "status": "success",
                 "image_url": img_url,
                 "query": query,
-                "answer": answer
+                "answer": answer,
+                "device_used": device
             })
             
         except FileNotFoundError as e:
@@ -485,10 +559,8 @@ def create_update_workspace_node(llm):
         
         return Command(
             goto=END,
-            # graph=Command.PARENT,
             update={
                 "messages": [output_message],
-                # "feedback": f"Successfully completed image analysis. Data saved to {workspace_details.file_name}"
             }
         )
     
@@ -522,21 +594,41 @@ def route_after_evaluator(state: ImageAnalysisState) -> Literal["agent", "update
 
 
 # ============================================================================
-# BUILD THE GRAPH
+# BUILD THE GRAPH - WITH CONFIGURABLE LLM
 # ============================================================================
 
-def build_image_qna_agent():
-    """Build the complete image QnA agent graph."""
+def build_image_qna_agent(model_name: str = "gpt-4o", use_gpu: Optional[bool] = None):
+    """
+    Build the complete image QnA agent graph with configurable LLM and GPU support.
+    
+    Args:
+        model_name: LLM model to use with init_chat_model. Examples: "gpt-4o", "claude-3-5-sonnet",
+                   "claude-opus", "gemini-2.0-flash", etc. Defaults to "gpt-4o".
+        use_gpu: GPU usage for image analysis tool.
+                - None: Auto-detect and use GPU if available (default)
+                - True: Require GPU, fail if unavailable
+                - False: Force CPU even if GPU available
+    
+    Returns:
+        Compiled LangGraph StateGraph for the image analysis agent.
+        
+    Raises:
+        RuntimeError: If use_gpu=True but GPU is unavailable.
+    """
     
     import os
     from langchain.chat_models import init_chat_model
     from dotenv import load_dotenv
     
     load_dotenv()
-    llm = init_chat_model("gpt-4o")
     
-    # Build tools
-    image_qna_tool = build_image_qna_tool()
+    # Initialize LLM with provided model name
+    print(f"🤖 Initializing LLM: {model_name}")
+    llm = init_chat_model(model_name)
+    
+    # Build tools with GPU configuration
+    print(f"🖼️  Building image analysis tool (GPU: {'auto-detect' if use_gpu is None else use_gpu})...")
+    image_qna_tool = build_image_qna_tool(use_gpu=use_gpu)
     tools = [image_qna_tool]
     
     # Build nodes
@@ -609,12 +701,19 @@ def build_image_qna_agent():
 # HELPER: WRAP AS TOOL FOR SUPERVISOR
 # ============================================================================
 
-def create_image_analysis_tool_for_supervisor():
+def create_image_analysis_tool_for_supervisor(model_name: str = "gpt-4o", use_gpu: Optional[bool] = None):
     """
     Wrap the image analysis agent as a tool that can be called by a supervisor.
     This handles the state initialization and result extraction.
+    
+    Args:
+        model_name: LLM model to use. Examples: "gpt-4o", "claude-3-5-sonnet", etc.
+        use_gpu: GPU configuration for the image analysis tool.
+    
+    Returns:
+        A tool function that can be used by supervisor agents.
     """
-    graph = build_image_qna_agent()
+    graph = build_image_qna_agent(model_name=model_name, use_gpu=use_gpu)
     
     @tool("image_analysis_tool")
     def image_analysis_tool(task: str, image_urls: List[str]) -> str:
@@ -656,8 +755,23 @@ def create_image_analysis_tool_for_supervisor():
 # ============================================================================
 
 if __name__ == "__main__":
-    # Build and test the agent
+    # Example 1: Build with default settings (GPT-4o, GPU auto-detect)
+    print("=" * 80)
+    print("Example 1: Default settings (GPT-4o, GPU auto-detect)")
+    print("=" * 80)
     agent = build_image_qna_agent()
+    
+    # Example 2: Build with different LLM and explicit GPU usage
+    print("\n" + "=" * 80)
+    print("Example 2: Using Claude Sonnet with GPU")
+    print("=" * 80)
+    # agent = build_image_qna_agent(model_name="claude-3-5-sonnet-20241022", use_gpu=True)
+    
+    # Example 3: Using CPU only
+    print("\n" + "=" * 80)
+    print("Example 3: Using CPU only")
+    print("=" * 80)
+    # agent = build_image_qna_agent(use_gpu=False)
     
     # Test with a sample task
     test_state = {
@@ -669,6 +783,6 @@ if __name__ == "__main__":
         "tools_complete": False
     }
     
-    print("Starting image analysis agent test...")
+    print("\n🚀 Starting image analysis agent test...")
     # result = agent.invoke(test_state)
     # print("Result:", result)

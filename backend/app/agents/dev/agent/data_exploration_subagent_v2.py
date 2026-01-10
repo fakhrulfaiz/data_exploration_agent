@@ -641,7 +641,7 @@ def build_data_exploration_agent():
     """Build the complete data exploration agent graph."""
     
     # Initialize components
-    llm = init_chat_model("gpt-4o-mini")
+    llm = init_chat_model("gpt-4o")
     db = setup_database()
     tools = setup_toolkit(db, llm)
     
