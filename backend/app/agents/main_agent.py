@@ -209,7 +209,7 @@ class MainAgent:
         
         logger.info(f"Executing step {current_idx + 1}/{len(dynamic_plan.steps)}: {step_instruction}")
         
-        system_message = self._build_system_message()
+        system_message = self._build_system_message(state)
         
         error_details = state.get("error_details", [])
         is_retry = state.get("status") == "retry" and error_details
@@ -223,7 +223,32 @@ class MainAgent:
                 error_context += "This error is recoverable - try again or fix the approach.\n"
             instruction_content = f"Execute the following step: {step_instruction}{error_context}"
         else:
-            instruction_content = f"Execute the following step: {step_instruction}"
+            # NEW: Get next step requirements to ensure compatibility
+            next_step_info = ""
+            if dynamic_plan and current_idx + 1 < len(dynamic_plan.steps):
+                next_step = dynamic_plan.steps[current_idx + 1]
+                
+                # Check if next step is image analysis
+                next_tool_name = "unknown"
+                # Handle both dict and object access safely
+                if isinstance(next_step, dict):
+                    tool_options = next_step.get('tool_options', [])
+                    if tool_options:
+                        # Handle tool_options as dict or object
+                        opt = tool_options[0]
+                        next_tool_name = opt.get('tool_name') if isinstance(opt, dict) else getattr(opt, 'tool_name', 'unknown')
+                else:
+                    tool_options = getattr(next_step, 'tool_options', [])
+                    if tool_options:
+                        next_tool_name = getattr(tool_options[0], 'tool_name', 'unknown')
+                
+                if next_tool_name == "image_batch_qa_tool":
+                    next_step_info = "\n\nCRITICAL REQUIREMENT FOR NEXT STEP:\n"
+                    next_step_info += "The next step uses 'image_batch_qa_tool' which REQUIRES the 'img_path' column.\n"
+                    next_step_info += "You MUST include 'img_path' in your SQL SELECT statement or dataframe operations for this step.\n"
+                    next_step_info += "Example: SELECT title, inception, img_path FROM ...\n"
+
+            instruction_content = f"Execute the following step: {step_instruction}{next_step_info}"
         
         instruction_message = HumanMessage(content=instruction_content)
         
@@ -745,27 +770,30 @@ Focus on execution-time factors:
         logger.info("Generating error explanation for replan context")
         return self.error_explainer.execute(state)
     
-    def _build_system_message(self) -> str:
-        """Build system message for the execution agent."""
-        return """You are a data exploration agent executing a specific step from a plan.
-
-Your task is to execute the given step instruction using the available tools.
-
-IMPORTANT RULES:
-1. You can make MULTIPLE tool calls if needed to complete the step
-2. Focus on completing the specific step instruction given
-3. Use the appropriate tools based on the step goal
-4. Be efficient - don't repeat successful tool calls
-5. If a tool fails, try an alternative approach
-
-TOOL USAGE:
-- data_exploration_agent: For database queries and SQL
-- smart_transform_for_viz: For interactive frontend charts (small data)
-- large_plotting_tool: For matplotlib plots (large data or complex visualizations)
-- python_repl: For data analysis and transformations
-- dataframe_info: To check available data
-
-Execute the step instruction and use as many tools as needed to complete it."""
+    def _build_system_message(self, state: ExplainableAgentState = None) -> str:
+        """Build system message for the execution agent with user preferences."""
+        from app.agents.prompts.process_query_prompts import get_process_query_prompt
+        from app.agents.prompts.user_preferences import get_user_preference_prompt_safe
+        
+        # Fetch user preferences if available
+        user_preferences = ""
+        if state and state.get("user_id"):
+            try:
+                from app.services.dependencies import get_redis_profile_service, get_profile_service
+                
+                redis_service = get_redis_profile_service()
+                profile_service = get_profile_service()
+                user_preferences = get_user_preference_prompt_safe(
+                    state.get("user_id"),
+                    redis_service,
+                    profile_service
+                )
+                if user_preferences:
+                    logger.info(f"Fetched user preferences for process_query")
+            except Exception as e:
+                logger.warning(f"Failed to fetch user preferences in process_query: {e}")
+        
+        return get_process_query_prompt(user_preferences)
     
     def create_graph(self):
         """Create the main agent graph."""

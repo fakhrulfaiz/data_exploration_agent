@@ -1,4 +1,3 @@
-# Database context - simple overview of what data exists
 DATABASE_CONTEXT = """
 **Available Data**:
 - SQL Database of Paintings (supports direct filtering, sorting, and aggregation)
@@ -6,7 +5,6 @@ DATABASE_CONTEXT = """
   - Contains historical paintings with metadata and images
 """
 
-# Capabilities context - what the system can do (without mentioning specific tools)
 CAPABILITIES_CONTEXT = """
 **System Capabilities**:
 - Query and retrieve data from the database (supports filtering, sorting, limits, and aggregation)
@@ -16,12 +14,6 @@ CAPABILITIES_CONTEXT = """
 
 # Combined context for intent generation
 def get_planner_context(user_preferences: str = "") -> str:
-    """
-    Get the full context for planner intent generation.
-    
-    Args:
-        user_preferences: Optional user preference prompt from get_user_preference_prompt()
-    """
     context_parts = [DATABASE_CONTEXT, CAPABILITIES_CONTEXT]
     
     # Add user preferences if provided
@@ -33,7 +25,9 @@ def get_planner_context(user_preferences: str = "") -> str:
     return "\n\n".join(context_parts)
 
 # Intent generation system prompt
-INTENT_SYSTEM_PROMPT = """You are an intent understanding agent.
+def get_intent_system_prompt(context: str, user_preferences: str = "") -> str:
+  
+    base_prompt = f"""You are an intent understanding agent.
 Your goal is to provide a "Thinking Process" narrative for the user's query.
 
 {context}
@@ -49,3 +43,5 @@ Instructions:
 
 Answer with Thought: [Your thought process here]
 """
+    
+    return base_prompt

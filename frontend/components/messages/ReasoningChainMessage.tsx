@@ -5,6 +5,8 @@ interface ReasoningStep {
     tool_used: string;
     what_happened: string;
     key_finding?: string | null;
+    status?: string;
+    has_error?: boolean;
 }
 
 interface ReasoningChainMessageProps {
@@ -44,50 +46,91 @@ export const ReasoningChainMessage: React.FC<ReasoningChainMessageProps> = ({ da
             {/* Steps */}
             {isExpanded && (
                 <div className="mt-4 space-y-3">
-                    {data.steps.map((step, index) => (
-                        <div key={index} className="relative">
-                            <div className="flex gap-3">
-                                {/* Step number badge */}
-                                <div className="flex-shrink-0">
-                                    <div className="w-7 h-7 rounded-full bg-gradient-to-br from-blue-600 to-indigo-600 dark:from-blue-500 dark:to-indigo-500 text-white text-xs font-bold flex items-center justify-center shadow-sm">
-                                        {step.step_number}
-                                    </div>
-                                </div>
-
-                                {/* Step content */}
-                                <div className="flex-1 min-w-0 pb-3">
-                                    {/* Tool badge */}
-                                    <div className="flex items-center gap-2 mb-1.5">
-                                        <span className="text-xs font-mono bg-white dark:bg-gray-800 px-2 py-1 rounded border border-blue-200 dark:border-blue-700 text-blue-700 dark:text-blue-300 font-medium">
-                                            {step.tool_used}
-                                        </span>
-                                    </div>
-
-                                    {/* What happened */}
-                                    <p className="text-sm text-gray-800 dark:text-gray-200 leading-relaxed">
-                                        {step.what_happened}
-                                    </p>
-
-                                    {/* Key finding */}
-                                    {step.key_finding && (
-                                        <div className="mt-2 flex items-start gap-2 bg-blue-100/50 dark:bg-blue-900/20 rounded-md p-2">
-                                            <span className="text-sm flex-shrink-0">💡</span>
-                                            <p className="text-xs text-blue-800 dark:text-blue-200 leading-relaxed">
-                                                {step.key_finding}
-                                            </p>
+                    {data.steps.map((step, index) => {
+                        const hasError = step.has_error || step.status === 'failed';
+                        const isSuccess = step.status === 'success';
+                        
+                        return (
+                            <div key={index} className="relative">
+                                <div className="flex gap-3">
+                                    {/* Step number badge */}
+                                    <div className="flex-shrink-0">
+                                        <div className={`w-7 h-7 rounded-full text-white text-xs font-bold flex items-center justify-center shadow-sm ${
+                                            hasError 
+                                                ? 'bg-gradient-to-br from-red-600 to-red-700 dark:from-red-500 dark:to-red-600' 
+                                                : 'bg-gradient-to-br from-blue-600 to-indigo-600 dark:from-blue-500 dark:to-indigo-500'
+                                        }`}>
+                                            {step.step_number}
                                         </div>
-                                    )}
-                                </div>
-                            </div>
+                                    </div>
 
-                            {/* Connector line (except for last step) */}
-                            {index < data.steps.length - 1 && (
-                                <div
-                                    className="absolute left-[13px] top-7 w-0.5 h-full bg-gradient-to-b from-blue-300 to-indigo-300 dark:from-blue-700 dark:to-indigo-700"
-                                />
-                            )}
-                        </div>
-                    ))}
+                                    {/* Step content */}
+                                    <div className="flex-1 min-w-0 pb-3">
+                                        {/* Tool badge */}
+                                        <div className="flex items-center gap-2 mb-1.5">
+                                            <span className={`text-xs font-mono px-2 py-1 rounded border font-medium ${
+                                                hasError
+                                                    ? 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-700 text-red-700 dark:text-red-300'
+                                                    : 'bg-white dark:bg-gray-800 border-blue-200 dark:border-blue-700 text-blue-700 dark:text-blue-300'
+                                            }`}>
+                                                {step.tool_used}
+                                            </span>
+                                            {hasError && (
+                                                <span className="text-xs text-red-600 dark:text-red-400 font-medium">
+                                                    ⚠️ Failed
+                                                </span>
+                                            )}
+                                            {isSuccess && !hasError && (
+                                                <span className="text-xs text-green-600 dark:text-green-400 font-medium">
+                                                    ✓ Success
+                                                </span>
+                                            )}
+                                        </div>
+
+                                        {/* What happened */}
+                                        <p className={`text-sm leading-relaxed ${
+                                            hasError
+                                                ? 'text-red-800 dark:text-red-200'
+                                                : 'text-gray-800 dark:text-gray-200'
+                                        }`}>
+                                            {step.what_happened}
+                                        </p>
+
+                                        {/* Key finding */}
+                                        {step.key_finding && (
+                                            <div className={`mt-2 flex items-start gap-2 rounded-md p-2 ${
+                                                hasError
+                                                    ? 'bg-red-100/50 dark:bg-red-900/20'
+                                                    : 'bg-blue-100/50 dark:bg-blue-900/20'
+                                            }`}>
+                                                <span className="text-sm flex-shrink-0">
+                                                    {hasError ? '❌' : '💡'}
+                                                </span>
+                                                <p className={`text-xs leading-relaxed ${
+                                                    hasError
+                                                        ? 'text-red-800 dark:text-red-200'
+                                                        : 'text-blue-800 dark:text-blue-200'
+                                                }`}>
+                                                    {step.key_finding}
+                                                </p>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+
+                                {/* Connector line (except for last step) */}
+                                {index < data.steps.length - 1 && (
+                                    <div
+                                        className={`absolute left-[13px] top-7 w-0.5 h-full ${
+                                            hasError
+                                                ? 'bg-gradient-to-b from-red-300 to-red-400 dark:from-red-700 dark:to-red-800'
+                                                : 'bg-gradient-to-b from-blue-300 to-indigo-300 dark:from-blue-700 dark:to-indigo-700'
+                                        }`}
+                                    />
+                                )}
+                            </div>
+                        );
+                    })}
                 </div>
             )}
         </div>

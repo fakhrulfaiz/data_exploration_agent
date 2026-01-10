@@ -87,6 +87,16 @@ app.add_middleware(
 # Include API routes
 app.include_router(api_router, prefix="/api/v1")
 
+# Mount static files for local resources (e.g. images)
+# Access via: http://localhost:8080/api/static/images/filename.jpg (proxied by Nginx)
+from fastapi.staticfiles import StaticFiles
+resource_path = os.path.join(os.path.dirname(__file__), "app", "resource")
+if os.path.exists(resource_path):
+    app.mount("/api/static", StaticFiles(directory=resource_path), name="static")
+else:
+    # Fallback/Log if not found (though we verified it exists)
+    print(f"Warning: Resource path {resource_path} not found.")
+
 
 # Dependency functions
 def get_agent(request: Request) -> MainAgent:

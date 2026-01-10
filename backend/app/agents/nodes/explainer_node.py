@@ -154,9 +154,10 @@ class ExplainerNode:
         context: str,
         row_count: Optional[int] = None,
         existing_decision: Optional[str] = None,
-        existing_reasoning: Optional[str] = None
+        existing_reasoning: Optional[str] = None,
+        user_id: Optional[str] = None,
+        next_step_context: Optional[str] = None
     ) -> str:
-        """Build prompt for LLM to generate explanation with fact extraction"""
         
         # Import fact extractor
         from app.agents.nodes.fact_extractors import get_fact_extractor
@@ -198,8 +199,29 @@ class ExplainerNode:
         alternative = metadata.get("alternative")
         tool_desc = self._get_tool_description(tool_name)
         
-        prompt = f"""You are an AI assistant providing FACTUAL explanation for tool execution.
-
+        # Fetch user preferences if available
+        user_preferences = ""
+        if user_id:
+            try:
+                from app.services.dependencies import get_redis_profile_service, get_profile_service
+                from app.agents.prompts.user_preferences import get_user_preference_prompt_safe
+                
+                redis_service = get_redis_profile_service()
+                profile_service = get_profile_service()
+                user_preferences = get_user_preference_prompt_safe(
+                    user_id,
+                    redis_service,
+                    profile_service
+                )
+            except Exception as e:
+                logger.warning(f"Failed to fetch user preferences in explainer: {e}")
+        
+        # Build base prompt with user preferences
+        from app.agents.prompts.explainer_prompts import get_explainer_system_prompt
+        system_prompt = get_explainer_system_prompt(user_preferences)
+        
+        # Build the main prompt separately to avoid f-string conflicts with system_prompt
+        main_prompt = f"""
 **CRITICAL RULES**:
 1. ONLY use facts from the "VERIFIABLE FACTS" section below
 2. DO NOT make up performance metrics (execution time, speed, efficiency)
@@ -207,9 +229,10 @@ class ExplainerNode:
 4. If information is not available in facts, say "Not available" or omit the field
 5. Describe WHAT the tool returned, NOT how well it performed
 
-**CONTEXT** (Decision and reasoning already generated):
+**CONTEXT**:
 - Decision: {existing_decision if existing_decision else "Tool was selected for this step"}
 - Reasoning: {existing_reasoning if existing_reasoning else "Tool selection reasoning was provided earlier"}
+- Next Planned Step: {next_step_context if next_step_context else "None (Final step or unknown)"}
 
 {facts_section}
 
@@ -228,13 +251,18 @@ Generate the following fields based on VERIFIABLE FACTS:
 
 1. **task_completion_status**: Evaluate if the tool execution achieved the task goal
    - **Task Goal**: {existing_reasoning if existing_reasoning else "Execute the planned step"}
+   - Check if the output provides what is needed for the **Next Planned Step**.
    - Possible values:
      - "success" - Tool output clearly satisfies the task goal
      - "partial" - Tool returned data but may not fully satisfy goal  
      - "failed" - Tool execution failed (error occurred)
      - "unknown" - Cannot determine from output if goal was achieved
 
-2. **execution_summary**: Describe what the tool RETURNED and execution status (not how it "performed")
+2. **execution_summary**: Describe **WHAT** the tool returned and **WHY** it is significant.
+   - Explain the result in context of the task goal.
+   - Mention key findings or patterns provided in the facts.
+   - Briefly mention if it unblocks the Next Planned Step.
+   - **Example**: "Retrieved 150 painting records with inception dates, confirming data availability for the subsequent sorting step."
 
 3. **data_evidence**: Quote SPECIFIC facts from the VERIFIABLE FACTS section
    - Include row counts, column names, data types, visualization details
@@ -267,6 +295,9 @@ Generate the following fields based on VERIFIABLE FACTS:
 REMEMBER: Only state facts from the VERIFIABLE FACTS section above!
 """
         
+        # Combine system prompt with main prompt using concatenation
+        prompt = system_prompt + "\n\n" + main_prompt
+        
         return prompt
 
     def explain_step(self, step: Dict[str, Any], messages: List = None) -> DomainExplanation:  
@@ -275,11 +306,13 @@ REMEMBER: Only state facts from the VERIFIABLE FACTS section above!
             tool_input = step.get("input", "")
             tool_output = step.get("output", "")
             context = step.get("context", "")
+            user_id = step.get("user_id")  # Extract user_id
             
             
             # Get existing decision/reasoning from step
             existing_decision = step.get("decision")
             existing_reasoning = step.get("reasoning")
+            next_step_context = step.get("next_step_context")
             
             # Build Prompt with fact extraction (NO policy checks)
             prompt = self._build_explanation_prompt(
@@ -289,7 +322,9 @@ REMEMBER: Only state facts from the VERIFIABLE FACTS section above!
                 context, 
                 row_count=None, 
                 existing_decision=existing_decision,
-                existing_reasoning=existing_reasoning
+                existing_reasoning=existing_reasoning,
+                user_id=user_id,  # Pass user_id
+                next_step_context=next_step_context
             )
             
             # Invoke LLM with structured output (default json_schema mode)
@@ -324,63 +359,112 @@ REMEMBER: Only state facts from the VERIFIABLE FACTS section above!
         steps = state.get("steps", [])
         messages = state.get("messages", [])
         
-        # Find steps needing explanation
-        for step in steps:
-            # Skip if already has explanation
-            if "tool_justification" in step:
-                continue
+        # Only explain the last step (the one just executed)
+        if not steps:
+            return state
             
-            # Get first tool call to use for explanation
-            tool_calls = step.get('tool_calls', [])
-            if not tool_calls:
-                continue
+        # Get the logical current step (last one added)
+        current_step_idx = len(steps) - 1
+        step = steps[current_step_idx]
+        
+        # Skip if already has explanation
+        if "task_completion_status" in step:
+            return state
             
-            # Aggregate all tool calls for explanation
-            tool_name = tool_calls[0].get('tool_name')  # All tool calls use same tool
-            tool_inputs = [tc.get('input') for tc in tool_calls]
-            tool_outputs = [tc.get('output') for tc in tool_calls]
+        # Get tool calls
+        tool_calls = step.get('tool_calls', [])
+        if not tool_calls:
+            return state
+        
+        # Aggregate all tool calls for explanation
+        tool_name = tool_calls[0].get('tool_name')
+        tool_inputs = [tc.get('input') for tc in tool_calls]
+        tool_outputs = [tc.get('output') for tc in tool_calls]
+
+        # Determine next step context using Dynamic Plan
+        next_step_context = None
+        dynamic_plan = state.get("dynamic_plan")
+        plan_step_index = step.get("plan_step_index")
+        
+         # 1. Try to get context from Dynamic Plan (Correct source for future steps)
+        if dynamic_plan and plan_step_index is not None:
+            # Handle both object and dict access for dynamic_plan
+            plan_steps = getattr(dynamic_plan, 'steps', []) if not isinstance(dynamic_plan, dict) else dynamic_plan.get('steps', [])
             
-            # Build step object for explain_step with all tool calls
-            step_for_explanation = {
-                'tool_name': tool_name,
-                'input': '\n---\n'.join(tool_inputs),  # Combine all inputs
-                'output': '\n---\n'.join(tool_outputs),  # Combine all outputs
-                'decision': step.get('decision', ''),
-                'reasoning': step.get('reasoning', '')
-            }
-            
-            explanation, _ = self.explain_step(step_for_explanation, messages) 
-            
-            step['task_completion_status'] = explanation.task_completion_status
-            step['execution_summary'] = explanation.execution_summary
-            step['data_evidence'] = explanation.data_evidence
+            next_plan_idx = plan_step_index + 1
+            if next_plan_idx < len(plan_steps):
+                next_step = plan_steps[next_plan_idx]
+                
+                # Extract details handling both Pydantic objects and dicts
+                if isinstance(next_step, dict):
+                    next_goal = next_step.get('goal', 'Unknown Goal')
+                    tool_options = next_step.get('tool_options', [])
+                    if tool_options and isinstance(tool_options[0], dict):
+                            next_tool = tool_options[0].get('tool_name', 'Unknown Tool')
+                    elif tool_options:
+                            next_tool = getattr(tool_options[0], 'tool_name', 'Unknown Tool')
+                    else:
+                            next_tool = "Unknown Tool"
+                else:
+                    next_goal = getattr(next_step, 'goal', 'Unknown Goal')
+                    tool_options = getattr(next_step, 'tool_options', [])
+                    if tool_options:
+                        next_tool = getattr(tool_options[0], 'tool_name', 'Unknown Tool')
+                    else:
+                        next_tool = "Unknown Tool"
+                        
+                next_step_context = f"Step {next_plan_idx + 1}: {next_goal} (Using {next_tool})"
+            else:
+                next_step_context = "None (Final step of plan)"
+        
+        # 2. Fallback (if no plan index) - Look at steps length vs plan length or just default
+        if next_step_context is None:
+             next_step_context = "None (Final step or unknown)"
+        
+        # Build step object for explain_step with all tool calls
+        step_for_explanation = {
+            'tool_name': tool_name,
+            'input': '\n---\n'.join(tool_inputs),  # Combine all inputs
+            'output': '\n---\n'.join(tool_outputs),  # Combine all outputs
+            'decision': step.get('decision', ''),
+            'reasoning': step.get('reasoning', ''),
+            'user_id': state.get('user_id'),  # Pass user_id for preferences
+            'next_step_context': next_step_context
+        }
+        
+        explanation, _ = self.explain_step(step_for_explanation, messages) 
+        
+        step['task_completion_status'] = explanation.task_completion_status
+        step['execution_summary'] = explanation.execution_summary
+        step['data_evidence'] = explanation.data_evidence
+        # P1: Confidence scoring
+        step['confidence_score'] = explanation.confidence_score
+        step['confidence_factors'] = explanation.confidence_factors
+        # P1: Clickable actions
+        step['next_actions'] = explanation.next_actions
+        
+        explanation_json = {
+            'task_completion_status': explanation.task_completion_status,
+            'execution_summary': explanation.execution_summary,
+            'data_evidence': explanation.data_evidence,
             # P1: Confidence scoring
-            step['confidence_score'] = explanation.confidence_score
-            step['confidence_factors'] = explanation.confidence_factors
+            'confidence_score': explanation.confidence_score,
+            'confidence_factors': explanation.confidence_factors,
             # P1: Clickable actions
-            step['next_actions'] = explanation.next_actions
-            
-            explanation_json = {
-                'task_completion_status': explanation.task_completion_status,
-                'execution_summary': explanation.execution_summary,
-                'data_evidence': explanation.data_evidence,
-                # P1: Confidence scoring
-                'confidence_score': explanation.confidence_score,
-                'confidence_factors': explanation.confidence_factors,
-                # P1: Clickable actions
-                'next_actions': explanation.next_actions,
-            }
-            
-            explanation_message = AIMessage(
-                content=json.dumps(explanation_json),
-                additional_kwargs={'is_explanation': True}
-            )
-            
-            return {
-                **state, 
-                "steps": steps, 
-                "messages": [explanation_message] # Only return the NEW message
-            }
+            'next_actions': explanation.next_actions,
+        }
+        
+        explanation_message = AIMessage(
+            content=json.dumps(explanation_json),
+            additional_kwargs={'is_explanation': True}
+        )
+        
+        # Return updated state with ONLY the new message
+        return {
+            **state, 
+            "steps": steps, 
+            "messages": [explanation_message] 
+        }
                 
         return {**state, "steps": steps} #
 

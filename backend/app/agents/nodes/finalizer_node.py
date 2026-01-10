@@ -2,24 +2,10 @@
 from typing import Dict, Any, List, Optional
 from langchain_core.messages import AIMessage, SystemMessage, ToolMessage, HumanMessage
 from app.agents.state import ExplainableAgentState
-from pydantic import BaseModel, Field
 import logging
 import json
 
 logger = logging.getLogger(__name__)
-
-
-class ReasoningStep(BaseModel):
-    step_number: int = Field(description="Sequential step number")
-    tool_used: str = Field(description="Tool that was executed")
-    what_happened: str = Field(description="Brief description of what this step accomplished")
-    key_finding: Optional[str] = Field(default=None, description="Most important result or insight from this step")
-
-
-class FinalizerDecision(BaseModel):
-    thought: str = Field(description="Overall synthesis: how all steps work together to answer the query")
-    reasoning_chain: List[ReasoningStep] = Field(description="Step-by-step breakdown of what happened in each execution step")
-    final_response: str = Field(description="Final response to the user summarizing the results")
 
 
 class FinalizerNode:   
@@ -34,6 +20,7 @@ class FinalizerNode:
         use_explainer = state.get("use_explainer", True)
         status = state.get("status")
         error_details = state.get("error_details", [])
+        user_id = state.get("user_id")  # Extract user_id for preferences
         
         # Handle cancellation with error explanation
         if status == "cancelled" and error_details and self.error_explainer:
@@ -67,62 +54,56 @@ class FinalizerNode:
         
         if use_explainer:
             # Two-step process: thought + reasoning chain, then final response
-            return self._execute_with_explainer(query, steps, steps_summary, messages)
+            return self._execute_with_explainer(query, steps, steps_summary, messages, user_id)
         else:
             # Simple process: just final response
-            return self._execute_simple(query, steps_summary, messages)
+            return self._execute_simple(query, steps_summary, messages, user_id)
+    
     
     def _execute_with_explainer(
         self, 
         query: str, 
         steps: List[Dict[str, Any]], 
         steps_summary: str, 
-        messages: List
+        messages: List,
+        user_id: Optional[str] = None
     ) -> Dict[str, Any]:
         """Execute with full explainability: thought + reasoning chain + final response"""
         
-        # Step 1: Generate thought and reasoning chain
+        # Step 1: Generate thought (still use LLM for synthesis)
         thought_prompt = self._build_thought_prompt(query, steps_summary)
+        thought_message = self._generate_thought_only(thought_prompt, user_id)
+    
+        # Step 2: Build reasoning chain directly from steps (no LLM)
+        reasoning_chain = self._build_reasoning_chain_from_steps(steps)
+        reasoning_chain_json = self._format_reasoning_chain(reasoning_chain)
         
-        class ThoughtAndReasoning(BaseModel):
-            thought: str = Field(description="Overall synthesis of all steps and whether ready for final response")
-            reasoning_chain: List[ReasoningStep] = Field(description="Step-by-step breakdown of what happened")
-        
-        llm_with_thought = self.llm.with_structured_output(ThoughtAndReasoning)
-        thought_result = llm_with_thought.invoke([
-            SystemMessage(content=self._get_thought_system_prompt()),
-            HumanMessage(content=thought_prompt)
-        ])
-        
-        logger.info(f"Generated thought: {thought_result.thought[:100]}...")
-        
-        # Format reasoning chain as JSON
-        reasoning_chain_json = self._format_reasoning_chain(thought_result.reasoning_chain)
-        
-        # Create thought and reasoning messages FIRST (so they stream first)
-        thought_message = AIMessage(content="Thought: " + thought_result.thought)
+        # Create reasoning message
         reasoning_message = AIMessage(
             content=reasoning_chain_json,
             additional_kwargs={"is_reasoning_chain": True}
         )
         
-        # Step 2: Generate final response AFTER creating thought/reasoning messages
+        # Step 3: Generate final response AFTER creating thought/reasoning messages
         # This ensures thought and reasoning stream before final response
         final_response_text = self._generate_final_response(
             query=query,
-            thought=thought_result.thought,
-            steps_summary=steps_summary
+            thought=thought_message.content,
+            steps_summary=steps_summary,
+            user_id=user_id
         )
         
-        logger.info(f"Finalizer completed with {len(thought_result.reasoning_chain)} reasoning steps")
+        logger.info(f"Finalizer completed with {len(reasoning_chain)} reasoning steps")
+    
+        # Mark thought message with special flag
+        thought_message.additional_kwargs = {"is_thought": True}
         
-        # Return only the NEW messages: thought, reasoning chain, final response (in order)
         return {
             "assistant_response": final_response_text,
             "messages": [
                 thought_message, 
-                reasoning_message, 
-                AIMessage(content=final_response_text)
+                reasoning_message
+                # Final response is in assistant_response, no need to duplicate in messages
             ]
         }
     
@@ -130,14 +111,15 @@ class FinalizerNode:
         self, 
         query: str, 
         steps_summary: str, 
-        messages: List
+        messages: List,
+        user_id: Optional[str] = None
     ) -> Dict[str, Any]:
-        """Execute without explainer: just generate final response"""
         
         final_response_text = self._generate_final_response(
             query=query,
             thought=None,  # No thought when explainer is off
-            steps_summary=steps_summary
+            steps_summary=steps_summary,
+            user_id=user_id
         )
         
         logger.info("Finalizer completed (simple mode)")
@@ -149,27 +131,107 @@ class FinalizerNode:
             ]
         }
     
-    def _get_thought_system_prompt(self) -> str:
-        """System prompt for thought generation"""
-        return """You are analyzing the execution of a multi-step data exploration task.
-
-Your job is to:
-1. Identify the main goal from the user's query
-2. Review ALL steps that were executed
-3. Assess whether the goal was achieved
-4. Synthesize how the steps work together to accomplish the goal
-5. Create a reasoning chain showing what happened in each step
-
-Focus on:
-- What was the user's goal/intent?
-- What was accomplished in each step?
-- How do steps connect to achieve the goal?
-- Was the original query fully answered?
-- Are we ready for a final response?
-- Any key findings or insights"""
+    def _get_thought_system_prompt(self, user_id: Optional[str] = None) -> str:
+        from app.agents.prompts.finalizer_prompts import get_finalizer_thought_system_prompt
+        from app.agents.prompts.user_preferences import get_user_preference_prompt_safe
+        
+        # Fetch user preferences if available
+        user_preferences = ""
+        if user_id:
+            try:
+                from app.services.dependencies import get_redis_profile_service, get_profile_service
+                
+                redis_service = get_redis_profile_service()
+                profile_service = get_profile_service()
+                user_preferences = get_user_preference_prompt_safe(
+                    user_id,
+                    redis_service,
+                    profile_service
+                )
+            except Exception as e:
+                logger.warning(f"Failed to fetch user preferences in finalizer: {e}")
+        
+        return get_finalizer_thought_system_prompt(user_preferences)
+    
+    def _generate_thought_only(self, thought_prompt: str, user_id: Optional[str] = None):
+        """Generate thought synthesis using structured output"""
+        from pydantic import BaseModel, Field
+        
+        class ThoughtOnly(BaseModel):
+            thought: str = Field(description="Overall synthesis of all steps and whether ready for final response")
+        
+        llm_with_thought = self.llm.with_structured_output(ThoughtOnly)
+        result = llm_with_thought.invoke([
+            SystemMessage(content=self._get_thought_system_prompt(user_id)),
+            HumanMessage(content=thought_prompt)
+        ])
+        
+        # Return AIMessage with the thought content
+        return AIMessage(content=result.thought)
+    
+    def _build_reasoning_chain_from_steps(self, steps: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+     
+        reasoning_chain = []
+        
+        for idx, step in enumerate(steps):
+            tool_calls = step.get("tool_calls", [])
+            if not tool_calls:
+                continue
+            
+            # Get tool name from first tool call
+            tool_name = tool_calls[0].get("tool_name", "unknown")
+            
+            # Get execution status from step
+            task_status = step.get("task_completion_status", "unknown")
+            execution_summary = step.get("execution_summary", "")
+            data_evidence = step.get("data_evidence", "")
+            
+            # Check if any tool call had an error
+            has_error = any(tc.get("has_error", False) for tc in tool_calls)
+            
+            # Build what_happened from execution summary or fallback
+            if execution_summary:
+                what_happened = execution_summary
+            elif has_error:
+                what_happened = f"Attempted to execute {tool_name} but encountered an error"
+            else:
+                what_happened = f"Executed {tool_name}"
+            
+            # Build key_finding from data evidence or status
+            key_finding = None
+            if has_error:
+                # Extract error message from first failed tool call
+                for tc in tool_calls:
+                    if tc.get("has_error"):
+                        output = tc.get("output", "")
+                        # Try to parse error from output
+                        try:
+                            import json
+                            output_data = json.loads(output)
+                            if isinstance(output_data, dict) and "error" in output_data:
+                                key_finding = f"Error: {output_data.get('error', 'Unknown error')}"
+                                break
+                        except:
+                            key_finding = f"Error occurred during execution"
+                        break
+            elif data_evidence:
+                key_finding = data_evidence
+            elif task_status == "success":
+                key_finding = "Completed successfully"
+            
+            reasoning_chain.append({
+                "step_number": idx + 1,
+                "tool_used": tool_name,
+                "what_happened": what_happened,
+                "key_finding": key_finding,
+                "status": task_status,
+                "has_error": has_error
+            })
+        
+        return reasoning_chain
+    
     
     def _build_thought_prompt(self, query: str, steps_summary: str) -> str:
-        """Build prompt for thought generation"""
         return f"""Analyze the following execution:
 
 **Original User Query:** {query}
@@ -177,49 +239,54 @@ Focus on:
 **Executed Steps:**
 {steps_summary}
 
-Provide:
-1. **thought**: Overall synthesis of all steps - how they work together, whether we successfully answered the query, and if we're ready for final response
-2. **reasoning_chain**: For each step, create a ReasoningStep with specific details about what happened and key findings"""
+Provide an overall synthesis starting with "Thought:":
+- How do all the steps work together?
+- Did we successfully answer the user's query?
+- Are we ready for the final response?
+- Any limitations or gaps?"""
     
     def _generate_final_response(
         self, 
         query: str, 
         thought: Optional[str], 
-        steps_summary: str
+        steps_summary: str,
+        user_id: Optional[str] = None
     ) -> str:
         """Generate final response to user - returns string (not AIMessage for now)"""
+        from app.agents.prompts.finalizer_prompts import get_finalizer_response_system_prompt, get_finalizer_response_prompt
+        from app.agents.prompts.user_preferences import get_user_preference_prompt_safe
+        
+        # Fetch user preferences if available
+        user_preferences = ""
+        if user_id:
+            try:
+                from app.services.dependencies import get_redis_profile_service, get_profile_service
+                
+                redis_service = get_redis_profile_service()
+                profile_service = get_profile_service()
+                user_preferences = get_user_preference_prompt_safe(
+                    user_id,
+                    redis_service,
+                    profile_service
+                )
+            except Exception as e:
+                logger.warning(f"Failed to fetch user preferences in finalizer response: {e}")
         
         # Use placeholder if no thought provided
         thought_text = thought if thought else "No detailed thought process available."
         
-        # Simple, direct prompt
-        prompt = f"""Answer the user's query based on the execution results.
-
-**UserQuery:** {query}
-
-**Thought:** {thought_text}
-
-**Results:**
-{steps_summary}
-
-Generate a clear answer in markdown format. Focus on what the user asked for and include specific findings from the results.
-
-**Important:** 
-- If a thought process is provided, use it to guide your answer and ensure your response aligns with the analysis.
-- For image URLs: You may embed a single image using `![](url)` if there's only ONE image. However, if there are multiple images (e.g., in tables or lists), use plain text links `[link](url)` instead to avoid loading many images."""
+        # Build prompt using template
+        system_prompt = get_finalizer_response_system_prompt(user_preferences)
+        prompt = get_finalizer_response_prompt(query, thought_text, steps_summary, user_preferences)
         
-        # Use structured output for consistency
-        class FinalResponse(BaseModel):
-            final_response: str = Field(description="Clear, direct answer to the user's query in markdown format")
-        
-        llm_with_structure = self.llm.with_structured_output(FinalResponse)
-        response = llm_with_structure.invoke([
-            SystemMessage(content="You are a helpful assistant providing final responses to user queries."),
+        # Use raw LLM for natural response (no structured output)
+        response = self.llm.invoke([
+            SystemMessage(content=system_prompt),
             HumanMessage(content=prompt)
         ])
         
         # Return just the string content
-        return response.final_response
+        return response.content
     
     def _build_steps_summary(self, steps: List[Dict[str, Any]]) -> str:
         """Build a summary of executed steps for the LLM to analyze"""
@@ -271,140 +338,24 @@ Generate a clear answer in markdown format. Focus on what the user asked for and
         
         return "\n".join(lines)
     
-    def _format_reasoning_chain(self, reasoning_steps: List[ReasoningStep]) -> str:
+    def _format_reasoning_chain(self, reasoning_steps: List[Dict[str, Any]]) -> str:
         """Format reasoning chain as JSON for frontend display"""
         chain_data = {
             "type": "reasoning_chain",
             "steps": [
                 {
-                    "step_number": step.step_number,
-                    "tool_used": step.tool_used,
-                    "what_happened": step.what_happened,
-                    "key_finding": step.key_finding
+                    "step_number": step.get("step_number"),
+                    "tool_used": step.get("tool_used"),
+                    "what_happened": step.get("what_happened"),
+                    "key_finding": step.get("key_finding"),
+                    "status": step.get("status", "unknown"),
+                    "has_error": step.get("has_error", False)
                 }
                 for step in reasoning_steps
             ]
         }
         
         return json.dumps(chain_data)
-    
-    def _build_system_instructions(self) -> str:
-        """
-        Build system instructions for the finalizer LLM.
-        
-        This method is separated for easy customization and extension.
-        Override this method to customize the prompt for specific use cases.
-        """
-        role_definition = self._get_role_definition()
-        tasks = self._get_tasks()
-        guidelines = self._get_guidelines()
-        examples = self._get_examples()
-        
-        return f"""{role_definition}
 
-{tasks}
 
-{guidelines}
-
-{examples}"""
-    
-    def _get_role_definition(self) -> str:
-        """Define the role of the execution analyzer."""
-        return "You are an execution analyzer for a data exploration agent."
-    
-    def _get_tasks(self) -> str:
-        """Define the main tasks for the analyzer."""
-        return """Your job is to:
-1. **Build a reasoning chain**: For each step that was executed, create a ReasoningStep with:
-   - step_number: Sequential number (1, 2, 3...)
-   - tool_used: Name of the tool that was executed
-   - what_happened: Brief, clear description of what this step accomplished
-   - key_finding: **Detailed** result with specific data points, numbers, or insights (REQUIRED for every step)
-
-2. **Provide overall thought**: Synthesize how all steps work together to answer the query
-   - Explain the narrative: how steps connect to each other
-   - State whether we successfully answered the query
-   - Summarize what was accomplished
-
-3. **Generate final response**: Create a comprehensive response to the user that:
-   - Directly answers their original query
-   - Summarizes key findings from all steps
-   - Mentions any visualizations or outputs created
-   - Acknowledges any limitations or partial results"""
-    
-    def _get_guidelines(self) -> str:
-        return """CRITICAL GUIDELINES FOR REASONING CHAIN:
-- **Be specific**: Don't say "executed successfully" - describe WHAT was found/created
-- **Extract detailed key findings**: Include specific numbers, counts, values, or concrete insights from EVERY step
-- **Show progression**: Make it clear how each step builds on the previous one
-- **Acknowledge failures**: If a step failed, explain what went wrong
-
-GUIDELINES FOR KEY FINDINGS:
-- ALWAYS include specific, measurable details (numbers, counts, names, values, ranges)
-- Mention WHAT was processed: data sources, objects, entities involved
-- Mention HOW MUCH: quantities, sizes, counts, percentages
-- Mention KEY RESULTS: specific outcomes, values discovered, patterns identified
-- For queries/searches: what was found, how many results, key attributes
-- For data operations: what changed, scale of change, affected items
-- For analysis/computation: actual values, ranges, statistical measures
-- For outputs/artifacts: what was created, format, key characteristics
-
-FINAL RESPONSE GUIDELINES:
-- Start with a direct answer to the user's query
-- Be conversational and helpful
-- Include specific findings and numbers
-- Mention any visualizations or files created
-- If the task was only partially completed, be honest about it
-- Keep it concise but informative"""
-    
-    def _get_examples(self) -> str:
-        """Provide examples of good and bad reasoning steps."""
-        return """EXAMPLES OF GOOD REASONING STEPS:
-
-Step 1 (Data Retrieval):
-- tool_used: "Data Retrieval name"
-- what_happened: "Generated and executed query to retrieve data based on user criteria"
-- key_finding: "Retrieved 1,247 records across 5 columns (ID, Name, Value, Date, Category), date range: 2023-01-01 to 2024-12-31, covering 3 distinct categories"
-
-Step 2 (Data Processing):
-- tool_used: "Data Processing name"
-- what_happened: "Processed and aggregated data by category"
-- key_finding: "Aggregated 1,247 records into 3 category groups: Category A (523 records, avg value: 45.2), Category B (412 records, avg value: 67.8), Category C (312 records, avg value: 52.1)"
-
-Step 3 (Visualization):
-- tool_used: "Visualization name"
-- what_happened: "Created interactive chart to display aggregated results"
-- key_finding: "Generated bar chart showing category comparison with 3 bars, highlighting Category B as highest performer (67.8 avg), includes hover tooltips and interactive legend"
-
-EXAMPLES OF BAD REASONING STEPS (avoid):
-- what_happened: "Executed tool" (too vague - what did it do?)
-- what_happened: "Got results" (not descriptive - what results?)
-- what_happened: "Tool failed" (missing error details and impact)
-- key_finding: "Success" (not informative - what was achieved?)
-- key_finding: "Query returned data" (no specific details - how much? what kind?)
-- key_finding: "Retrieved 5 rows" (missing what those rows contain)
-- key_finding: "Error occurred" (missing what error, why it happened, what was the impact)"""
-    
-    def _build_analysis_request(self, query: str, steps_summary: str) -> str:
-        """
-        Build the analysis request message.
-        
-        Args:
-            query: The original user query
-            steps_summary: Summary of executed steps
-            
-        Returns:
-            Formatted analysis request string
-        """
-        return f"""Analyze the following execution results and provide your evaluation.
-
-**Original Query:** {query}
-
-**Executed Steps:**
-{steps_summary}
-
-Please provide:
-1. A detailed reasoning chain for each step
-2. Your overall thought on how the steps work together
-3. A final response to the user summarizing the results"""
 

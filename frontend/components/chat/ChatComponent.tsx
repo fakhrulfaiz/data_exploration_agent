@@ -93,7 +93,12 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
   const [messages, setMessages] = useState<MessageType[]>(initialMessages);
   const [inputValue, setInputValue] = useState<string>('');
   const [pendingApproval, setPendingApproval] = useState<string | null>(null); // Block ID, not message ID
+  
+  // Robust Auto-scroll State
   const [isAtBottom, setIsAtBottom] = useState<boolean>(true);
+  const shouldAutoScrollRef = useRef<boolean>(true); // Tracks if we SHOULD auto-scroll
+  const isAutoScrollingRef = useRef<boolean>(false); // Tracks if scroll is currently being animated by code
+  
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   // Streaming UI state
@@ -174,115 +179,85 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
 
 
   // Check if user is near the bottom of the messages container
-  const checkIfNearBottom = (): boolean => {
+  const checkIfNearBottom = useCallback((): boolean => {
     const container = messagesContainerRef.current;
-    if (!container) return true;
+    if (!container) return false;
 
-    const threshold = 100; // pixels from bottom
-    const scrollTop = container.scrollTop;
-    const scrollHeight = container.scrollHeight;
-    const clientHeight = container.clientHeight;
+    const threshold = 300; // pixels from bottom - increased to handle large content additions
+    const distanceToBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+    return distanceToBottom < threshold;
+  }, []);
 
-    return scrollHeight - scrollTop - clientHeight < threshold;
-  };
-
-  const scrollToBottom = (): void => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    // Update isAtBottom state after scrolling
+  const scrollToBottom = useCallback((instant = false): void => {
+    if (!messagesEndRef.current) return;
+    
+    isAutoScrollingRef.current = true;
+    shouldAutoScrollRef.current = true;
+    
+    messagesEndRef.current.scrollIntoView({ 
+      behavior: instant ? 'instant' : 'smooth', 
+      block: 'end' 
+    });
+    
+    // Reset the flag after animation would complete
     setTimeout(() => {
-      setIsAtBottom(checkIfNearBottom());
+      isAutoScrollingRef.current = false;
+      setIsAtBottom(true);
     }, 100);
-  };
+  }, []);
 
-  // Track scroll position to show/hide scroll-to-bottom button
-  // This effect runs once and keeps the scroll listener active
+  // Robust Scroll Handling with MutationObserver
   useEffect(() => {
     const container = messagesContainerRef.current;
-    if (!container) {
-      // If container doesn't exist yet, check again after a short delay
-      const timeoutId = setTimeout(() => {
-        const retryContainer = messagesContainerRef.current;
-        if (retryContainer) {
-          setIsAtBottom(checkIfNearBottom());
-        }
-      }, 100);
-      return () => clearTimeout(timeoutId);
-    }
+    if (!container) return;
 
+    // 1. Handle user manual scrolling
     const handleScroll = () => {
-      setIsAtBottom(checkIfNearBottom());
+      if (isAutoScrollingRef.current) return; // Ignore code-triggered scrolls
+
+      const nearBottom = checkIfNearBottom();
+      setIsAtBottom(nearBottom);
+      
+      // Update intent: if user scrolls up, stop auto-scrolling. If they scroll down, resume.
+      if (nearBottom) {
+        shouldAutoScrollRef.current = true;
+      } else {
+        // Only disable if properly scrolled away - increased threshold to 200px
+        const distanceToBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+        if (distanceToBottom > 200) {
+          shouldAutoScrollRef.current = false;
+        }
+      }
     };
 
     container.addEventListener('scroll', handleScroll);
-    // Check initial position
-    handleScroll();
+
+    // 2. Handle content size changes (streaming/new messages)
+    const observer = new MutationObserver(() => {
+      if (shouldAutoScrollRef.current && checkIfNearBottom()) {
+         messagesEndRef.current?.scrollIntoView({ behavior: 'instant', block: 'end' });
+      }
+    });
+
+    observer.observe(container, { 
+      childList: true, 
+      subtree: true, 
+      characterData: true 
+    });
 
     return () => {
       container.removeEventListener('scroll', handleScroll);
+      observer.disconnect();
     };
-  }, []); // Empty deps - only register once, scroll handler uses checkIfNearBottom which reads from ref
+  }, [checkIfNearBottom]);
 
-  // Also check scroll position when messages change
+  // Initial scroll on mount/messages load
   useEffect(() => {
-    const container = messagesContainerRef.current;
-    if (container && messages.length > 0) {
-      // Small delay to ensure DOM is updated
-      const timeoutId = setTimeout(() => {
-        setIsAtBottom(checkIfNearBottom());
-      }, 100);
-      return () => clearTimeout(timeoutId);
-    } else if (messages.length === 0) {
-      setIsAtBottom(false);
+    if (messages.length > 0 && shouldAutoScrollRef.current) {
+       scrollToBottom(true);
     }
-  }, [messages.length]);
+  }, [messages.length, scrollToBottom]);
 
-  // Auto-scroll during streaming when user is near bottom
-  // This triggers on messages changes (including content block updates) and scroll position
-  useEffect(() => {
-    if (streamingActive && messages.length > 0) {
-      // Check if user is near bottom before scrolling
-      const nearBottom = checkIfNearBottom();
-
-      if (nearBottom) {
-        // Small delay to ensure DOM is updated with new content
-        const timeoutId = setTimeout(() => {
-          // Use instant scrolling during streaming for better performance
-          messagesEndRef.current?.scrollIntoView({ behavior: 'instant' });
-          // Update isAtBottom state after scrolling
-          setIsAtBottom(true);
-        }, 50);
-        return () => clearTimeout(timeoutId);
-      } else {
-        // User scrolled up, update state
-        setIsAtBottom(false);
-      }
-    }
-  }, [messages, streamingActive]); // Trigger on any messages change
-
-  // Additional effect to handle rapid content updates during streaming
-  // This ensures scroll happens even when messages array reference doesn't change
-  useEffect(() => {
-    if (streamingActive && isAtBottom) {
-      const scrollInterval = setInterval(() => {
-        const nearBottom = checkIfNearBottom();
-        if (nearBottom) {
-          messagesEndRef.current?.scrollIntoView({ behavior: 'instant' });
-        }
-      }, 100); // Check every 100ms during streaming
-
-      return () => clearInterval(scrollInterval);
-    }
-  }, [streamingActive, isAtBottom]);
-
-  // Auto-scroll for new non-streaming messages (only if near bottom)
-  useEffect(() => {
-    if (!streamingActive && messages.length > 0 && isAtBottom) {
-      const timeoutId = setTimeout(() => {
-        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-      }, 100);
-      return () => clearTimeout(timeoutId);
-    }
-  }, [messages.length, streamingActive, isAtBottom]);
 
   // Mirror messages into a ref for post-await access
   useEffect(() => {
@@ -1953,7 +1928,7 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
           {/* Messages - scrollable area with padding for fixed input and header */}
           <div
             ref={messagesContainerRef}
-            className={`relative space-y-4 min-h-0 slim-scroll pb-40 overflow-y-auto ${messages.length === 0 && !currentThreadId ? '' : 'flex-1'} ${threadTitle ? 'pt-38' : 'pt-8'}`}
+            className={`relative space-y-4 min-h-0 slim-scroll pb-48 overflow-y-auto ${messages.length === 0 && !currentThreadId ? '' : 'flex-1'} ${threadTitle ? 'pt-38' : 'pt-8'}`}
           >
             <div className="max-w-3xl mx-auto px-4">
               {messages.map((message) => (
@@ -1983,27 +1958,28 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
                   activeTools={toolStepHistory?.steps.filter(s => s.status === 'calling').map(s => s.name)}
                 />
               )}
+              {/* Scroll anchor */}
               <div ref={messagesEndRef} />
             </div>
+          </div>
 
-            {/* Scroll to bottom button - fixed above input form, aligned with messages */}
-            {!isAtBottom && messages.length > 0 && (
-              <div className={`absolute left-0 right-0 bottom-42 z-30 pointer-events-none px-4`}>
-                <div className="max-w-3xl px-4 mx-auto">
-                  <div className="flex justify-end">
-                    <button
-                      onClick={() => scrollToBottom()}
-                      className="pointer-events-auto w-10 h-10 rounded-full bg-muted border-1 border-foreground/20 shadow-lg hover:bg-accent hover:border-foreground/30 hover:shadow-xl transition-all duration-200 flex items-center justify-center group"
-                      title="Scroll to bottom"
-                      aria-label="Scroll to bottom"
-                    >
-                      <ChevronDown className="w-5 h-5 text-foreground group-hover:text-foreground" />
-                    </button>
-                  </div>
+          {/* Scroll to bottom button - fixed above input form, aligned with messages */}
+          {!isAtBottom && messages.length > 0 && (
+            <div className={`absolute left-0 right-0 bottom-40 z-30 pointer-events-none px-4`}>
+              <div className="max-w-3xl px-4 mx-auto">
+                <div className="flex justify-end">
+                  <button
+                    onClick={() => scrollToBottom()}
+                    className="pointer-events-auto w-10 h-10 rounded-full bg-muted border-1 border-foreground/20 shadow-lg hover:bg-accent hover:border-foreground/30 hover:shadow-xl transition-all duration-200 flex items-center justify-center group"
+                    title="Scroll to bottom"
+                    aria-label="Scroll to bottom"
+                  >
+                    <ChevronDown className="w-5 h-5 text-foreground group-hover:text-foreground" />
+                  </button>
                 </div>
               </div>
-            )}
-          </div>
+            </div>
+          )}
 
           <div className={`z-10 transition-all duration-300 ease-in-out bg-background/80 backdrop-blur-sm ${messages.length === 0 && !currentThreadId
             ? 'w-full flex justify-center pb-3'

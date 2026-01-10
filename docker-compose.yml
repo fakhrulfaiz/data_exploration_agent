@@ -11,6 +11,10 @@ services:
       - ./backend:/app
       # Mount logs directory to local filesystem
       - ./backend/logs:/app/logs
+      # Mount local HuggingFace cache to share models with Docker
+      # Windows: C:\Users\<YourUsername>\.cache\huggingface
+      # Change this path to match your local HuggingFace cache location
+      - C:/Users/User/.cache/huggingface:/root/.cache/huggingface
     env_file:
       - .env
     environment:

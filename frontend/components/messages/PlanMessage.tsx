@@ -47,13 +47,13 @@ const PlanStepItem: React.FC<{ step: PlanStep }> = ({ step }) => {
     return (
         <div className="border border-border rounded-lg bg-background shadow-sm overflow-hidden">
             {/* Step header */}
-            <div className="px-4 py-3 bg-accent/50">
+            <div className="px-3 py-2 bg-accent/50">
                 <div className="flex items-start gap-2">
                     <span className="flex-shrink-0 flex items-center justify-center w-6 h-6 rounded-full bg-primary text-primary-foreground text-xs font-bold">
                         {step.stepNumber}
                     </span>
-                    <div className="flex-1 min-w-0">
-                        <p className="font-medium text-foreground">{step.title}</p>
+                    <div className="flex-1 min-w-0 flex items-center h-6">
+                        <p className="text-sm font-medium text-foreground">{step.title}</p>
                     </div>
                 </div>
             </div>
@@ -63,11 +63,11 @@ const PlanStepItem: React.FC<{ step: PlanStep }> = ({ step }) => {
                 <div className="border-t border-border">
                     <button
                         onClick={() => setIsToolsExpanded(!isToolsExpanded)}
-                        className="w-full px-4 py-2 flex items-center justify-between hover:bg-muted/50 transition-colors group"
+                        className="w-full px-3 py-1.5 flex items-center justify-between hover:bg-muted/50 transition-colors group"
                     >
                         <div className="flex items-center gap-2">
                             <Wrench className="w-3.5 h-3.5 text-muted-foreground group-hover:text-foreground transition-colors" />
-                            <span className="text-xs font-semibold text-muted-foreground group-hover:text-foreground uppercase tracking-wide transition-colors">
+                            <span className="text-[10px] font-semibold text-muted-foreground group-hover:text-foreground uppercase tracking-wide transition-colors">
                                 Suggested Tool Options
                             </span>
                         </div>
@@ -79,15 +79,15 @@ const PlanStepItem: React.FC<{ step: PlanStep }> = ({ step }) => {
                     </button>
 
                     {isToolsExpanded && (
-                        <div className="px-4 pb-3 pt-1">
-                            <ul className="space-y-2">
+                        <div className="px-3 pb-2 pt-1">
+                            <ul className="space-y-1">
                                 {step.toolOptions.map((tool, idx) => (
-                                    <li key={idx} className="flex gap-2 items-start text-sm">
+                                    <li key={idx} className="flex gap-2 items-start text-xs">
                                         <span className="flex-shrink-0 text-muted-foreground font-medium">
                                             {idx + 1}.
                                         </span>
                                         <div className="flex-1 min-w-0">
-                                            <span className="font-mono text-xs bg-muted px-1.5 py-0.5 rounded">
+                                            <span className="font-mono text-[10px] bg-muted px-1.5 py-0.5 rounded">
                                                 {tool.name}
                                             </span>
                                             <span className="text-muted-foreground ml-2">
@@ -104,7 +104,7 @@ const PlanStepItem: React.FC<{ step: PlanStep }> = ({ step }) => {
 
             {/* Requirements */}
             {step.requires && (
-                <div className="px-4 py-2 bg-muted/50 text-xs text-muted-foreground border-t border-border">
+                <div className="px-3 py-1.5 bg-muted/50 text-[10px] text-muted-foreground border-t border-border">
                     <span className="font-semibold">Requires:</span> {step.requires}
                 </div>
             )}
@@ -135,35 +135,37 @@ export const PlanMessage: React.FC<PlanMessageProps> = ({
 
         for (let i = 0; i < lines.length; i++) {
             const line = lines[i];
+            const trimmedLine = line.trim();
 
             // Check for Intent header
-            if (line.startsWith('**Intent**:')) {
-                intentMainIntent = line.replace('**Intent**:', '').trim();
+            if (trimmedLine.startsWith('**Intent**:')) {
+                intentMainIntent = trimmedLine.substring(11).trim(); // '**Intent**:'.length === 11
                 inIntent = true;
                 continue;
             }
 
             // Check for sub-intents (bullet points after Intent)
-            if (inIntent && line.trim().startsWith('•')) {
-                intentSubIntents.push(line.trim().substring(1).trim());
+            if (inIntent && trimmedLine.startsWith('•')) {
+                intentSubIntents.push(trimmedLine.substring(1).trim());
                 continue;
             }
 
             // Check for Strategy (ends intent section)
-            if (line.startsWith('**Strategy**:')) {
-                strategy = line.replace('**Strategy**:', '').trim();
+            if (trimmedLine.startsWith('**Strategy**:')) {
+                strategy = trimmedLine.substring(13).trim(); // '**Strategy**:'.length === 13
                 inIntent = false;
                 continue;
             }
 
             // Empty line ends intent section
-            if (inIntent && line.trim() === '') {
+            if (inIntent && trimmedLine === '') {
                 inIntent = false;
                 continue;
             }
 
             // Check for Step headers (e.g., **Step 1**: ...)
-            const stepMatch = line.match(/^\*\*Step (\d+)\*\*:\s*(.+)$/);
+            // Allow leading whitespace
+            const stepMatch = line.match(/^\s*\*\*Step (\d+)\*\*:\s*(.+)$/);
             if (stepMatch) {
                 // Save previous step if exists
                 if (currentStep) {
@@ -181,7 +183,7 @@ export const PlanMessage: React.FC<PlanMessageProps> = ({
             }
 
             // Check for Tool Options header
-            if (line.trim() === 'Tool Options:' && currentStep) {
+            if (trimmedLine === 'Tool Options:' && currentStep) {
                 inToolOptions = true;
                 inRequires = false;
                 continue;
@@ -200,8 +202,8 @@ export const PlanMessage: React.FC<PlanMessageProps> = ({
             }
 
             // Check for Requires
-            if (line.trim().startsWith('Requires:') && currentStep) {
-                currentStep.requires = line.replace('Requires:', '').trim();
+            if (trimmedLine.startsWith('Requires:') && currentStep) {
+                currentStep.requires = trimmedLine.substring(9).trim(); // 'Requires:'.length === 9
                 inToolOptions = false;
                 inRequires = true;
                 continue;
@@ -252,14 +254,14 @@ export const PlanMessage: React.FC<PlanMessageProps> = ({
                         ) : (
                             <ChevronRight className="w-4 h-4 text-muted-foreground" />
                         )}
-                        <span className="font-semibold text-foreground">
+                        <span className="font-medium text-sm text-foreground">
                             Execution Plan ({steps.length} {steps.length === 1 ? 'step' : 'steps'})
                         </span>
                     </button>
 
                     {/* Steps list */}
                     {isExpanded && (
-                        <div className="space-y-3">
+                        <div className="space-y-2">
                             {steps.map((step) => (
                                 <PlanStepItem key={step.stepNumber} step={step} />
                             ))}
