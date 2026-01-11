@@ -18,6 +18,7 @@ Key Features:
 
 import json
 import os
+from pathlib import Path
 from typing import Literal, List, Optional
 from pydantic import BaseModel, Field
 import torch
@@ -307,7 +308,7 @@ Transform raw images into structured, tabular data using the image_qna_tool.
 ## Tool Usage Rules (CRITICAL)
 When using image_qna_tool, use DIRECT IMPERATIVE QUERIES:
 - ❌ FORBIDDEN: "Can you see...", "Is there...", "What is...?"
-- ✅ REQUIRED: "main subjects in the image", "color palette used", "art style and technique"
+- ✅ REQUIRED: DIRECT IMPERATIVE QUERIES. EXAMPLE: "main subjects in the image", "image has animals", "total number of people"
 
 ## Workflow
 1. **Extract**: Call image_qna_tool for each required analysis
@@ -467,7 +468,7 @@ If the agent said it's done but you see missing analyses, mark task_complete=Fal
 **Missing**: {evaluation.missing_analyses}
 **Evaluator Notes**: {evaluation.reasoning}
 
-Please complete the remaining analyses.""")
+Please improvise and complete the remaining analyses accurately.""")
             return {"messages": [feedback_msg]}
         
         # Task complete - prepare for workspace update
@@ -516,11 +517,50 @@ def create_update_workspace_node(llm):
     # Import here to avoid circular imports
     from .data_plotting_tool import PythonREPL, CodeGeneratorOutput
     
+    # Define workspace paths
+    WORKSPACE_PATH = Path("/home/afiq/fyp/fafa-repo/backend/app/agents/dev/workspace")
+    OUTPUT_PATH = WORKSPACE_PATH / "outputs"
+    
     def update_workspace(state: ImageAnalysisState):
         """Save analysis results to CSV file."""
         
+        # Build a clear prompt for CSV generation
+        analysis_records = state.get("analysis_records", [])
+        original_task = state.get("original_task", "")
+        
+        # Create structured prompt for code generation
+        csv_prompt = f"""## Task
+Save the following image analysis results to a CSV file.
+
+## Original Task
+{original_task}
+
+## Analysis Results
+"""
+        for record in analysis_records:
+            if hasattr(record, 'to_string'):
+                csv_prompt += f"- {record.to_string()}\n"
+            else:
+                csv_prompt += f"- Image: {record.image_url}, Query: {record.query}, Answer: {record.answer}\n"
+        
+        csv_prompt += f"""
+
+## Instructions
+1. Generate Python code to save this data to a CSV file
+2. Use pandas to create a DataFrame with columns: image_url, query, answer
+3. Save to: {OUTPUT_PATH}/image_analysis_results.csv
+4. Use the ABSOLUTE path: {OUTPUT_PATH}/image_analysis_results.csv
+5. Print the full absolute path after saving
+
+## Output Path (MUST USE THIS EXACT PATH)
+{OUTPUT_PATH}/image_analysis_results.csv
+"""
+        
         workspace_helper = llm.with_structured_output(CodeGeneratorOutput)
-        workspace_details: CodeGeneratorOutput = workspace_helper.invoke(state["messages"])
+        workspace_details: CodeGeneratorOutput = workspace_helper.invoke([
+            SystemMessage(content="You are a Python code generator. Generate code to save data to CSV."),
+            HumanMessage(content=csv_prompt)
+        ])
         
         python_repl = PythonREPL()
         
@@ -536,6 +576,9 @@ def create_update_workspace_node(llm):
                     "feedback": f"CSV storage failed: {workspace_details.reasoning}"
                 }
             )
+        
+        # Ensure output directory exists
+        OUTPUT_PATH.mkdir(parents=True, exist_ok=True)
         
         # Execute the code
         result = python_repl.run(workspace_details.code)
@@ -553,8 +596,14 @@ def create_update_workspace_node(llm):
                 }
             )
         
+        # Determine the actual file path - prefer absolute path
+        file_name = workspace_details.file_name
+        if not os.path.isabs(file_name):
+            # Convert to absolute path in outputs directory
+            file_name = str(OUTPUT_PATH / os.path.basename(file_name))
+        
         output_message = AIMessage(
-            content=f"✅ Analysis complete. Data saved to: {workspace_details.file_name}\n\nExecution result: {result}"
+            content=f"✅ Analysis complete. Data saved to: {file_name}\\n\\nExecution result: {result}"
         )
         
         return Command(
