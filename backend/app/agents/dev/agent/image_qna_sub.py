@@ -173,22 +173,36 @@ def _load_image(img_url: str) -> Image.Image:
     parsed = urlparse(img_url)
 
     # Remote URL
-    if parsed.scheme in ("http", "https"):
-        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
-        response = requests.get(img_url, stream=True, headers=headers, timeout=30)
-        response.raise_for_status()
-        return Image.open(response.raw).convert("RGB")
+    # if parsed.scheme in ("http", "https"):
+    #     headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+    #     response = requests.get(img_url, stream=True, headers=headers, timeout=30)
+    #     response.raise_for_status()
+
+    #     img = Image.open(response.raw)
+    #     img.draft('RGB', (1024, 1024))
+    #     img.thumbnail((1024, 1024), Image.Resampling.LANCZOS)
+    #     return img.convert("RGB")
+        # return Image.open(response.raw).convert("RGB")
 
     # file:// URI
-    if parsed.scheme == "file":
-        path = parsed.path
-        if not os.path.exists(path):
-            raise FileNotFoundError(f"File not found: {path}")
-        return Image.open(path).convert("RGB")
+    # if parsed.scheme == "file":
+    #     path = parsed.path
+    #     if not os.path.exists(path):
+    #         raise FileNotFoundError(f"File not found: {path}")
+    #     img = Image.open(img_url)
+    #     img.draft('RGB', (1024, 1024))
+    #     img.thumbnail((1024, 1024), Image.Resampling.LANCZOS)
+    #     return img.convert("RGB")
 
     # Local path (no scheme)
+    # REMOVE LATER:::::::::::::::::::::::::::::::::::::
+    Image.MAX_IMAGE_PIXELS = None
+    # REMOVE LATER:::::::::::::::::::::::::::::::::::::
     if os.path.exists(img_url):
-        return Image.open(img_url).convert("RGB")
+        img = Image.open(img_url)
+        img.draft('RGB', (1024, 1024))
+        img.thumbnail((1024, 1024), Image.Resampling.LANCZOS)
+        return img.convert("RGB")
 
     raise ValueError(f"Image not found or unsupported path: {img_url}")
 
@@ -295,65 +309,143 @@ def build_image_qna_tool(use_gpu: Optional[bool] = None):
 # AGENT NODE WITH STATE-AWARE PROMPTING
 # ============================================================================
 
+def _extract_images_from_message(content: str) -> List[str]:
+    """Extract image paths from message content."""
+    import re
+    
+    # Try to extract from "Images to analyze: [...]" format
+    json_match = re.search(r'Images to analyze:\s*(\[.*?\])', content, re.DOTALL)
+    if json_match:
+        try:
+            return json.loads(json_match.group(1))
+        except json.JSONDecodeError:
+            pass
+    
+    # Try to extract from "img_path=[...]" format
+    img_path_match = re.search(r'img_path\s*=\s*(\[.*?\])', content, re.DOTALL)
+    if img_path_match:
+        try:
+            return json.loads(img_path_match.group(1))
+        except json.JSONDecodeError:
+            pass
+    
+    # Fallback: find all image paths matching pattern
+    matches = re.findall(r'images/img_\d+\.jpg', content)
+    return list(set(matches))
+
+
+def _extract_context_from_message(content: str) -> str:
+    """Extract context from previous tools in the message."""
+    import re
+    
+    context_match = re.search(r'Context from previous tools:\s*(.*?)(?:\n\n|$)', content, re.DOTALL)
+    if context_match:
+        return context_match.group(1).strip()
+    return ""
+
+
 def create_agent_node(llm, tools):
     """Create agent node that is aware of accumulated state."""
     
     def agent_node(state: ImageAnalysisState):
+        # Extract images and context from the first user message if not in state
+        images_to_process = list(state.get("images_to_process", []))
+        extracted_context = ""
+        
+        for msg in state["messages"]:
+            if isinstance(msg, HumanMessage):
+                # Extract images if not already set
+                if not images_to_process:
+                    images_to_process = _extract_images_from_message(msg.content)
+                # Extract context from previous tools
+                extracted_context = _extract_context_from_message(msg.content)
+                break
+        
         # Build context-aware system prompt
         system_prompt = """You are an Expert Visual Data Analyst for artwork databases.
 
 ## Your Role
-Transform raw images into structured, tabular data using the image_qna_tool.
+Analyze artwork images to extract specific visual information requested by the task.
+You MUST use the image_qna_tool to analyze each image.
 
 ## Tool Usage Rules (CRITICAL)
-When using image_qna_tool, use DIRECT IMPERATIVE QUERIES:
-- ❌ FORBIDDEN: "Can you see...", "Is there...", "What is...?"
-- ✅ REQUIRED: DIRECT IMPERATIVE QUERIES. EXAMPLE: "main subjects in the image", "image has animals", "total number of people"
+When using image_qna_tool:
+- Use DIRECT, SPECIFIC queries based on what the task asks for
+- ❌ FORBIDDEN: "Can you see...", "Is there...", "What is in this image?"
+- ✅ REQUIRED: Task-specific queries like:
+  - "number of swords in the image" (if task asks about swords)
+  - "number of babies visible" (if task asks about babies)  
+  - "art style of the painting" (if task asks about style)
+  - "main subjects depicted" (if task asks about subjects/content)
+
+## CRITICAL: Match Your Query to the Task
+- If task asks "how many swords" → query each image with "number of swords in the image"
+- If task asks "what is depicted" → query each image with "main subjects and objects depicted"
+- If task asks about a specific thing → query specifically for that thing
 
 ## Workflow
-1. **Extract**: Call image_qna_tool for each required analysis
-2. **Parse**: Process tool responses (JSON format with status, image_url, query, answer)
-3. **Accumulate**: Track all analyses for final synthesis
-4. **Report**: When done, provide summary table of all findings
+1. **Understand the Task**: Read the original task carefully to know WHAT to look for
+2. **Query Each Image**: Call image_qna_tool for EACH image with a task-relevant query
+3. **Process Results**: The tool returns JSON with the answer
+4. **Summarize**: After ALL images are processed, provide a summary table
 
 ## Important
-- Process ALL images mentioned in the task
-- If a tool returns an error, note it and continue with other images
-- Your final response should summarize ALL extracted data in tabular format
-
-## Current Context
+- You MUST process ALL images listed
+- Make ONE tool call per image with the appropriate query
+- If an image errors, continue with other images
 """
         
-        # Add accumulated analysis context to prompt
+        # Add dynamic context to prompt
         context_parts = []
         
-        if state.get("original_task"):
-            context_parts.append(f"**Original Task**: {state['original_task']}")
+        # Show original task prominently
+        original_task = state.get("original_task", "")
+        if original_task:
+            context_parts.append(f"## 🎯 ORIGINAL TASK\n{original_task}\n")
+        
+        # Show context from previous steps (e.g., database query results)
+        if extracted_context:
+            context_parts.append(f"## 📋 CONTEXT FROM PREVIOUS STEPS\n{extracted_context}\n")
+        
+        # Show images that need to be processed
+        images_processed = state.get("images_processed", [])
+        remaining = [img for img in images_to_process if img not in images_processed]
+        
+        if images_to_process:
+            context_parts.append(f"## 🖼️ IMAGES TO ANALYZE\nTotal: {len(images_to_process)} images")
+            context_parts.append(f"Image paths: {json.dumps(images_to_process)}\n")
+        
+        if remaining:
+            context_parts.append(f"## ⏳ REMAINING IMAGES ({len(remaining)} left)")
+            context_parts.append(f"Still need to process: {json.dumps(remaining)}\n")
+        elif images_to_process and not remaining:
+            context_parts.append("## ✅ ALL IMAGES PROCESSED\nProvide your final summary now.\n")
         
         # Show what's been analyzed so far
         records = state.get("analysis_records", [])
         if records:
-            context_parts.append(f"\n**Analyses Completed ({len(records)})**:")
+            context_parts.append(f"## 📊 COMPLETED ANALYSES ({len(records)} done)")
             for i, record in enumerate(records, 1):
                 if isinstance(record, dict):
-                    context_parts.append(f"  {i}. Image: {record.get('image_url', 'N/A')} | Q: {record.get('query', 'N/A')} | A: {record.get('answer', 'N/A')}")
+                    context_parts.append(f"  {i}. {record.get('image_url', 'N/A')}: Q=\"{record.get('query', 'N/A')}\" → A=\"{record.get('answer', 'N/A')}\"")
+                elif hasattr(record, 'to_string'):
+                    context_parts.append(f"  {i}. {record.to_string()}")
                 else:
-                    context_parts.append(f"  {i}. {record.to_string() if hasattr(record, 'to_string') else str(record)}")
+                    context_parts.append(f"  {i}. {str(record)}")
+            context_parts.append("")
         
-        # Show images yet to process
-        images_processed = state.get("images_processed", [])
-        images_to_process = state.get("images_to_process", [])
-        remaining = [img for img in images_to_process if img not in images_processed]
-        if remaining:
-            context_parts.append(f"\n**Remaining Images**: {remaining}")
-        
-        full_system = system_prompt + "\n".join(context_parts)
+        full_system = system_prompt + "\n" + "\n".join(context_parts)
         
         messages_for_llm = [SystemMessage(content=full_system)] + state["messages"]
         
         response = llm.bind_tools(tools).invoke(messages_for_llm)
         
-        return {"messages": [response]}
+        # Update state with extracted images if they weren't set
+        updates = {"messages": [response]}
+        if images_to_process and not state.get("images_to_process"):
+            updates["images_to_process"] = images_to_process
+        
+        return updates
     
     return agent_node
 

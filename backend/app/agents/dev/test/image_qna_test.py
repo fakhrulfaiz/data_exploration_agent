@@ -220,7 +220,7 @@ def run_all_tests(
         if test_images is None:
             test_images = ["images/img_0.jpg", "images/img_1.jpg"]
         if test_task is None:
-            test_task = "Analyze the art style and main subjects in each image."
+            test_task = "Analyze the number of fruits in both images."
         
         test_agent_execution(agent, test_task, test_images)
     else:
@@ -254,8 +254,8 @@ def full_test(model_name: str = "gpt-4o"):
         model_name=model_name,
         use_gpu=None,
         run_execution_test=True,
-        test_images=["images/img_0.jpg", "images/img_1.jpg"],
-        test_task="Analyze the art style and count the number of people in each painting."
+        test_images=["images/img_0.jpg", "images/img_94.jpg"],
+        test_task="Analyze the number of fruits in both images."
     )
 
 
@@ -294,5 +294,6 @@ if __name__ == "__main__":
         run_all_tests(
             model_name=args.model,
             use_gpu=use_gpu,
-            run_execution_test=False
+            run_execution_test=True,
+            
         )
