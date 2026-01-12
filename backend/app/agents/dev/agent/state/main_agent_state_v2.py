@@ -109,16 +109,16 @@ class ToolCapability(BaseModel):
 TOOL_CAPABILITIES = {
     "database_exploration_agent": ToolCapability(
         name="database_exploration_agent",
-        description="Queries SQL database for artwork metadata. Can access: title, inception, movement, genre, image_url, img_path. CANNOT analyze image content. IMPORTANT: When visual analysis is needed, ALWAYS include img_path column in your query to get local image paths.",
+        description="Queries SQL database for artwork metadata. Can access: title, inception, movement, genre, image_url, img_path. CANNOT analyze image content. IMPORTANT: When visual analysis is needed, ALWAYS include img_path column in your query to get local image paths. Automatically saves results to CSV.",
         required_args=["query"],
         optional_args=[],
         can_produce_csv=True,
         requires_csv_input=False,
-        example_args_json='{"query": "SELECT title, inception, img_path FROM paintings WHERE movement = \"Renaissance\" LIMIT 10"}'
+        example_args_json='{"query": "SELECT title, inception, img_path FROM paintings WHERE movement = \\"Renaissance\\" LIMIT 10"}'
     ),
     "image_qna_agent": ToolCapability(
         name="image_qna_agent",
-        description="Analyzes visual content of images using BLIP VQA. Can describe: colors, subjects, objects, people, style, composition. REQUIRES img_path values from the database (e.g., 'images/img_0.jpg'). These are LOCAL paths, not URLs.",
+        description="Analyzes visual content of images using BLIP VQA. Can describe: colors, subjects, objects, people, style, composition. REQUIRES img_path values from the database (e.g., 'images/img_0.jpg'). These are LOCAL paths, not URLs. Automatically saves results to CSV.",
         required_args=["query", "img_path"],
         optional_args=[],
         can_produce_csv=True,
@@ -127,12 +127,12 @@ TOOL_CAPABILITIES = {
     ),
     "data_plotting_agent": ToolCapability(
         name="data_plotting_agent",
-        description="Creates visualizations from CSV data. Supports: bar, line, scatter, pie charts.",
-        required_args=["task", "file_path"],
+        description="Creates visualizations from CSV data. Supports: bar, line, scatter, pie charts. IMPORTANT: Do NOT specify file_path - the system automatically uses the CSV from the previous step.",
+        required_args=["task"],
         optional_args=[],
         can_produce_csv=False,
         requires_csv_input=True,
-        example_args_json='{"task": "Create a bar chart showing painting counts by genre", "file_path": "workspace/outputs/genre_counts.csv"}'
+        example_args_json='{"task": "Create a bar chart showing the distribution"}'
     )
 }
 

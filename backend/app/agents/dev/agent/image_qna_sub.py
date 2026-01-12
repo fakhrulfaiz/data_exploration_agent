@@ -1,16 +1,24 @@
-# image_qna_subagent_v2.py - Redesigned with proper state management and evaluator context
+# image_qna_sub.py - Enhanced version with configurable LLM and GPU support
 
 """
-Key Fixes:
-1. State tracks: original_task, images_processed, analysis_history (structured)
-2. Tool properly updates state with structured data
-3. Evaluator has full context of what was analyzed
-4. Agent can synthesize from accumulated history
-5. Fixed conditional edges routing
+Improvements over image_qna_subagent_v2.py:
+1. Configurable LLM model name - pass any supported model via init_chat_model
+2. GPU-aware image analysis tool with automatic device detection
+3. Efficient batch processing with device placement optimization
+4. Flexible model initialization throughout the graph
+
+Key Features:
+- State tracks: original_task, images_processed, analysis_history (structured)
+- Tool properly updates state with structured data
+- Evaluator has full context of what was analyzed
+- Agent can synthesize from accumulated history
+- GPU acceleration for BLIP model when available
+- Configurable LLM backbone
 """
 
 import json
 import os
+from pathlib import Path
 from typing import Literal, List, Optional
 from pydantic import BaseModel, Field
 import torch
@@ -21,11 +29,44 @@ from transformers import BlipProcessor, BlipForQuestionAnswering
 from langchain_core.messages import ToolMessage, AIMessage, SystemMessage, HumanMessage
 from langchain_core.tools import tool
 from langgraph.types import Command
-from typing_extensions import Annotated, TypedDict
+from typing_extensions import Annotated
 import operator
 from langgraph.graph.message import add_messages
 from langgraph.graph import StateGraph, START, END, MessagesState
 from langgraph.prebuilt import ToolNode
+
+
+# ============================================================================
+# DEVICE AND GPU UTILITIES
+# ============================================================================
+
+def get_device():
+    """Detect and return the best available device (CUDA > MPS > CPU)."""
+    if torch.cuda.is_available():
+        device = "cuda"
+        gpu_info = f"CUDA (GPU: {torch.cuda.get_device_name(0)})"
+    elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+        device = "mps"
+        gpu_info = "MPS (Apple Silicon)"
+    else:
+        device = "cpu"
+        gpu_info = "CPU (No GPU available)"
+    
+    return device, gpu_info
+
+
+def get_memory_info():
+    """Get GPU memory information if available."""
+    if torch.cuda.is_available():
+        total_memory = torch.cuda.get_device_properties(0).total_memory / (1024**3)
+        reserved = torch.cuda.memory_reserved(0) / (1024**3)
+        allocated = torch.cuda.memory_allocated(0) / (1024**3)
+        return {
+            "total_gb": round(total_memory, 2),
+            "reserved_gb": round(reserved, 2),
+            "allocated_gb": round(allocated, 2)
+        }
+    return None
 
 
 # ============================================================================
@@ -132,43 +173,86 @@ def _load_image(img_url: str) -> Image.Image:
     parsed = urlparse(img_url)
 
     # Remote URL
-    if parsed.scheme in ("http", "https"):
-        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
-        response = requests.get(img_url, stream=True, headers=headers, timeout=30)
-        response.raise_for_status()
-        return Image.open(response.raw).convert("RGB")
+    # if parsed.scheme in ("http", "https"):
+    #     headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+    #     response = requests.get(img_url, stream=True, headers=headers, timeout=30)
+    #     response.raise_for_status()
+
+    #     img = Image.open(response.raw)
+    #     img.draft('RGB', (1024, 1024))
+    #     img.thumbnail((1024, 1024), Image.Resampling.LANCZOS)
+    #     return img.convert("RGB")
+        # return Image.open(response.raw).convert("RGB")
 
     # file:// URI
-    if parsed.scheme == "file":
-        path = parsed.path
-        if not os.path.exists(path):
-            raise FileNotFoundError(f"File not found: {path}")
-        return Image.open(path).convert("RGB")
+    # if parsed.scheme == "file":
+    #     path = parsed.path
+    #     if not os.path.exists(path):
+    #         raise FileNotFoundError(f"File not found: {path}")
+    #     img = Image.open(img_url)
+    #     img.draft('RGB', (1024, 1024))
+    #     img.thumbnail((1024, 1024), Image.Resampling.LANCZOS)
+    #     return img.convert("RGB")
 
     # Local path (no scheme)
+    # REMOVE LATER:::::::::::::::::::::::::::::::::::::
+    Image.MAX_IMAGE_PIXELS = None
+    # REMOVE LATER:::::::::::::::::::::::::::::::::::::
     if os.path.exists(img_url):
-        return Image.open(img_url).convert("RGB")
+        img = Image.open(img_url)
+        img.draft('RGB', (1024, 1024))
+        img.thumbnail((1024, 1024), Image.Resampling.LANCZOS)
+        return img.convert("RGB")
 
     raise ValueError(f"Image not found or unsupported path: {img_url}")
 
 
 # ============================================================================
-# BUILD IMAGE QNA TOOL WITH PROPER STATE UPDATES
+# BUILD GPU-AWARE IMAGE QNA TOOL
 # ============================================================================
 
-def build_image_qna_tool():
+def build_image_qna_tool(use_gpu: Optional[bool] = None):
     """
-    Build the image QnA tool with proper state management.
-    The tool now returns structured data that updates state correctly.
+    Build the image QnA tool with GPU acceleration support.
+    
+    Args:
+        use_gpu: Explicitly set GPU usage. If None, auto-detect.
+                 If False, force CPU even if GPU available.
+                 If True, require GPU (fail if unavailable).
+    
+    Returns:
+        The image_qna_tool function.
     """
-    # Initialize BLIP model
+    # Determine device
+    device, device_info = get_device()
+    
+    # Handle explicit GPU requirements
+    if use_gpu is True and device == "cpu":
+        raise RuntimeError("GPU requested but not available")
+    if use_gpu is False:
+        device = "cpu"
+    
+    print(f"🔧 Image QnA Tool initialized on: {device_info}")
+    
+    # Log memory if using GPU
+    if device != "cpu":
+        mem_info = get_memory_info()
+        if mem_info:
+            print(f"   GPU Memory: {mem_info['total_gb']}GB total, "
+                  f"{mem_info['allocated_gb']}GB allocated")
+    
+    # Initialize BLIP model on the selected device
     processor = BlipProcessor.from_pretrained("Salesforce/blip-vqa-base")
     model = BlipForQuestionAnswering.from_pretrained("Salesforce/blip-vqa-base")
+    model = model.to(device)
+    
+    # Set eval mode for inference
+    model.eval()
     
     @tool("image_qna_tool")
     def image_qna_tool(img_url: str, query: str) -> str:
         """
-        Extracts visual data from an image using BLIP VQA model.
+        Extracts visual data from an image using BLIP VQA model with GPU acceleration.
         
         Args:
             img_url: Path or URL to the image. Example: `images/img_0.jpg`
@@ -179,12 +263,16 @@ def build_image_qna_tool():
                    GOOD: "art style and technique used"
             
         Returns:
-            The extracted information from the image.
+            JSON string containing the extraction result with status, image_url, query, and answer.
         """
         try:
             image = _load_image(str(img_url))
-            inputs = processor(image, query, return_tensors="pt")
             
+            # Prepare inputs on the device
+            inputs = processor(image, query, return_tensors="pt")
+            inputs = {k: v.to(device) for k, v in inputs.items()}
+            
+            # Run inference with torch.no_grad for efficiency
             with torch.no_grad():
                 output_ids = model.generate(**inputs, max_length=50)
             
@@ -195,7 +283,8 @@ def build_image_qna_tool():
                 "status": "success",
                 "image_url": img_url,
                 "query": query,
-                "answer": answer
+                "answer": answer,
+                "device_used": device
             })
             
         except FileNotFoundError as e:
@@ -220,65 +309,143 @@ def build_image_qna_tool():
 # AGENT NODE WITH STATE-AWARE PROMPTING
 # ============================================================================
 
+def _extract_images_from_message(content: str) -> List[str]:
+    """Extract image paths from message content."""
+    import re
+    
+    # Try to extract from "Images to analyze: [...]" format
+    json_match = re.search(r'Images to analyze:\s*(\[.*?\])', content, re.DOTALL)
+    if json_match:
+        try:
+            return json.loads(json_match.group(1))
+        except json.JSONDecodeError:
+            pass
+    
+    # Try to extract from "img_path=[...]" format
+    img_path_match = re.search(r'img_path\s*=\s*(\[.*?\])', content, re.DOTALL)
+    if img_path_match:
+        try:
+            return json.loads(img_path_match.group(1))
+        except json.JSONDecodeError:
+            pass
+    
+    # Fallback: find all image paths matching pattern
+    matches = re.findall(r'images/img_\d+\.jpg', content)
+    return list(set(matches))
+
+
+def _extract_context_from_message(content: str) -> str:
+    """Extract context from previous tools in the message."""
+    import re
+    
+    context_match = re.search(r'Context from previous tools:\s*(.*?)(?:\n\n|$)', content, re.DOTALL)
+    if context_match:
+        return context_match.group(1).strip()
+    return ""
+
+
 def create_agent_node(llm, tools):
     """Create agent node that is aware of accumulated state."""
     
     def agent_node(state: ImageAnalysisState):
+        # Extract images and context from the first user message if not in state
+        images_to_process = list(state.get("images_to_process", []))
+        extracted_context = ""
+        
+        for msg in state["messages"]:
+            if isinstance(msg, HumanMessage):
+                # Extract images if not already set
+                if not images_to_process:
+                    images_to_process = _extract_images_from_message(msg.content)
+                # Extract context from previous tools
+                extracted_context = _extract_context_from_message(msg.content)
+                break
+        
         # Build context-aware system prompt
         system_prompt = """You are an Expert Visual Data Analyst for artwork databases.
 
 ## Your Role
-Transform raw images into structured, tabular data using the image_qna_tool.
+Analyze artwork images to extract specific visual information requested by the task.
+You MUST use the image_qna_tool to analyze each image.
 
 ## Tool Usage Rules (CRITICAL)
-When using image_qna_tool, use DIRECT IMPERATIVE QUERIES:
-- ❌ FORBIDDEN: "Can you see...", "Is there...", "What is...?"
-- ✅ REQUIRED: "main subjects in the image", "color palette used", "art style and technique"
+When using image_qna_tool:
+- Use DIRECT, SPECIFIC queries based on what the task asks for
+- ❌ FORBIDDEN: "Can you see...", "Is there...", "What is in this image?"
+- ✅ REQUIRED: Task-specific queries like:
+  - "number of swords in the image" (if task asks about swords)
+  - "number of babies visible" (if task asks about babies)  
+  - "art style of the painting" (if task asks about style)
+  - "main subjects depicted" (if task asks about subjects/content)
+
+## CRITICAL: Match Your Query to the Task
+- If task asks "how many swords" → query each image with "number of swords in the image"
+- If task asks "what is depicted" → query each image with "main subjects and objects depicted"
+- If task asks about a specific thing → query specifically for that thing
 
 ## Workflow
-1. **Extract**: Call image_qna_tool for each required analysis
-2. **Parse**: Process tool responses (JSON format with status, image_url, query, answer)
-3. **Accumulate**: Track all analyses for final synthesis
-4. **Report**: When done, provide summary table of all findings
+1. **Understand the Task**: Read the original task carefully to know WHAT to look for
+2. **Query Each Image**: Call image_qna_tool for EACH image with a task-relevant query
+3. **Process Results**: The tool returns JSON with the answer
+4. **Summarize**: After ALL images are processed, provide a summary table
 
 ## Important
-- Process ALL images mentioned in the task
-- If a tool returns an error, note it and continue with other images
-- Your final response should summarize ALL extracted data in tabular format
-
-## Current Context
+- You MUST process ALL images listed
+- Make ONE tool call per image with the appropriate query
+- If an image errors, continue with other images
 """
         
-        # Add accumulated analysis context to prompt
+        # Add dynamic context to prompt
         context_parts = []
         
-        if state.get("original_task"):
-            context_parts.append(f"**Original Task**: {state['original_task']}")
+        # Show original task prominently
+        original_task = state.get("original_task", "")
+        if original_task:
+            context_parts.append(f"## 🎯 ORIGINAL TASK\n{original_task}\n")
+        
+        # Show context from previous steps (e.g., database query results)
+        if extracted_context:
+            context_parts.append(f"## 📋 CONTEXT FROM PREVIOUS STEPS\n{extracted_context}\n")
+        
+        # Show images that need to be processed
+        images_processed = state.get("images_processed", [])
+        remaining = [img for img in images_to_process if img not in images_processed]
+        
+        if images_to_process:
+            context_parts.append(f"## 🖼️ IMAGES TO ANALYZE\nTotal: {len(images_to_process)} images")
+            context_parts.append(f"Image paths: {json.dumps(images_to_process)}\n")
+        
+        if remaining:
+            context_parts.append(f"## ⏳ REMAINING IMAGES ({len(remaining)} left)")
+            context_parts.append(f"Still need to process: {json.dumps(remaining)}\n")
+        elif images_to_process and not remaining:
+            context_parts.append("## ✅ ALL IMAGES PROCESSED\nProvide your final summary now.\n")
         
         # Show what's been analyzed so far
         records = state.get("analysis_records", [])
         if records:
-            context_parts.append(f"\n**Analyses Completed ({len(records)})**:")
+            context_parts.append(f"## 📊 COMPLETED ANALYSES ({len(records)} done)")
             for i, record in enumerate(records, 1):
                 if isinstance(record, dict):
-                    context_parts.append(f"  {i}. Image: {record.get('image_url', 'N/A')} | Q: {record.get('query', 'N/A')} | A: {record.get('answer', 'N/A')}")
+                    context_parts.append(f"  {i}. {record.get('image_url', 'N/A')}: Q=\"{record.get('query', 'N/A')}\" → A=\"{record.get('answer', 'N/A')}\"")
+                elif hasattr(record, 'to_string'):
+                    context_parts.append(f"  {i}. {record.to_string()}")
                 else:
-                    context_parts.append(f"  {i}. {record.to_string() if hasattr(record, 'to_string') else str(record)}")
+                    context_parts.append(f"  {i}. {str(record)}")
+            context_parts.append("")
         
-        # Show images yet to process
-        images_processed = state.get("images_processed", [])
-        images_to_process = state.get("images_to_process", [])
-        remaining = [img for img in images_to_process if img not in images_processed]
-        if remaining:
-            context_parts.append(f"\n**Remaining Images**: {remaining}")
-        
-        full_system = system_prompt + "\n".join(context_parts)
+        full_system = system_prompt + "\n" + "\n".join(context_parts)
         
         messages_for_llm = [SystemMessage(content=full_system)] + state["messages"]
         
         response = llm.bind_tools(tools).invoke(messages_for_llm)
         
-        return {"messages": [response]}
+        # Update state with extracted images if they weren't set
+        updates = {"messages": [response]}
+        if images_to_process and not state.get("images_to_process"):
+            updates["images_to_process"] = images_to_process
+        
+        return updates
     
     return agent_node
 
@@ -393,7 +560,7 @@ If the agent said it's done but you see missing analyses, mark task_complete=Fal
 **Missing**: {evaluation.missing_analyses}
 **Evaluator Notes**: {evaluation.reasoning}
 
-Please complete the remaining analyses.""")
+Please improvise and complete the remaining analyses accurately.""")
             return {"messages": [feedback_msg]}
         
         # Task complete - prepare for workspace update
@@ -442,11 +609,50 @@ def create_update_workspace_node(llm):
     # Import here to avoid circular imports
     from .data_plotting_tool import PythonREPL, CodeGeneratorOutput
     
+    # Define workspace paths
+    WORKSPACE_PATH = Path("/home/afiq/fyp/fafa-repo/backend/app/agents/dev/workspace")
+    OUTPUT_PATH = WORKSPACE_PATH / "outputs"
+    
     def update_workspace(state: ImageAnalysisState):
         """Save analysis results to CSV file."""
         
+        # Build a clear prompt for CSV generation
+        analysis_records = state.get("analysis_records", [])
+        original_task = state.get("original_task", "")
+        
+        # Create structured prompt for code generation
+        csv_prompt = f"""## Task
+Save the following image analysis results to a CSV file.
+
+## Original Task
+{original_task}
+
+## Analysis Results
+"""
+        for record in analysis_records:
+            if hasattr(record, 'to_string'):
+                csv_prompt += f"- {record.to_string()}\n"
+            else:
+                csv_prompt += f"- Image: {record.image_url}, Query: {record.query}, Answer: {record.answer}\n"
+        
+        csv_prompt += f"""
+
+## Instructions
+1. Generate Python code to save this data to a CSV file
+2. Use pandas to create a DataFrame with columns: image_url, query, answer
+3. Save to: {OUTPUT_PATH}/image_analysis_results.csv
+4. Use the ABSOLUTE path: {OUTPUT_PATH}/image_analysis_results.csv
+5. Print the full absolute path after saving
+
+## Output Path (MUST USE THIS EXACT PATH)
+{OUTPUT_PATH}/image_analysis_results.csv
+"""
+        
         workspace_helper = llm.with_structured_output(CodeGeneratorOutput)
-        workspace_details: CodeGeneratorOutput = workspace_helper.invoke(state["messages"])
+        workspace_details: CodeGeneratorOutput = workspace_helper.invoke([
+            SystemMessage(content="You are a Python code generator. Generate code to save data to CSV."),
+            HumanMessage(content=csv_prompt)
+        ])
         
         python_repl = PythonREPL()
         
@@ -462,6 +668,9 @@ def create_update_workspace_node(llm):
                     "feedback": f"CSV storage failed: {workspace_details.reasoning}"
                 }
             )
+        
+        # Ensure output directory exists
+        OUTPUT_PATH.mkdir(parents=True, exist_ok=True)
         
         # Execute the code
         result = python_repl.run(workspace_details.code)
@@ -479,16 +688,20 @@ def create_update_workspace_node(llm):
                 }
             )
         
+        # Determine the actual file path - prefer absolute path
+        file_name = workspace_details.file_name
+        if not os.path.isabs(file_name):
+            # Convert to absolute path in outputs directory
+            file_name = str(OUTPUT_PATH / os.path.basename(file_name))
+        
         output_message = AIMessage(
-            content=f"✅ Analysis complete. Data saved to: {workspace_details.file_name}\n\nExecution result: {result}"
+            content=f"✅ Analysis complete. Data saved to: {file_name}\\n\\nExecution result: {result}"
         )
         
         return Command(
             goto=END,
-            # graph=Command.PARENT,
             update={
                 "messages": [output_message],
-                # "feedback": f"Successfully completed image analysis. Data saved to {workspace_details.file_name}"
             }
         )
     
@@ -522,21 +735,41 @@ def route_after_evaluator(state: ImageAnalysisState) -> Literal["agent", "update
 
 
 # ============================================================================
-# BUILD THE GRAPH
+# BUILD THE GRAPH - WITH CONFIGURABLE LLM
 # ============================================================================
 
-def build_image_qna_agent():
-    """Build the complete image QnA agent graph."""
+def build_image_qna_agent(model_name: str = "gpt-4o", use_gpu: Optional[bool] = None):
+    """
+    Build the complete image QnA agent graph with configurable LLM and GPU support.
+    
+    Args:
+        model_name: LLM model to use with init_chat_model. Examples: "gpt-4o", "claude-3-5-sonnet",
+                   "claude-opus", "gemini-2.0-flash", etc. Defaults to "gpt-4o".
+        use_gpu: GPU usage for image analysis tool.
+                - None: Auto-detect and use GPU if available (default)
+                - True: Require GPU, fail if unavailable
+                - False: Force CPU even if GPU available
+    
+    Returns:
+        Compiled LangGraph StateGraph for the image analysis agent.
+        
+    Raises:
+        RuntimeError: If use_gpu=True but GPU is unavailable.
+    """
     
     import os
     from langchain.chat_models import init_chat_model
     from dotenv import load_dotenv
     
     load_dotenv()
-    llm = init_chat_model("gpt-4o")
     
-    # Build tools
-    image_qna_tool = build_image_qna_tool()
+    # Initialize LLM with provided model name
+    print(f"🤖 Initializing LLM: {model_name}")
+    llm = init_chat_model(model_name)
+    
+    # Build tools with GPU configuration
+    print(f"🖼️  Building image analysis tool (GPU: {'auto-detect' if use_gpu is None else use_gpu})...")
+    image_qna_tool = build_image_qna_tool(use_gpu=use_gpu)
     tools = [image_qna_tool]
     
     # Build nodes
@@ -609,12 +842,19 @@ def build_image_qna_agent():
 # HELPER: WRAP AS TOOL FOR SUPERVISOR
 # ============================================================================
 
-def create_image_analysis_tool_for_supervisor():
+def create_image_analysis_tool_for_supervisor(model_name: str = "gpt-4o", use_gpu: Optional[bool] = None):
     """
     Wrap the image analysis agent as a tool that can be called by a supervisor.
     This handles the state initialization and result extraction.
+    
+    Args:
+        model_name: LLM model to use. Examples: "gpt-4o", "claude-3-5-sonnet", etc.
+        use_gpu: GPU configuration for the image analysis tool.
+    
+    Returns:
+        A tool function that can be used by supervisor agents.
     """
-    graph = build_image_qna_agent()
+    graph = build_image_qna_agent(model_name=model_name, use_gpu=use_gpu)
     
     @tool("image_analysis_tool")
     def image_analysis_tool(task: str, image_urls: List[str]) -> str:
@@ -656,8 +896,23 @@ def create_image_analysis_tool_for_supervisor():
 # ============================================================================
 
 if __name__ == "__main__":
-    # Build and test the agent
+    # Example 1: Build with default settings (GPT-4o, GPU auto-detect)
+    print("=" * 80)
+    print("Example 1: Default settings (GPT-4o, GPU auto-detect)")
+    print("=" * 80)
     agent = build_image_qna_agent()
+    
+    # Example 2: Build with different LLM and explicit GPU usage
+    print("\n" + "=" * 80)
+    print("Example 2: Using Claude Sonnet with GPU")
+    print("=" * 80)
+    # agent = build_image_qna_agent(model_name="claude-3-5-sonnet-20241022", use_gpu=True)
+    
+    # Example 3: Using CPU only
+    print("\n" + "=" * 80)
+    print("Example 3: Using CPU only")
+    print("=" * 80)
+    # agent = build_image_qna_agent(use_gpu=False)
     
     # Test with a sample task
     test_state = {
@@ -669,6 +924,6 @@ if __name__ == "__main__":
         "tools_complete": False
     }
     
-    print("Starting image analysis agent test...")
+    print("\n🚀 Starting image analysis agent test...")
     # result = agent.invoke(test_state)
     # print("Result:", result)

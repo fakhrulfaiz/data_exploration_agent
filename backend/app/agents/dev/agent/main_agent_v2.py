@@ -174,16 +174,19 @@ def execute_data_exploration(query: str) -> tuple[StepResult, str]:
             if match:
                 output_file = match.group(1)
         
-        # Build context string for downstream tools
-        context = f"## Database Query Result (Step {{step_number}})\n\n"
+        # Build context string for downstream tools AND aggregator
+        # Include the full content so aggregator can see actual results
+        context = f"## Database Query Result\n\n"
+        context += f"**Query**: {query}\n\n"
+        
         if result_summary:
-            context += result_summary
-        else:
-            # Fallback: use content
-            context += content[:1000]
+            context += f"**Result Summary**:\n{result_summary}\n\n"
+        
+        # Include the actual content (full response from agent)
+        context += f"**Full Response**:\n{content}\n"
         
         if output_file:
-            context += f"\n\n**Output File**: {output_file}"
+            context += f"\n**Output File**: {output_file}"
         
         step_result = StepResult(
             step_number=0,  # Will be set by caller
@@ -233,6 +236,9 @@ def execute_image_qna(query: str, img_paths: List[str], tool_context: str = "") 
         last_message = result.get("messages", [])[-1] if result.get("messages") else None
         content = last_message.content if last_message and hasattr(last_message, 'content') else str(result)
         
+        # Get analysis records from subagent state (structured data)
+        analysis_records = result.get("analysis_records", [])
+        
         # Check for output file
         output_file = None
         if "saved to:" in content.lower():
@@ -241,14 +247,29 @@ def execute_image_qna(query: str, img_paths: List[str], tool_context: str = "") 
             if match:
                 output_file = match.group(1)
         
-        # Build context string for downstream tools
-        context = f"## Image Analysis Result (Step {{step_number}})\n\n"
-        context += f"**Images Analyzed**: {len(img_paths)}\n"
-        context += f"**Query**: {query}\n\n"
-        context += content[:1000]
+        # Build context string for downstream tools AND aggregator
+        # Include the full content so aggregator can see actual results
+        context = f"## Image Analysis Result\n\n"
+        context += f"**Query**: {query}\n"
+        context += f"**Images Analyzed**: {len(img_paths)}\n\n"
+        
+        # Include structured analysis records if available
+        if analysis_records:
+            context += "**Analysis Records**:\n"
+            for record in analysis_records:
+                if hasattr(record, 'to_string'):
+                    context += f"- {record.to_string()}\n"
+                elif isinstance(record, dict):
+                    context += f"- Image: {record.get('image_url', 'N/A')} | Query: {record.get('query', 'N/A')} | Answer: {record.get('answer', 'N/A')}\n"
+                else:
+                    context += f"- {str(record)}\n"
+            context += "\n"
+        
+        # Include the actual content (full response from agent)
+        context += f"**Full Response**:\n{content}\n"
         
         if output_file:
-            context += f"\n\n**Output File**: {output_file}"
+            context += f"\n**Output File**: {output_file}"
         
         step_result = StepResult(
             step_number=0,
@@ -653,7 +674,7 @@ Provide the exact arguments for the tool call using data from previous steps.
                         "tool_context": context,  # Store context for downstream tools
                         "generated_files": generated_files,
                         "messages": state.get("messages", []) + [
-                            AIMessage(content=f"✅ Step {current_step.step_number} completed:\n{result.result_content[:500]}...")
+                            AIMessage(content=f"✅ Step {current_step.step_number} completed:\n{result.result_content[:500]}...\n\n{context}")
                         ]
                     }
                 else:
@@ -717,8 +738,9 @@ def create_aggregator_node(llm):
     def aggregator_node(state: MainAgentState):
         """Aggregate all step results into a final answer."""
         
-        # Format all results
-        all_results = _format_step_results(state.get("step_results", []))
+        # Format all results - use tool_context for actual data
+        step_summary = _format_step_results(state.get("step_results", []))
+        tool_context = state.get("tool_context", "")
         generated_files = state.get("generated_files", [])
         
         aggregation_prompt = f"""You are summarizing the results of an executed plan.
@@ -726,18 +748,23 @@ def create_aggregator_node(llm):
 ## Original User Query
 {state.get("original_query", "Unknown")}
 
-## Executed Steps and Results
-{all_results}
+## Step Execution Summary
+{step_summary}
+
+## Detailed Results from Tools (IMPORTANT - Contains actual data!)
+{tool_context if tool_context else "No detailed results available."}
 
 ## Generated Files
 {json.dumps(generated_files) if generated_files else "None"}
 
 ## Your Task
 Create a comprehensive final answer that:
-1. Directly answers the user's original question
-2. Summarizes what was discovered
-3. References any generated files (CSV data, plots)
+1. **DIRECTLY ANSWERS** the user's query with specific data/findings from the "Detailed Results" above
+2. Include actual numbers, names, dates, or values found
+3. Reference any generated files (CSV data, plots) and what they contain
 4. Notes any limitations or caveats
+
+IMPORTANT: The user wants to know the ACTUAL ANSWER (e.g., "The newest painting is X from year Y"), not just that the task was completed.
 """
         
         aggregator = llm.with_structured_output(FinalAnswer)
@@ -876,7 +903,7 @@ def route_after_planner(state: MainAgentState) -> Literal["executor", "interrupt
 def build_main_agent(checkpointer=None):
     """Build the main agent graph."""
     
-    llm = init_chat_model("gpt-4o-mini")
+    llm = init_chat_model("gpt-4o")
     
     # Create nodes
     planner = create_planner_node(llm)

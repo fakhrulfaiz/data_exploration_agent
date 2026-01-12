@@ -1,21 +1,17 @@
-# data_plotting_subagent.py - ReAct-based plotting agent for basic visualizations
+# data_plotting_sub.py - Enhanced version with configurable LLM model
 
 """
-Data Plotting Subagent
+Improvements over data_plotting_subagent.py:
+1. Configurable LLM model name - pass any supported model via init_chat_model
+2. Better testability with separate functions
+3. Flexible model initialization throughout the graph
 
-A ReAct-style agent that:
-1. Receives plotting task + file path from main agent
-2. Reads CSV data to understand structure and columns
-3. Creates basic plots (bar, line, scatter, pie, histogram) using generate_plot tool
-4. Evaluates if generated plots satisfy the user's intent
-5. Returns results to main agent via result_summary
-
-Supported Plot Types:
-- bar: Compare categories
-- line: Show trends over time/sequence  
-- scatter: Show relationships between numeric variables
-- pie: Show proportions
-- histogram: Show distribution of a single variable
+Key Features:
+- ReAct-style agent for data visualization
+- LLM-based code generation for plots
+- Supports bar, line, scatter, pie, histogram
+- Configurable LLM backbone
+- Proper state management with plot records
 """
 
 import os
@@ -40,7 +36,7 @@ from langgraph.types import Command
 from pydantic import BaseModel, Field
 from dotenv import load_dotenv
 
-from agent.state.data_plotting_state import (
+from .state.data_plotting_state import (
     DataPlottingState,
     PlotRecord,
     FileInfo,
@@ -233,7 +229,7 @@ def generate_plot_with_llm(
 
 
 # ============================================================================
-# TOOLS
+# TOOLS - WITH CONFIGURABLE LLM
 # ============================================================================
 
 # Store LLM reference for tool use (set during agent creation)
@@ -243,6 +239,11 @@ def set_plotting_llm(llm):
     """Set the LLM to use for plot code generation."""
     global _plotting_llm
     _plotting_llm = llm
+
+
+def get_plotting_llm():
+    """Get the current plotting LLM."""
+    return _plotting_llm
 
 
 @tool("read_csv_file")
@@ -263,6 +264,9 @@ def read_csv_file(file_path: str) -> str:
         if not os.path.exists(full_path):
             # Try workspace directly
             full_path = os.path.join(WORKSPACE_DIR, file_path)
+        if not os.path.exists(full_path):
+            # Try workspace/outputs
+            full_path = os.path.join(WORKSPACE_DIR, "outputs", file_path)
         if not os.path.exists(full_path):
             # Use as-is
             full_path = file_path
@@ -319,6 +323,8 @@ def generate_plot(
         full_path = os.path.join(WORKSPACE_DIR, "data", file_path)
         if not os.path.exists(full_path):
             full_path = os.path.join(WORKSPACE_DIR, file_path)
+        if not os.path.exists(full_path):
+            full_path = os.path.join(WORKSPACE_DIR, "outputs", file_path)
         if not os.path.exists(full_path):
             full_path = file_path
     else:
@@ -723,14 +729,73 @@ def route_after_evaluator(state: DataPlottingState) -> str:
 
 
 # ============================================================================
-# BUILD GRAPH
+# NODE: INITIALIZE FILE INFO
 # ============================================================================
 
-def build_plotting_agent(llm=None):
-    """Build the plotting subagent graph."""
+def initialize_file_info_node(state: DataPlottingState):
+    """Pre-load file information at the start to give agent context."""
     
-    if llm is None:
-        llm = init_chat_model("gpt-4o")
+    files_to_plot = state.get("files_to_plot", [])
+    
+    if not files_to_plot:
+        return {}
+    
+    # Get the first file to plot
+    file_path = files_to_plot[0]
+    
+    # Resolve file path
+    if not os.path.isabs(file_path):
+        full_path = os.path.join(WORKSPACE_DIR, "data", file_path)
+        if not os.path.exists(full_path):
+            full_path = os.path.join(WORKSPACE_DIR, file_path)
+        if not os.path.exists(full_path):
+            full_path = os.path.join(WORKSPACE_DIR, "outputs", file_path)
+        if not os.path.exists(full_path):
+            full_path = file_path
+    else:
+        full_path = file_path
+    
+    if not os.path.exists(full_path):
+        return {
+            "error_occurred": True,
+            "error_message": f"File not found: {file_path} (tried: {full_path})"
+        }
+    
+    try:
+        df = pd.read_csv(full_path)
+        file_info = FileInfo(
+            file_path=full_path,
+            file_content_preview=df.head(10).to_string(),
+            columns=list(df.columns),
+            row_count=len(df)
+        )
+        return {"file_info": file_info}
+    except Exception as e:
+        return {
+            "error_occurred": True,
+            "error_message": f"Error reading file: {str(e)}"
+        }
+
+
+# ============================================================================
+# BUILD GRAPH - WITH CONFIGURABLE LLM
+# ============================================================================
+
+def build_plotting_agent(model_name: str = "gpt-4o"):
+    """
+    Build the plotting subagent graph with configurable LLM.
+    
+    Args:
+        model_name: LLM model to use with init_chat_model. Examples: "gpt-4o", "claude-3-5-sonnet",
+                   "gemini-2.0-flash", etc. Defaults to "gpt-4o".
+    
+    Returns:
+        Compiled LangGraph StateGraph for the plotting agent.
+    """
+    print(f"🤖 Initializing LLM: {model_name}")
+    llm = init_chat_model(model_name)
+    
+    print(f"📊 Building plotting agent...")
     
     # Create nodes
     agent_node = create_agent_node(llm)
@@ -740,14 +805,16 @@ def build_plotting_agent(llm=None):
     builder = StateGraph(DataPlottingState)
     
     # Add nodes
+    builder.add_node("initialize", initialize_file_info_node)
     builder.add_node("agent", agent_node)
     builder.add_node("tools", ToolNode(plotting_tools))
     builder.add_node("process_results", process_results_node)
     builder.add_node("evaluator", evaluator_node)
     builder.add_node("update_workspace", update_workspace_node)
     
-    # Add edges
-    builder.add_edge(START, "agent")
+    # Add edges - start with initialization
+    builder.add_edge(START, "initialize")
+    builder.add_edge("initialize", "agent")
     builder.add_conditional_edges(
         "agent",
         route_after_agent,
@@ -775,23 +842,24 @@ def build_plotting_agent(llm=None):
 # HELPER FUNCTIONS FOR INTEGRATION
 # ============================================================================
 
-def get_plotting_agent():
-    """Get or create the plotting agent singleton."""
-    return build_plotting_agent()
+def get_plotting_agent(model_name: str = "gpt-4o"):
+    """Get or create the plotting agent with specified model."""
+    return build_plotting_agent(model_name=model_name)
 
 
-def execute_plotting_task(task: str, file_path: str) -> tuple[dict, str]:
+def execute_plotting_task(task: str, file_path: str, model_name: str = "gpt-4o") -> tuple[dict, str]:
     """
     Execute a plotting task and return results.
     
     Args:
         task: The plotting task description
         file_path: Path to the CSV file to plot
+        model_name: LLM model to use
     
     Returns:
         Tuple of (result dict, result_summary string)
     """
-    agent = get_plotting_agent()
+    agent = get_plotting_agent(model_name=model_name)
     
     result = agent.invoke({
         "messages": [HumanMessage(content=f"Create plots for: {task}\nData file: {file_path}")],
@@ -806,12 +874,62 @@ def execute_plotting_task(task: str, file_path: str) -> tuple[dict, str]:
     return result, result.get("result_summary", "")
 
 
+def create_plotting_tool_for_supervisor(model_name: str = "gpt-4o"):
+    """
+    Wrap the plotting agent as a tool that can be called by a supervisor.
+    
+    Args:
+        model_name: LLM model to use. Examples: "gpt-4o", "claude-3-5-sonnet", etc.
+    
+    Returns:
+        A tool function that can be used by supervisor agents.
+    """
+    graph = build_plotting_agent(model_name=model_name)
+    
+    @tool("plotting_tool")
+    def plotting_tool(task: str, file_path: str) -> str:
+        """
+        Create plots from CSV data based on the task.
+        
+        Args:
+            task: Description of what plot to create (e.g., "bar chart of genre distribution")
+            file_path: Path to the CSV file to visualize
+            
+        Returns:
+            Paths to generated plot files, or error message.
+        """
+        # Initialize state with task context
+        initial_state = {
+            "messages": [HumanMessage(content=f"Create plots for: {task}\nData file: {file_path}")],
+            "original_task": task,
+            "files_to_plot": [file_path],
+            "plot_records": [],
+            "plots_generated": [],
+            "tools_complete": False,
+            "result_summary": ""
+        }
+        
+        # Run the graph
+        result = graph.invoke(initial_state)
+        
+        # Extract final message
+        if result.get("messages"):
+            last_msg = result["messages"][-1]
+            return last_msg.content if hasattr(last_msg, 'content') else str(last_msg)
+        
+        return "Plotting completed but no output message generated."
+    
+    return plotting_tool
+
+
 # ============================================================================
 # MAIN - Testing
 # ============================================================================
 
 if __name__ == "__main__":
-    print("=== Data Plotting Subagent Test ===\n")
+    print("=" * 80)
+    print("Data Plotting Subagent Test (GPT-4o)")
+    print("=" * 80)
     
     # Test with a sample task
     task = "Create a bar chart showing the distribution of painting genres"
@@ -833,14 +951,15 @@ if __name__ == "__main__":
         "result_summary": ""
     }
     
-    print("\nStreaming agent execution:\n")
-    for step in agent.stream(initial_state, stream_mode="values"):
-        if "messages" in step and step["messages"]:
-            last_msg = step["messages"][-1]
-            print(f"[{type(last_msg).__name__}]")
-            if hasattr(last_msg, 'content') and last_msg.content:
-                print(last_msg.content[:500])
-            print("-" * 30)
-    
-    print("\n=== Final Result Summary ===")
-    print(step.get("result_summary", "No summary"))
+    print("\n🚀 Starting plotting agent test...")
+    # Uncomment to run:
+    # for step in agent.stream(initial_state, stream_mode="values"):
+    #     if "messages" in step and step["messages"]:
+    #         last_msg = step["messages"][-1]
+    #         print(f"[{type(last_msg).__name__}]")
+    #         if hasattr(last_msg, 'content') and last_msg.content:
+    #             print(last_msg.content[:500])
+    #         print("-" * 30)
+    # 
+    # print("\n=== Final Result Summary ===")
+    # print(step.get("result_summary", "No summary"))

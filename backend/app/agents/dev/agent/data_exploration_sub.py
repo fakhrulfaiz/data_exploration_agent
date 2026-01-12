@@ -1,13 +1,18 @@
-# data_exploration_subagent_v2.py - Redesigned with proper state management and evaluator context
+# data_exploration_sub.py - Enhanced version with configurable LLM model
 
 """
-Key Fixes:
-1. State tracks: original_task, schema_info, query_history (structured)
-2. Tool properly updates state with structured QueryRecord
-3. Evaluator has full context of what was queried and results
-4. Agent can synthesize from accumulated query history
-5. Fixed conditional edges routing
-6. Proper CSV export implementation
+Improvements over data_exploration_subagent_v2.py:
+1. Configurable LLM model name - pass any supported model via init_chat_model
+2. Better testability with separate functions
+3. Flexible model initialization throughout the graph
+
+Key Features:
+- State tracks: original_task, schema_info, query_history (structured)
+- Tool properly updates state with structured QueryRecord
+- Evaluator has full context of what was queried and results
+- Agent can synthesize from accumulated query history
+- Proper CSV export implementation
+- Configurable LLM backbone
 """
 
 import os
@@ -46,9 +51,23 @@ from .state.data_exploration_state_v2 import (
 # DATABASE SETUP
 # ============================================================================
 
-def setup_database():
-    """Setup database connection and tools."""
-    db_path = "/home/afiq/fyp/fafa-repo/backend/app/resource/art.db"
+# Default database path - can be overridden
+DEFAULT_DB_PATH = "/home/afiq/fyp/fafa-repo/backend/app/resource/art.db"
+
+
+def setup_database(db_path: str = None):
+    """
+    Setup database connection.
+    
+    Args:
+        db_path: Path to the SQLite database. Uses default if not provided.
+    
+    Returns:
+        SQLDatabase instance
+    """
+    if db_path is None:
+        db_path = DEFAULT_DB_PATH
+    
     sql_url = f"sqlite:///{db_path}"
     db = SQLDatabase.from_uri(sql_url)
     return db
@@ -58,6 +77,24 @@ def setup_toolkit(db: SQLDatabase, llm):
     """Setup SQL toolkit with all necessary tools."""
     toolkit = SQLDatabaseToolkit(db=db, llm=llm)
     return toolkit.get_tools()
+
+
+def get_database_info(db_path: str = None) -> dict:
+    """
+    Get basic database information for testing.
+    
+    Args:
+        db_path: Path to the database
+    
+    Returns:
+        Dictionary with database info
+    """
+    db = setup_database(db_path)
+    return {
+        "dialect": db.dialect,
+        "tables": db.get_usable_table_names(),
+        "db_path": db_path or DEFAULT_DB_PATH
+    }
 
 
 # ============================================================================
@@ -418,7 +455,6 @@ Please continue exploring to gather the required data.""")
 
 Please provide a final synthesized response with the data in tabular format.""")
             
-            # return {"messages": [feedback_msg]}
             # Command to the parent graph
             return Command(
                 goto="interrupt_for_replan",
@@ -583,10 +619,9 @@ def create_update_workspace_node(llm):
             
             return Command(
                 goto=END,
-                # graph=Command.PARENT,
                 update={
                     "messages": [output_message],
-                    "result_summary": result_summary,  # Pass summary for other agents
+                    "result_summary": result_summary,
                 }
             )
             
@@ -634,16 +669,30 @@ def route_after_evaluator(state: DataExplorationState) -> Literal["generate_quer
 
 
 # ============================================================================
-# BUILD THE GRAPH
+# BUILD THE GRAPH - WITH CONFIGURABLE LLM
 # ============================================================================
 
-def build_data_exploration_agent():
-    """Build the complete data exploration agent graph."""
+def build_data_exploration_agent(model_name: str = "gpt-4o", db_path: str = None):
+    """
+    Build the complete data exploration agent graph with configurable LLM.
     
-    # Initialize components
-    llm = init_chat_model("gpt-4o")
-    db = setup_database()
+    Args:
+        model_name: LLM model to use with init_chat_model. Examples: "gpt-4o", "claude-3-5-sonnet",
+                   "gemini-2.0-flash", etc. Defaults to "gpt-4o".
+        db_path: Path to the SQLite database. Uses default if not provided.
+    
+    Returns:
+        Compiled LangGraph StateGraph for the data exploration agent.
+    """
+    print(f"🤖 Initializing LLM: {model_name}")
+    llm = init_chat_model(model_name)
+    
+    print(f"🗄️  Connecting to database...")
+    db = setup_database(db_path)
     tools = setup_toolkit(db, llm)
+    
+    print(f"   Database dialect: {db.dialect}")
+    print(f"   Tables available: {db.get_usable_table_names()}")
     
     # Get specific tools
     get_schema_tool = next(t for t in tools if t.name == "sql_db_schema")
@@ -717,11 +766,18 @@ def build_data_exploration_agent():
 # HELPER: WRAP AS TOOL FOR SUPERVISOR
 # ============================================================================
 
-def create_data_exploration_tool_for_supervisor():
+def create_data_exploration_tool_for_supervisor(model_name: str = "gpt-4o", db_path: str = None):
     """
     Wrap the data exploration agent as a tool that can be called by a supervisor.
+    
+    Args:
+        model_name: LLM model to use. Examples: "gpt-4o", "claude-3-5-sonnet", etc.
+        db_path: Path to the SQLite database.
+    
+    Returns:
+        A tool function that can be used by supervisor agents.
     """
-    graph = build_data_exploration_agent()
+    graph = build_data_exploration_agent(model_name=model_name, db_path=db_path)
     
     @tool("data_exploration_tool")
     def data_exploration_tool(task: str) -> str:
@@ -761,10 +817,13 @@ def create_data_exploration_tool_for_supervisor():
 # TESTING
 # ============================================================================
 
-# Initialize the agent for direct use
-agent = build_data_exploration_agent()
-
 if __name__ == "__main__":
+    # Example 1: Build with default settings (GPT-4o)
+    print("=" * 80)
+    print("Example 1: Default settings (GPT-4o)")
+    print("=" * 80)
+    agent = build_data_exploration_agent()
+    
     # Example usage
     question = "Which genre has the most paintings? Show all genres with their painting counts."
     
@@ -777,9 +836,10 @@ if __name__ == "__main__":
         "ready_for_export": False
     }
     
-    print("Starting data exploration agent test...")
+    print(f"\n🚀 Starting data exploration agent test...")
     print(f"Task: {question}\n")
     
-    for step in agent.stream(initial_state, stream_mode="values"):
-        if step.get("messages"):
-            step["messages"][-1].pretty_print()
+    # Uncomment to run:
+    # for step in agent.stream(initial_state, stream_mode="values"):
+    #     if step.get("messages"):
+    #         step["messages"][-1].pretty_print()

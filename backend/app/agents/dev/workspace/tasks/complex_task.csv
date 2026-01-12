@@ -22,9 +22,9 @@ Get the highest number of swords depicted in paintings of each movement
 Get the highest number of swords depicted in paintings of each genre
 Get the century of the newest painting per movement
 Get the century of the newest painting per genre
-"Find the total number of paitings depicting war and number of painting depecting sword in Renaissance",
-"Retrieve the average number of paintings depicting a person and the total number of artworks depicting swords for each century.",
-"Create a plot displaying the count of paintings in each genre, as well as a plot showing the count of paintings in each movement",
-"Visualize the number of paintings corresponding to each century and Show the century of the most recent painting for each genre.",
-"Plot the total number of paintings depicting war and the number of paintings depicting swords in religious arts.",
-"Create a plot to display the number of paintings for each year and get the total number of paintings for each genre."
+Find the total number of paitings depicting war and number of painting depecting sword in Renaissance,
+Retrieve the average number of paintings depicting a person and the total number of artworks depicting swords for each century,
+Create a plot displaying the count of paintings in each genre, as well as a plot showing the count of paintings in each movement",
+Visualize the number of paintings corresponding to each century and Show the century of the most recent painting for each genre",
+Plot the total number of paintings depicting war and the number of paintings depicting swords in religious arts",
+Create a plot to display the number of paintings for each year and get the total number of paintings for each genre"
