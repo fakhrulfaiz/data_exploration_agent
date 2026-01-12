@@ -11,7 +11,7 @@ import logging
 
 from app.agents.nodes.planner_node import PlannerNode
 from app.agents.schemas.tool_selection import IntentUnderstanding, DynamicPlan
-from app.agents.prompts.planner_context_template import get_planner_context, INTENT_SYSTEM_PROMPT
+from app.agents.prompts.planner_context_template import get_planner_context, get_intent_system_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -41,9 +41,30 @@ class ExplainablePlannerNode(PlannerNode):
             except Exception as e:
                 logger.warning(f"Failed to fetch user preferences: {e}")
         
-        # Get context from template with user preferences
         context = get_planner_context(user_preferences)
-        system_message = INTENT_SYSTEM_PROMPT.format(context=context)
+        try:
+            from app.services.rag_service import get_rag_service
+            
+            rag_service = get_rag_service()
+            thought_patterns = rag_service.retrieve_thought_patterns(
+                query=user_query,
+                n_results=2 
+            )
+            
+            if thought_patterns:
+                examples_context = "\n\n**Similar Query Examples**:\n"
+                for i, pattern in enumerate(thought_patterns, 1):
+                    examples_context += f"\nExample {i} ({pattern['complexity']} complexity):\n"
+                    examples_context += f"Query: \"{pattern['example_query']}\"\n"
+                    examples_context += f"Thought: {pattern['example_thought']}\n"
+                
+                context += examples_context
+                logger.info(f"Retrieved {len(thought_patterns)} thought pattern examples from RAG")
+                logger.debug(f"Pattern types: {[p['pattern_type'] for p in thought_patterns]}")
+        except Exception as e:
+            logger.warning(f"Failed to retrieve thought patterns from RAG: {e}")
+        
+        system_message = get_intent_system_prompt(context=context, user_preferences=user_preferences)
 
         user_message = f"""Analyze this query: "{user_query}" """
         
@@ -54,7 +75,7 @@ class ExplainablePlannerNode(PlannerNode):
                 HumanMessage(content=user_message)
             ])
             
-            logger.info(f"Generated thought process: {response.content.strip()}")
+            logger.info(f"Generated thought process: {response.content.strip()[:100]}...")
             
             # Return only the response message for streaming
             return response
@@ -131,6 +152,7 @@ The previous plan failed with the following error:
         planning_prompt = f"""You are an efficient task planner. Your job is to plan tasks that handle dependencies correctly.
     You are given a user query/task and a list of tools.
  
+If Intent provided, it may included many technical detail, do not include it in the strategy and each step goal. Be concise. 
 {intent_context}
 
 {error_context}
@@ -138,23 +160,14 @@ The previous plan failed with the following error:
 **Query**: {user_query}
 
 **INSTRUCTIONS**:
-
 1. **Recognize Dependencies** - If a tool needs data/information from another tool, create separate steps
 2. **Be Minimal BUT Complete** - Only create necessary steps, but don't skip steps that provide required inputs
 3. **Think Through Data Flow** - Ask yourself: "Does this tool have the data it needs to execute?"
 4. **Write CLEAR step goals** - Each goal will be used as a prompt for the execution agent, so be specific and actionable
 5. **One Step Can Mean Multiple Tool Calls** - The execution agent can call the same tool multiple times with different arguments for a single step
-6. **Prefer SQL over Python** - If a sub-agent can filter/sort/limit data in the database (e.g., "oldest", "top 5"), do it in the query step instead of retrieving all data and using python_repl.
-
-**Dependency Recognition Examples**:
-- BAD: "Use image_qa_mock to analyze the 2 oldest paintings" (Where do the image URLs come from?)
-- GOOD: Step 1: "Query database to get the 2 oldest paintings and their image URLs"
-          Step 2: "Use image_qa_mock to analyze the images from step 1"
-
-- BAD: "Create a visualization of customer distribution" (What data? From where?)
-- GOOD: Step 1: "Query database to get customer distribution data"
-          Step 2: "Create visualization using the data from step 1"
-
+6. **Prefer SQL over Python** - If a sub-agent can filter/sort/limit data in the database (e.g., "oldest", "top 5"), do it in the query step instead of retrieving all data and using 'smart_data_analysis'.
+7. **Visual/Depiction Queries**: If query implies visual content (e.g. 'depicting', 'showing', 'swords', 'war'), you MUST create a step for `image_batch_qa_tool` to extract this data FIRST. DO NOT use `smart_data_analysis` to "count" or "find" visual attributes directly - it cannot see images.
+8. **If use Image QA tool** - must query and return 'img_path' not image URL column
 **When to Create Multiple Steps**:
 - Tool needs data that must be retrieved first (database → analysis)
 - Tool needs output from another tool (query → transform → visualize)
@@ -169,7 +182,6 @@ The previous plan failed with the following error:
 - The execution agent can generate MULTIPLE tool calls for a SINGLE step if needed
 - Don't artificially split steps when the same tool can handle multiple variations in parallel
 - Example: "Create bar, line, and pie charts" → execution agent calls the viz tool 3 times with different args
-
 **Plan Template**:
 
 Step 1:

@@ -144,6 +144,31 @@ class RedisDataFrameService(RedisService):
             logger.error(f"Failed to extend TTL for DataFrame {df_id}: {str(e)}")
             return False
     
+    def update_dataframe(self, df: pd.DataFrame, df_id: str) -> bool:
+        try:
+            # Serialize the updated DataFrame
+            df_bytes = pickle.dumps(df)
+            
+            # Update the DataFrame with the same key
+            self.redis.setex(df_id, self.ttl, df_bytes)
+            
+            # Update metadata to reflect new columns and shape
+            metadata = self.get_metadata(df_id)
+            if metadata:
+                metadata['columns'] = df.columns.tolist()
+                metadata['shape'] = df.shape
+                metadata_key = f"{df_id}:meta"
+                metadata_bytes = pickle.dumps(metadata)
+                self.redis.setex(metadata_key, self.ttl, metadata_bytes)
+            
+            logger.info(f"Updated DataFrame {df_id} with new shape {df.shape}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to update DataFrame {df_id}: {str(e)}")
+            return False
+    
+    
     def list_dataframes(self) -> List[Dict[str, Any]]:
         try:
             # Find all DataFrame keys

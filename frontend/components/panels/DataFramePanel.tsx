@@ -1,7 +1,7 @@
 "use client";
 
 import React from 'react';
-import { X, Table as TableIcon, Database } from 'lucide-react';
+import { X, Table as TableIcon, Database, RefreshCw } from 'lucide-react';
 import type { DataFramePreviewData } from '@/types';
 import {
     Table,
@@ -19,12 +19,14 @@ interface DataFramePanelProps {
     open: boolean;
     onClose: () => void;
     data: DataFramePreviewData | null;
+    onRefresh?: () => void;
 }
 
 const DataFramePanel: React.FC<DataFramePanelProps> = ({
     open,
     onClose,
-    data
+    data,
+    onRefresh
 }) => {
     const pageSize = 20;
 
@@ -62,12 +64,23 @@ const DataFramePanel: React.FC<DataFramePanelProps> = ({
                     <Database className="h-5 w-5 text-primary" />
                     <h2 className="text-lg font-semibold">Data Context</h2>
                 </div>
-                <button
-                    onClick={onClose}
-                    className="p-2 hover:bg-accent rounded-full transition-colors"
-                >
-                    <X className="h-5 w-5" />
-                </button>
+                <div className="flex items-center gap-2">
+                    {onRefresh && (
+                        <button
+                            onClick={onRefresh}
+                            className="p-2 hover:bg-accent rounded-full transition-colors"
+                            title="Refresh data"
+                        >
+                            <RefreshCw className="h-5 w-5" />
+                        </button>
+                    )}
+                    <button
+                        onClick={onClose}
+                        className="p-2 hover:bg-accent rounded-full transition-colors"
+                    >
+                        <X className="h-5 w-5" />
+                    </button>
+                </div>
             </div>
 
             {/* Content */}
@@ -111,35 +124,33 @@ const DataFramePanel: React.FC<DataFramePanelProps> = ({
                         </div>
                     </CardHeader>
                     <CardContent className="flex-1 p-0 overflow-hidden flex flex-col">
-                        {/* Scrollable table area */}
-                        <ScrollArea className="flex-1 w-full border-b">
-                            <div className="w-full overflow-x-auto">
-                                <div className="min-w-max p-4">
-                                    <Table>
-                                        <TableHeader>
-                                            <TableRow>
+                        {/* Scrollable table area - both horizontal and vertical */}
+                        <div className="flex-1 overflow-auto border-b">
+                            <div className="min-w-max p-4">
+                                <Table>
+                                    <TableHeader>
+                                        <TableRow>
+                                            {data.columns.map((col) => (
+                                                <TableHead key={col} className="whitespace-nowrap sticky top-0 bg-background z-10">
+                                                    {col}
+                                                </TableHead>
+                                            ))}
+                                        </TableRow>
+                                    </TableHeader>
+                                    <TableBody>
+                                        {visibleRows.map((row, idx) => (
+                                            <TableRow key={`${startIndex + idx}`}>
                                                 {data.columns.map((col) => (
-                                                    <TableHead key={col} className="whitespace-nowrap">
-                                                        {col}
-                                                    </TableHead>
+                                                    <TableCell key={`${startIndex + idx}-${col}`} className="whitespace-nowrap">
+                                                        {row[col] !== null ? String(row[col]) : <span className="text-muted-foreground italic">null</span>}
+                                                    </TableCell>
                                                 ))}
                                             </TableRow>
-                                        </TableHeader>
-                                        <TableBody>
-                                            {visibleRows.map((row, idx) => (
-                                                <TableRow key={`${startIndex + idx}`}>
-                                                    {data.columns.map((col) => (
-                                                        <TableCell key={`${startIndex + idx}-${col}`} className="whitespace-nowrap">
-                                                            {row[col] !== null ? String(row[col]) : <span className="text-muted-foreground italic">null</span>}
-                                                        </TableCell>
-                                                    ))}
-                                                </TableRow>
-                                            ))}
-                                        </TableBody>
-                                    </Table>
-                                </div>
+                                        ))}
+                                    </TableBody>
+                                </Table>
                             </div>
-                        </ScrollArea>
+                        </div>
 
                         {/* Fixed footer with pagination controls */}
                         <div className="flex items-center justify-between px-4 py-2 border-t text-xs text-muted-foreground bg-background/60 backdrop-blur-sm">

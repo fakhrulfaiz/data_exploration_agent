@@ -8,10 +8,9 @@ from pydantic import BaseModel
 from typing import List, Any, Optional
 from pydantic import Field
 from .visualization_tools import SmartTransformForVizTool, LargePlottingTool
-from .data_analysis_tools import SecurePythonREPLTool, DataFrameInfoTool
-from .image_QA_tools import ImageQATool
+from .data_analysis_tools import SmartDataAnalysisTool, DataFrameInfoTool
 from .data_exploration_agent_tool import DataExplorationAgentTool
-from .image_qa_mock_tool import image_qa_mock
+from .image_QA_tools import ImageBatchQATool
 
 
 class CustomToolkit(BaseModel):
@@ -25,10 +24,9 @@ class CustomToolkit(BaseModel):
     def get_tools(self) -> List[BaseTool]:
         tools = [
             SmartTransformForVizTool(llm=self.llm),
-            SecurePythonREPLTool(),
+            SmartDataAnalysisTool(llm=self.llm),
             DataFrameInfoTool(),
-            image_qa_mock, 
-            # ImageQATool(vqa=vqa)  # Commented out - loads heavy BLIP model
+            ImageBatchQATool(),
         ]
         
         if self.db_engine is not None:
@@ -43,50 +41,3 @@ class CustomToolkit(BaseModel):
         
         return tools
     
-# Using Blip for VQA model
-# Put this here to initialize one for now.
-from contextlib import ExitStack
-from PIL import Image
-
-from transformers.models.blip import BlipForQuestionAnswering, BlipProcessor
-
-class VisualQA():
-    _instance = None
-    _model = None
-    _processor = None
-    
-    def __new__(cls, model_name: str = "Salesforce/blip-vqa-base"):
-        if cls._instance is None:
-            cls._instance = super(VisualQA, cls).__new__(cls)
-        return cls._instance
-    
-    def __init__(self, model_name: str = "Salesforce/blip-vqa-base"):
-        # Only load model once (singleton pattern)
-        if VisualQA._model is None:
-            print("Loading VisualQA model (first time only)...")
-            # `Salesforce/blip-vqa-capfilt-large` has better performance but i dont have enough storage/ resource 
-            VisualQA._model = BlipForQuestionAnswering.from_pretrained(model_name)
-            VisualQA._processor = BlipProcessor.from_pretrained(model_name)
-            print("✅ VisualQA model loaded and cached")
-        
-        self.model = VisualQA._model
-        self.processor = VisualQA._processor
-
-    def answer_questions(self, image_paths: List[str], query: str, batch_size: int = 10):
-        results = []
-        for i in range(0, len(image_paths), batch_size):
-            batch_paths = image_paths[i : i + batch_size]
-            with ExitStack() as stack:
-                images = [stack.enter_context(Image.open(image_path)) for image_path in batch_paths]
-                queries = [query] * len(images)
-                inputs = self.processor(
-                    images=images, 
-                    text=queries, 
-                    return_tensors="pt",  # type: ignore
-                    padding=True) # type: ignore
-                outputs = self.model.generate(**inputs, max_length=20) # type: ignore
-
-                # results.extend([self.processor.decode(o, skip_special_tokens=True) for o in outputs])
-                decoded_outputs = self.processor.batch_decode(outputs, skip_special_tokens=True)
-                results.extend(decoded_outputs) # type: ignore
-        return results

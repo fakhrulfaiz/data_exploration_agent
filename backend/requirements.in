@@ -1,0 +1,56 @@
+# Core API
+fastapi
+uvicorn[standard]
+python-dotenv
+asyncpg
+psycopg-binary
+sqlalchemy
+alembic
+redis
+supabase
+
+# Agents & LLM
+langchain
+langchain-community
+langchain-core
+langchain-experimental
+langchain-openai
+langchain-huggingface
+langchain-deepseek
+langchain-groq
+langchain-ollama
+langchain-chroma
+langchain-text-splitters
+langsmith
+langgraph
+langgraph-checkpoint
+langgraph-checkpoint-postgres
+chromadb
+huggingface-hub
+transformers
+sentence-transformers
+
+# Data Science
+pandas
+numpy
+matplotlib
+scipy
+scikit-learn
+
+# Utilities
+pydantic
+pydantic-settings
+structlog
+tenacity
+requests
+httpx
+aiofiles
+python-multipart
+pyjwt
+
+# Dev
+pytest
+pytest-asyncio
+black
+isort
+ruff

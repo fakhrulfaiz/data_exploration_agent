@@ -107,6 +107,37 @@ function parseToolError(output: any): ToolErrorInterrupt | null {
   return null;
 }
 
+// Helper component for animated pending state with timeouts
+const PendingIndicator = ({ toolName }: { toolName: string }) => {
+  const [elapsed, setElapsed] = React.useState(0);
+  
+  React.useEffect(() => {
+    const timer = setInterval(() => setElapsed(s => s + 1), 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  let statusText = 'calling...';
+  // Context-aware status messages for long-running tools
+  if (elapsed > 3) {
+     if (toolName.includes('image') || toolName.includes('batch')) {
+        statusText = 'processing images, please be patient...';
+     } else if (elapsed > 10) {
+        statusText = 'still working...';
+     }
+  }
+
+  return (
+    <span className="flex items-center gap-2 text-amber-600 dark:text-amber-500 font-medium">
+       <span className="relative flex h-2.5 w-2.5">
+          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+          <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-500"></span>
+        </span>
+       <span className="animate-pulse">{statusText}</span>
+       <span className="text-xs opacity-70 font-mono">({elapsed}s)</span>
+    </span>
+  );
+};
+
 export const ToolCallMessage: React.FC<ToolCallMessageProps> = ({
   toolCalls,
   content,
@@ -173,7 +204,8 @@ export const ToolCallMessage: React.FC<ToolCallMessageProps> = ({
     }
 
     // If tool is approved but no output yet, it's executing (show calling...)
-    if (call.status === 'approved' && (!call.output || call.output === null || call.output === '')) {
+    // Also include 'pending' if no approval is needed (auto-execution)
+    if ((call.status === 'approved' || (!needsApproval && call.status === 'pending')) && (!call.output || call.output === null || call.output === '')) {
       return 'disabled';
     }
 
@@ -199,7 +231,7 @@ export const ToolCallMessage: React.FC<ToolCallMessageProps> = ({
       case 'error':
         return 'text-red-600 dark:text-red-400';
       case 'disabled':
-        return 'text-muted-foreground opacity-50';
+        return 'text-amber-500 dark:text-amber-400'; // Changed to amber for pending
       default:
         return 'text-yellow-600 dark:text-yellow-400';
     }
@@ -214,7 +246,7 @@ export const ToolCallMessage: React.FC<ToolCallMessageProps> = ({
       case 'error':
         return <AlertCircle className="w-4 h-4" />;
       case 'disabled':
-        return <Clock className="w-4 h-4 opacity-50" />;
+        return <RotateCw className="w-4 h-4 animate-spin" />; // Changed to spinner
       default:
         return <Clock className="w-4 h-4" />;
     }
@@ -274,16 +306,10 @@ export const ToolCallMessage: React.FC<ToolCallMessageProps> = ({
             <AccordionItem
               key={call.id}
               value={call.id}
-              className={`border border-border !border-b rounded-lg px-3 bg-background shadow-sm ${isDisabled && !needsApproval ? 'opacity-60 pointer-events-none' : ''}`}
+              className={`border border-border !border-b rounded-lg px-3 bg-background shadow-sm ${isDisabled && !needsApproval ? 'opacity-90' : ''}`}
             >
               <AccordionTrigger
-                className={`hover:no-underline py-2.5 ${!isClickable ? 'cursor-not-allowed pointer-events-none' : ''}`}
-                onClick={(e) => {
-                  if (!isClickable) {
-                    e.preventDefault();
-                    e.stopPropagation();
-                  }
-                }}
+                className={`hover:no-underline py-2.5`}
               >
                 <div className="flex items-center gap-3 w-full">
                   <div className={`${getStatusColor(effectiveStatus)}`}>
@@ -294,7 +320,11 @@ export const ToolCallMessage: React.FC<ToolCallMessageProps> = ({
                       Call: {call.name}
                     </div>
                     <div className="text-sm text-muted-foreground capitalize">
-                      {isDisabled ? 'calling...' : (needsApproval && effectiveStatus === 'pending' ? 'awaiting approval' : effectiveStatus)}
+                      {isDisabled ? (
+                        <PendingIndicator toolName={call.name} />
+                      ) : (
+                        needsApproval && effectiveStatus === 'pending' ? 'awaiting approval' : effectiveStatus
+                      )}
                     </div>
                   </div>
                 </div>

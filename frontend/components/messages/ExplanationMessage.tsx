@@ -6,7 +6,6 @@ interface ExplanationData {
     data_evidence?: string;
     confidence_score?: number;
     confidence_factors?: string[];
-    next_actions?: string[];
 }
 
 interface ExplanationMessageProps {
@@ -128,24 +127,6 @@ export const ExplanationMessage: React.FC<ExplanationMessageProps> = ({ data, on
                                     ))}
                                 </ul>
                             )}
-                        </div>
-                    )}
-
-                    {/* P1: Clickable Next Actions */}
-                    {data.next_actions && data.next_actions.length > 0 && (
-                        <div className="mt-3 pt-3 border-t border-border">
-                            <span className="text-xs font-medium text-muted-foreground block mb-2">Try next:</span>
-                            <div className="flex flex-wrap gap-2">
-                                {data.next_actions.map((action, idx) => (
-                                    <button
-                                        key={idx}
-                                        className="text-xs px-3 py-1.5 rounded-full bg-primary/10 text-primary hover:bg-primary/20 transition-colors cursor-pointer"
-                                        onClick={() => onActionClick?.(action)}
-                                    >
-                                        {action}
-                                    </button>
-                                ))}
-                            </div>
                         </div>
                     )}
                 </div>

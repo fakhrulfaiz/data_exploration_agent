@@ -7,10 +7,9 @@ import re
 import json
 import uuid
 import logging
-import subprocess
-import tempfile
-import os
-import signal
+import json
+import uuid
+import logging
 from datetime import datetime
 from typing import List, Dict, Any, Tuple, Optional, Annotated
 from pydantic import Field
@@ -25,16 +24,6 @@ from app.schemas.chat import DataContext
 logger = logging.getLogger(__name__)
 
 def sanitize_input(query: str) -> str:
-    """Sanitize input to the python REPL.
-    
-    Remove whitespace, backtick & python (if llm mistakes python console as terminal)
-    
-    Args:
-        query: The query to sanitize
-        
-    Returns:
-        str: The sanitized query
-    """
     # Removes `, whitespace & python from start
     query = re.sub(r"^(\s|`)*(?i:python)?\s*", "", query)
     # Removes whitespace & ` from end
@@ -42,328 +31,135 @@ def sanitize_input(query: str) -> str:
     return query
 
 
-class SqlToDataFrameTool(BaseTool):
+
+class SmartDataAnalysisTool(BaseTool):
     """
-    Tool that executes SQL queries and stores results as DataFrames in Redis.
-    Replaces direct SQL execution in visualization tools.
+    Tool that uses LLM to write and execute Pandas code for data analysis.
+    Replaces raw Python REPL with a safer, goal-oriented interface.
     """
     
-    name: str = "sql_db_to_df"
-    description: str = """Execute SQL queries and store results as DataFrames in Redis for analysis.
+    name: str = "smart_data_analysis"
+    description: str = """Analyze data using natural language requests.
     
     Use this tool to:
-    - Execute SQL queries against the database
-    - Convert results to pandas DataFrame
-    - Store DataFrame in Redis with automatic expiration
-    - Update agent state with DataFrame context
+    - Complex transformations (filtering, sorting, grouping, or aggregating data)
+    - Calculating statistics (mean, sum, count, percentiles)
+    - Answering specific questions about the dataset
+    - Creating derived columns or complex calculations
+    
+    DO NOT use this tool for:
+    - Simple counting before plotting (large_plotting_tool does this automatically)
+    - Aggregating data just to visualize it (large_plotting_tool handles aggregation)
     
     Parameters:
-    - sql_query (str): The SQL query to execute
-    - description (optional str): Description of what this query does
+    - analysis_request (str): A description of what you want to calculate or find out about the data.
     
-    Returns: Success message with DataFrame info and Redis storage details.
-    The DataFrame will be available for Python analysis and visualization tools."""
+    IMPORTANT: This tool works on EXISTING DataFrame columns. It CANNOT analyze images directly.
+    For visual questions (e.g. "depicting"), use image_batch_qa_tool FIRST to create the data.
     
-    db_engine: Any = Field(description="Database engine for SQL execution")
+    Example: 
+    - "Calculate the average inception year by movement"
+    - "Count paintings where 'depicts_swords' is 'yes' (after image analysis)"
+    
+    Returns: The result of the analysis."""
+    
+    llm: Any = Field(description="Language model instance for code generation")
     
     def _run(
         self,
-        sql_query: str,
-        description: Optional[str] = None,
-        tool_call_id: Annotated[Optional[str], InjectedToolCallId] = None,
-    ) -> str:
-        """Execute SQL query and store DataFrame in Redis"""
-        
-        try:
-            
-        
-            logger.info(f"Executing SQL query: {sql_query}")
-            
-            # Execute SQL query using pandas
-            df = pd.read_sql_query(sql_query, self.db_engine)
-            
-            if df.empty:
-                return "Query executed successfully but returned no data. No DataFrame was created."
-            
-            # Store DataFrame in Redis
-            redis_service = get_redis_dataframe_service()
-            context_data = redis_service.store_dataframe(
-                df=df,
-                sql_query=sql_query,
-                metadata={
-                    "description": description,
-                    "tool_call_id": tool_call_id,
-                    "created_by": "sql_db_to_df"
-                }
-            )
-            
-            # Create DataContext for state
-            data_context = DataContext(
-                df_id=context_data["df_id"],
-                sql_query=context_data["sql_query"],
-                columns=context_data["columns"],
-                shape=context_data["shape"],
-                created_at=context_data["created_at"],
-                expires_at=context_data["expires_at"]
-            )
-            
-            # Description for LLM context (kept out of data_context payload)
-            description_text = (
-                f"SQL query executed successfully and DataFrame stored in Redis with ID {context_data['df_id']} "
-                f"({context_data['shape'][0]} rows × {context_data['shape'][1]} columns). "
-                f"Expires at {context_data['expires_at'].strftime('%Y-%m-%d %H:%M:%S UTC')}."
-            )
-            
-            logger.info(f"Successfully stored DataFrame {context_data['df_id']} with shape {context_data['shape']}")
-            payload = {
-                "data_context": data_context.model_dump(mode="json"),
-                "description": description_text,
-            }
-            return json.dumps(payload)
-            
-        except Exception as e:
-            error_payload = {
-                "error": f"Error executing SQL query: {str(e)}"
-            }
-            logger.error(error_payload["error"])
-            return json.dumps(error_payload)
-    
-    async def _arun(
-        self,
-        sql_query: str,
-        description: Optional[str] = None,
-        tool_call_id: Annotated[Optional[str], InjectedToolCallId] = None,
-    ) -> str:
-        """Async version of the tool"""
-        return self._run(sql_query, description, tool_call_id)
-
-
-class SecurePythonREPLTool(BaseTool):
-    """
-    Secure Python REPL tool that executes code in isolated subprocess within the container.
-    Loads DataFrames from Redis for analysis.
-    """
-    
-    name: str = "python_repl"
-    description: str = """Execute Python code securely in an isolated subprocess with pandas DataFrame access.
-    
-    The DataFrame from the last SQL query is automatically loaded as 'df' variable.
-    
-    Use this tool for:
-    - Data analysis and manipulation with pandas
-    - Statistical calculations and aggregations
-    - Data cleaning and transformation
-    - Complex computations on the DataFrame
-    
-    Security features:
-    - Isolated subprocess execution
-    - Restricted environment variables
-    - Limited execution time (30 seconds)
-    - Automatic cleanup after execution
-    - Safe error handling
-    
-    Parameters:
-    - code (str): Python code to execute (must use print() to see output)
-    
-    Example: print(df.describe()) or print(df['column'].mean())
-    
-    Returns: Output from the executed Python code."""
-    
-    sanitize_input: bool = True
-    
-    def _run(
-        self,
-        code: str,
+        analysis_request: str,
         state: Annotated[Dict[str, Any], InjectedState] = None,
         tool_call_id: Annotated[Optional[str], InjectedToolCallId] = None,
     ) -> str:
-        """Execute Python code in secure Docker container"""
+        """Execute the smart analysis tool"""
+        from langchain_experimental.tools import PythonAstREPLTool
+        from langchain_core.prompts import ChatPromptTemplate
         
         try:
             if state is None:
                 state = {}
             
-            # Sanitize input
-            if self.sanitize_input:
-                code = sanitize_input(code)
+            # 1. GET DATAFRAME
+            data_context = state.get("data_context")
+            if not data_context or not data_context.df_id:
+                return json.dumps({
+                    "error": "No active DataFrame found. Please run a data retrieval query first.",
+                    "error_type": "resource_not_found",
+                    "tool_name": "smart_data_analysis",
+                    "recoverable": False
+                })
+                
+            redis_service = get_redis_dataframe_service()
+            df = redis_service.get_dataframe(data_context.df_id)
             
-            # Check if code uses 'df' variable - if not, execute standalone
-            uses_df = 'df' in code or 'df.' in code or 'df[' in code
+            if df is None:
+                return json.dumps({
+                    "error": f"DataFrame {data_context.df_id} not found or expired.",
+                    "error_type": "resource_not_found",
+                    "tool_name": "smart_data_analysis",
+                    "details": {"df_id": data_context.df_id},
+                    "recoverable": True
+                })
+                
+            redis_service.extend_ttl(data_context.df_id)
             
-            df = None
-            if uses_df:
-                # Get DataFrame from state only if code uses it
-                data_context = state.get("data_context")
-                if not data_context or not data_context.df_id:
-                    logger.warning("Code references 'df' but no DataFrame available in state")
-                else:
-                    # Load DataFrame from Redis
-                    redis_service = get_redis_dataframe_service()
-                    df = redis_service.get_dataframe(data_context.df_id)
-                    
-                    if df is None:
-                        logger.warning(f"DataFrame {data_context.df_id} not found in Redis")
-                        # Continue anyway - code might define its own df
-                    else:
-                        # Extend TTL since we're using the DataFrame
-                        redis_service.extend_ttl(data_context.df_id)
-                        logger.info(f"Loaded DataFrame {data_context.df_id} for Python execution")
+            # 2. GENERATE CODE
+            columns_info = str(list(df.columns))
+            dtypes_info = str(df.dtypes)
+            head_info = str(df.head(3).to_dict())
             
-            logger.info(f"Executing Python code in subprocess (uses_df={uses_df}, df_loaded={df is not None})")
+            system_prompt = """You are a Python Pandas expert. Write Python code to answer the user's data analysis request.
             
-            # Execute code in secure subprocess
-            result = self._execute_in_subprocess(code, df)
+            DATA CONTEXT:
+            - A pandas DataFrame 'df' is loaded.
+            - Columns: {columns}
+            - Types: {dtypes}
+            - Sample: {head}
             
-            logger.info("Python code executed successfully")
-            return result
+            RULES:
+            1. Use 'df' variable.
+            2. Write ONLY valid Python code. No markdown blocks.
+            3. The LAST line must be an expression or print statement that outputs the result.
+            4. Do not use plotting functions (plot, matplotlib).
+            
+            """
+            
+            prompt = ChatPromptTemplate.from_messages([
+                ("system", system_prompt),
+                ("human", "{request}")
+            ])
+            
+            chain = prompt | self.llm
+            code_response = chain.invoke({
+                "columns": columns_info,
+                "dtypes": dtypes_info,
+                "head": head_info,
+                "request": analysis_request
+            })
+            
+            code = code_response.content if hasattr(code_response, "content") else str(code_response)
+            code = code.replace("```python", "").replace("```", "").strip()
+            
+            logger.info(f"Generated Analysis Code: {code}")
+            
+            # 3. EXECUTE CODE SAFE
+            repl = PythonAstREPLTool(locals={"df": df})
+            result = repl.run(code)
+            
+            return f"Analysis Result:\n{result}"
             
         except Exception as e:
-            error_msg = f"Error executing Python code: {str(e)}"
-            logger.error(error_msg)
-            return error_msg
-    
-    def _execute_in_subprocess(self, code: str, df: Optional[pd.DataFrame] = None) -> str:
-        """Execute Python code in a secure subprocess within the container"""
-        
-        try:
-            # Prepare DataFrame loading code if df is provided
-            if df is not None:
-                df_load_code = f'''
-    # Decode and load DataFrame
-    df_data = base64.b64decode('{self._encode_dataframe(df)}')
-    df = pickle.loads(df_data)
-'''
-            else:
-                df_load_code = '''
-    # No DataFrame provided - code should define its own data
-    pass
-'''
-            
-            # Prepare the Python script with DataFrame and user code
-            python_script = f'''
-import pandas as pd
-import numpy as np
-import sys
-import signal
-import pickle
-import base64
-from io import StringIO
+            logger.error(f"Analysis failed: {e}")
+            return json.dumps({
+                "error": f"Error performing analysis: {str(e)}",
+                "error_type": "execution_error",
+                "tool_name": "smart_data_analysis",
+                "details": {"exception": str(e)},
+                "recoverable": True
+            })
 
-# Timeout handler
-def timeout_handler(signum, frame):
-    raise TimeoutError("Code execution timeout (30 seconds)")
-
-# Set up timeout (only on Unix systems)
-try:
-    signal.signal(signal.SIGALRM, timeout_handler)
-    signal.alarm(30)
-except AttributeError:
-    # Windows doesn't have SIGALRM, skip timeout setup
-    pass
-
-try:{df_load_code}
-    
-    # Capture output
-    output_buffer = StringIO()
-    original_stdout = sys.stdout
-    sys.stdout = output_buffer
-    
-    try:
-        # Execute user code
-{self._indent_code(code, 8)}
-        
-        # Get captured output
-        output = output_buffer.getvalue()
-        
-    except Exception as e:
-        output = f"Error: {{type(e).__name__}}: {{str(e)}}"
-    
-    finally:
-        sys.stdout = original_stdout
-        try:
-            signal.alarm(0)  # Cancel timeout
-        except AttributeError:
-            pass  # Windows doesn't have alarm
-    
-    # Print result (this goes to subprocess stdout)
-    if output.strip():
-        print(output.strip())
-    else:
-        print("Code executed successfully, but no output was printed.")
-        
-except TimeoutError:
-    print("Error: Code execution timeout (30 seconds)")
-except Exception as e:
-    print(f"Error: {{type(e).__name__}}: {{str(e)}}")
-'''
-            
-            # Create platform-appropriate environment
-            # On Windows, use current environment; on Unix, use restricted environment
-            import platform
-            if platform.system() == 'Windows':
-                # Windows: use current environment but clear sensitive vars
-                restricted_env = os.environ.copy()
-                restricted_env.pop('OPENAI_API_KEY', None)
-                restricted_env.pop('DATABASE_URL', None)
-                temp_dir = tempfile.gettempdir()
-            else:
-                # Unix/Linux: use restricted environment
-                restricted_env = {
-                    'PATH': '/usr/local/bin:/usr/bin:/bin',
-                    'PYTHONPATH': '',
-                    'HOME': '/tmp',
-                    'USER': 'nobody',
-                    'SHELL': '/bin/sh'
-                }
-                temp_dir = '/tmp'
-            
-            # Execute in subprocess with restrictions
-            try:
-                result = subprocess.run(
-                    ['python', '-c', python_script],
-                    capture_output=True,
-                    text=True,
-                    timeout=35,  # Slightly longer than internal timeout
-                    env=restricted_env,
-                    cwd=temp_dir  # Use platform-appropriate temp directory
-                )
-                
-                if result.returncode == 0:
-                    return result.stdout.strip() or "Code executed successfully, but no output was generated."
-                else:
-                    error_output = result.stderr.strip() or result.stdout.strip()
-                    return f"Execution failed: {error_output}"
-                    
-            except subprocess.TimeoutExpired:
-                return "Error: Code execution timeout (35 seconds)"
-            except subprocess.CalledProcessError as e:
-                return f"Execution error: {e.stderr or e.stdout or str(e)}"
-                
-        except Exception as e:
-            return f"Unexpected error during code execution: {str(e)}"
-    
-    def _encode_dataframe(self, df: pd.DataFrame) -> str:
-        """Encode DataFrame as base64 pickle for passing to container"""
-        import pickle
-        import base64
-        
-        df_bytes = pickle.dumps(df)
-        return base64.b64encode(df_bytes).decode('utf-8')
-    
-    def _indent_code(self, code: str, spaces: int) -> str:
-        """Indent code for embedding in Python script"""
-        lines = code.split('\n')
-        indent = ' ' * spaces
-        return '\n'.join(indent + line for line in lines)
-    
-    async def _arun(
-        self,
-        code: str,
-        state: Annotated[Dict[str, Any], InjectedState] = None,
-        tool_call_id: Annotated[Optional[str], InjectedToolCallId] = None,
-    ) -> str:
-        """Async version of the tool"""
-        return self._run(code, state, tool_call_id)
+    async def _arun(self, analysis_request: str, state: Annotated[Dict[str, Any], InjectedState] = None, tool_call_id: Annotated[Optional[str], InjectedToolCallId] = None) -> str:
+        return self._run(analysis_request, state, tool_call_id)
 
 
 class DataFrameInfoTool(BaseTool):
@@ -397,7 +193,12 @@ class DataFrameInfoTool(BaseTool):
             # Get DataFrame context from state
             data_context = state.get("data_context")
             if not data_context or not data_context.df_id:
-                return "No DataFrame available. Please run a SQL query first using sql_db_to_df tool."
+                return json.dumps({
+                    "error": "No DataFrame available. Please run a SQL query first using sql_db_to_df tool.",
+                    "error_type": "resource_not_found",
+                    "tool_name": "dataframe_info",
+                    "recoverable": False
+                })
             
             # Get DataFrame and metadata from Redis
             redis_service = get_redis_dataframe_service()
@@ -405,7 +206,13 @@ class DataFrameInfoTool(BaseTool):
             metadata = redis_service.get_metadata(data_context.df_id)
             
             if df is None:
-                return f"DataFrame {data_context.df_id} not found or expired. Please run the SQL query again."
+                return json.dumps({
+                    "error": f"DataFrame {data_context.df_id} not found or expired. Please run the SQL query again.",
+                    "error_type": "resource_not_found",
+                    "tool_name": "dataframe_info",
+                    "details": {"df_id": data_context.df_id},
+                    "recoverable": True
+                })
             
             # Format information
             info = f"""**Current DataFrame Information:**
@@ -436,7 +243,13 @@ The DataFrame is ready for Python analysis using the python_repl tool."""
         except Exception as e:
             error_msg = f"Error getting DataFrame info: {str(e)}"
             logger.error(error_msg)
-            return error_msg
+            return json.dumps({
+                "error": error_msg,
+                "error_type": "execution_error",
+                "tool_name": "dataframe_info",
+                "details": {"exception": str(e)},
+                "recoverable": True
+            })
     
     async def _arun(
         self,

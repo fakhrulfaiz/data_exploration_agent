@@ -94,18 +94,6 @@ class TextContentHandler(ContentHandler):
             
             self.message_texts[msg_id]["text"] += chunk_text
             
-            if (type(msg).__name__ == 'AIMessage' and 
-                node_name == 'planner' and 
-                self.message_texts[msg_id]["text"].strip()):
-                block = {
-                    "id": self.message_texts[msg_id]["block_id"],
-                    "type": "text",
-                    "needsApproval": False,
-                    "data": {"text": self.message_texts[msg_id]["text"]}
-                }
-                await self.context.save_block(block)
-                # Clear the text so we don't save it again in finalize()
-                self.message_texts[msg_id]["text"] = ""
             
             yield {
                 "event": "content_block",

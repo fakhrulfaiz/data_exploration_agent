@@ -30,7 +30,7 @@ class DataExplorationFactExtractor(ToolFactExtractor):
         
         try:
             output_data = json.loads(tool_output)
-            r
+            
             if 'error' in output_data:
                 facts['has_error'] = True
                 facts['error_type'] = output_data.get('error_type')

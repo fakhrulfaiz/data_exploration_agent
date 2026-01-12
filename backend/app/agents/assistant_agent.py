@@ -37,11 +37,46 @@ class AssistantAgent:
         use_explainer = state.get("use_explainer", True)
         agent_type = state.get("agent_type", "data_exploration_tool")
         query = state.get("query", "")
+        user_id = state.get("user_id")
         
         self._use_planning = use_planning
         self._use_explainer = use_explainer
         
-        result = self.base_agent.invoke(state)
+        # Fetch user preferences and rebuild prompt if user_id is available
+        personalized_prompt = None
+        if user_id:
+            try:
+                from app.services.dependencies import get_redis_profile_service, get_profile_service
+                from app.agents.prompts.user_preferences import get_user_preference_prompt_safe
+                from app.agents.prompts.assistant_prompts import get_assistant_prompt
+                
+                redis_service = get_redis_profile_service()
+                profile_service = get_profile_service()
+                user_preferences = get_user_preference_prompt_safe(
+                    user_id,
+                    redis_service,
+                    profile_service
+                )
+                
+                if user_preferences:
+                    personalized_prompt = get_assistant_prompt(user_preferences)
+                    logger.info(f"Using personalized prompt for assistant agent (user: {user_id})")
+            except Exception as e:
+                logger.warning(f"Failed to fetch user preferences for assistant: {e}")
+        
+        # If we have a personalized prompt, create a new agent instance for this call
+        if personalized_prompt:
+            from langgraph.prebuilt import create_react_agent
+            personalized_agent = create_react_agent(
+                model=self.llm,
+                tools=self.transfer_tools,
+                prompt=personalized_prompt,
+                name="assistant"
+            )
+            result = personalized_agent.invoke(state)
+        else:
+            # Use base agent with default prompt
+            result = self.base_agent.invoke(state)
         
         if isinstance(result, dict):
             result["use_planning"] = use_planning

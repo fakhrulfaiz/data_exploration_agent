@@ -1,12 +1,15 @@
 """
 Error Explainer Node for generating user-friendly error explanations.
-Provides context-aware explanations when tool execution or agent operations fail.
+Provides context-aware explanations using Database Schema and History.
 """
 
 from langchain_core.messages import SystemMessage, BaseMessage
 from pydantic import BaseModel, Field
 from typing import Dict, Any, Optional, List
 import logging
+import json
+from sqlalchemy import inspect
+from app.services.redis_dataframe_service import get_redis_dataframe_service
 
 logger = logging.getLogger(__name__)
 
@@ -26,13 +29,71 @@ class ErrorExplainerNode:
     Uses conversation context to provide relevant suggestions.
     """
     
-    def __init__(self, llm):
+    def __init__(self, llm, db_engine=None):
         self.llm = llm
+        self.db_engine = db_engine
+
+    def _gather_context(self, error_info: Dict[str, Any], df_id: Optional[str] = None) -> str:
+        """
+        Dynamically gather system context based on which tool failed.
+        This provides the 'Ground Truth' to prevent hallucinations.
+        """
+        tool_name = error_info.get("tool_name", "")
+        details = error_info.get("details", {})
+        
+        context_lines = []
+
+        # 1. SQL / Database Errors
+        if tool_name in ["data_exploration_tool", "sql_db_tool"] or "sql" in str(error_info).lower():
+            if self.db_engine:
+                try:
+                    inspector = inspect(self.db_engine)
+                    tables = inspector.get_table_names()
+                    context_lines.append(f"Database Reality Check: The database contains these tables: {', '.join(tables)}.")
+                    
+                    # Enhanced: Fetch columns for each table to debug 'column not found' errors
+                    for table in tables:
+                        try:
+                            columns = [col['name'] for col in inspector.get_columns(table)]
+                            context_lines.append(f" - Table '{table}' has columns: {', '.join(columns)}")
+                        except Exception as inner_e:
+                            logger.warning(f"Could not fetch columns for table {table}: {inner_e}")
+                            
+                except Exception as e:
+                    context_lines.append(f"Database Reality Check: Could not fetch schema ({str(e)}).")
+
+        # 2. DataFrame / Analysis / Plotting Errors
+        if tool_name in ["smart_data_analysis", "large_plotting_tool", "image_batch_qa_tool", "dataframe_info"]:
+            # Try to find df_id in multiple places
+            target_df_id = df_id or details.get("df_id")
+            
+            if target_df_id:
+                try:
+                    redis_service = get_redis_dataframe_service()
+                    metadata = redis_service.get_metadata(target_df_id)
+                    if metadata:
+                        cols = metadata.get("columns", [])
+                        shape = metadata.get("shape", "unknown")
+                        context_lines.append(f"DataFrame Reality Check (ID: {target_df_id}):")
+                        context_lines.append(f" - Shape: {shape}")
+                        context_lines.append(f" - Actual Columns: {', '.join(map(str, cols))}")
+                    else:
+                        context_lines.append(f"DataFrame Reality Check: DataFrame {target_df_id} EXPIRED or invalid.")
+                except Exception as e:
+                     context_lines.append(f"DataFrame Reality Check: Error checking cache ({str(e)}).")
+            else:
+                 context_lines.append("DataFrame Reality Check: No DataFrame ID found in error context.")
+
+        if not context_lines:
+             return "No specific system context available for this tool."
+             
+        return "\n".join(context_lines)
     
     def explain_error(
         self, 
         error_info: Dict[str, Any],
-        conversation_messages: List[BaseMessage]
+        conversation_messages: List[BaseMessage],
+        df_id: Optional[str] = None
     ) -> ErrorExplanation:
         """
         Generate a user-friendly error explanation.
@@ -71,6 +132,9 @@ Your Role:
 
 **Recent Conversation Context:**
 {recent_context}
+
+**System Knowledge (Grounding Context):**
+{self._gather_context(error_info, df_id)}
 
 **Your Task:**
 Generate a helpful, user-friendly error explanation that:
@@ -119,8 +183,9 @@ Generate a structured explanation following the ErrorExplanation model."""
                 technical_details=str(error_info.get("error_message", "Unknown error"))
             )
     
-    def execute(self, state: Dict[str, Any]) -> Dict[str, Any]:
+    def execute(self, state: Dict[str, Any], **kwargs) -> Dict[str, Any]:
         messages = state.get("messages", [])
+        df_id = kwargs.get("df_id") # extracted passed arg
         
         # 1. Try to get explicit error info from state
         error_info = state.get("error_info")
@@ -169,12 +234,13 @@ Generate a structured explanation following the ErrorExplanation model."""
                 "tool_input": "N/A"
             }
         
-        explanation = self.explain_error(error_info, messages)
-        
-        explanation_dict = explanation.model_dump()
+        # 4. Generate Explanation (with dual detection support)
+        explanation_result = self.explain_error(error_info or {}, messages, df_id=df_id)
         
         return {
-            "error_explanation": explanation_dict,
+            "error_explanation": explanation_result.model_dump(),
+            # Status update to planner not strictly needed here as graph routes it,
+            # but good for state completeness
             "error_details": [],  # Clear error details to prevent rerunning error_explainer
             "feedback": None  # Clear feedback as well
         }

@@ -1025,22 +1025,23 @@ const ChatWithApproval: React.FC = () => {
             const hasSql = !!data_context.sql_query;
             
             if (hasSql) {
-              console.warn("DataFrame preview expired, offering to recreate:", {
+              console.warn("DataFrame preview expired, auto-reloading:", {
                 dfId: data_context.df_id,
                 hasSqlQuery: true
               });
-              const shouldReload = window.confirm(
-                "Previous data context has expired or is unavailable. Do you want to recreate it using the original SQL query?"
-              );
-              if (shouldReload) {
-                try {
-                  const recreatedResponse = await DataService.recreateDataFrame(threadId, data_context.sql_query);
-                  setDataFrameData(recreatedResponse.data || null);
-                  // Again, do not auto-open; user uses the Data Context button.
-                } catch (reloadErr: any) {
-                  console.error("Failed to recreate data context:", reloadErr);
-                  alert("Failed to recreate data context. Please rerun your original request.");
-                }
+              
+              // Auto-reload without confirmation
+              try {
+                const recreatedResponse = await DataService.recreateDataFrame(threadId, data_context.sql_query);
+                setDataFrameData(recreatedResponse.data || null);
+                
+                // Show success notification
+                console.log("Data context successfully recreated from previous SQL query");
+                // You can add a toast notification here if you have a toast system
+              } catch (reloadErr: any) {
+                console.error("Failed to recreate data context:", reloadErr);
+                // Show error notification instead of alert
+                console.error("Failed to recreate data context. Please rerun your original request.");
               }
             } else {
               // No SQL query available, log as error since we cannot recover

@@ -533,7 +533,7 @@ def build_image_qna_agent():
     from dotenv import load_dotenv
     
     load_dotenv()
-    llm = init_chat_model("gpt-4o-mini")
+    llm = init_chat_model("gpt-4o")
     
     # Build tools
     image_qna_tool = build_image_qna_tool()

@@ -10,7 +10,8 @@ load_dotenv()
 sys.path.append(str(Path(__file__).parent / "agent"))
 
 # Import from main_agent_v2 (the redesigned supervisor)
-from agent.main_agent_v2 import initialize_agent_with_checkpointer, create_thread_config
+# from agent.main_agent_v2 import initialize_agent_with_checkpointer, create_thread_config
+from agent.XpAgent import build_xp_agent
 from langgraph.types import Command
 
 # Initialize the LangGraph agent with checkpointer (once at module level)

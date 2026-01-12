@@ -359,7 +359,29 @@ async def stream_graph(
         yield {"event": event_type, "data": initial_data}
         
         try:
-            for mode, value in agent.graph.stream(input_state, config, stream_mode=["messages", "updates"]):
+            # Run blocking stream in thread to allow pings
+            stream_iterator = iter(agent.graph.stream(input_state, config, stream_mode=["messages", "updates"]))
+            
+            # Define sentinel for StopIteration
+            STOP_ITERATION = object()
+            
+            def safe_next(it):
+                try:
+                    return next(it)
+                except StopIteration:
+                    return STOP_ITERATION
+
+            while True:
+                try:
+                    result = await asyncio.to_thread(safe_next, stream_iterator)
+                    if result is STOP_ITERATION:
+                        break
+                    mode, value = result
+                except Exception as e:
+                    # In case safe_next fails for other reasons or to_thread fails
+                    logger.error(f"Error in stream iterator: {e}")
+                    raise
+
                 if await request.is_disconnected():
                     break
                 
@@ -522,7 +544,7 @@ async def stream_graph(
             if thread_id in run_configs:
                 del run_configs[thread_id]
     
-    return EventSourceResponse(event_generator())
+    return EventSourceResponse(event_generator(), ping=20)
 
 @router.get("/result/{thread_id}", response_model=GraphResponse)
 def get_streaming_result(thread_id: str, agent_service: AgentService = Depends(get_agent_service)):

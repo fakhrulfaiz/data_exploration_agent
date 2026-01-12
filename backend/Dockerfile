@@ -9,8 +9,9 @@ RUN apt-get update && apt-get install -y \
 
 # Copy and install Python dependencies
 COPY requirements.txt /tmp/requirements.txt
-RUN python -m pip install --upgrade pip && \
-    python -m pip install --no-cache-dir -r /tmp/requirements.txt
+RUN --mount=type=cache,target=/root/.cache/pip \
+    python -m pip install --upgrade pip --timeout=1000 --retries=5 && \
+    python -m pip install -r /tmp/requirements.txt --timeout=1000 --retries=5
 
 # Copy application code
 COPY . /app

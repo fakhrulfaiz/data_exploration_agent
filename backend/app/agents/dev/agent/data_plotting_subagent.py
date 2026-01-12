@@ -730,7 +730,7 @@ def build_plotting_agent(llm=None):
     """Build the plotting subagent graph."""
     
     if llm is None:
-        llm = init_chat_model("gpt-4o-mini")
+        llm = init_chat_model("gpt-4o")
     
     # Create nodes
     agent_node = create_agent_node(llm)

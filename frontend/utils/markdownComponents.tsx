@@ -1,7 +1,37 @@
 'use client';
 
 import { Copy } from 'lucide-react';
+import React, { useState } from 'react';
 import { Components } from 'react-markdown';
+
+const ExpandableImage = ({ src, alt, title }: { src?: string; alt?: string; title?: string }) => {
+  const [isExpanded, setIsExpanded] = useState(false);
+
+  const isLocal = src?.includes('/api/static');
+
+  return (
+    <span className="inline-block relative group align-middle">
+      <img
+        src={src}
+        alt={alt || ''}
+        title={title}
+        onClick={() => setIsExpanded(!isExpanded)}
+        className={`rounded-lg shadow-sm my-2 cursor-pointer transition-all border border-gray-200 dark:border-neutral-700 bg-gray-50 dark:bg-neutral-800 ${
+          isExpanded 
+            ? 'w-full max-w-4xl h-auto' 
+            : isLocal
+              ? 'h-32 w-auto object-cover hover:scale-105'
+              : 'w-auto max-w-full max-h-[500px] object-contain hover:opacity-95'
+        }`}
+      />
+      {!isExpanded && (
+        <span className="absolute bottom-2 right-2 bg-black/60 text-white text-[10px] px-2 py-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+          Click to expand
+        </span>
+      )}
+    </span>
+  );
+};
 
 export const markdownComponents: Components = {
   p: ({ children }) => <p className="mb-0 text-inherit">{children}</p>,
@@ -68,17 +98,7 @@ export const markdownComponents: Components = {
     </a>
   ),
   img: ({ src, alt, title }) => (
-    <img
-      src={src}
-      alt={alt || ''}
-      title={title}
-      className="w-full max-w-full h-auto md:max-w-[500px] lg:max-w-[600px] sm:max-w-[400px] rounded-lg shadow-sm my-4 cursor-pointer hover:opacity-80 transition-opacity"
-      onClick={() => {
-        if (typeof window !== 'undefined' && typeof src === 'string') {
-          window.open(src, '_blank');
-        }
-      }}
-    />
+    <ExpandableImage src={src as string} alt={alt} title={title} />
   ),
   // Table components for markdown tables
   table: ({ children }) => (
