@@ -102,8 +102,8 @@ class FinalizerNode:
             "assistant_response": final_response_text,
             "messages": [
                 thought_message, 
-                reasoning_message
-                # Final response is in assistant_response, no need to duplicate in messages
+                reasoning_message,
+                AIMessage(content=final_response_text) # Append final response to messages
             ]
         }
     
@@ -249,12 +249,17 @@ Provide an overall synthesis starting with "Thought:":
         self, 
         query: str, 
         thought: Optional[str], 
-        steps_summary: str,
+        steps_summary: str, 
         user_id: Optional[str] = None
     ) -> str:
-        """Generate final response to user - returns string (not AIMessage for now)"""
+        """Generate final response to user using structured output"""
         from app.agents.prompts.finalizer_prompts import get_finalizer_response_system_prompt, get_finalizer_response_prompt
         from app.agents.prompts.user_preferences import get_user_preference_prompt_safe
+        from pydantic import BaseModel, Field
+        
+        # Defined structured output schema
+        class FinalResponse(BaseModel):
+            response: str = Field(description="The comprehensive final response to the user's query, incorporating all findings.")
         
         # Fetch user preferences if available
         user_preferences = ""
@@ -279,14 +284,23 @@ Provide an overall synthesis starting with "Thought:":
         system_prompt = get_finalizer_response_system_prompt(user_preferences)
         prompt = get_finalizer_response_prompt(query, thought_text, steps_summary, user_preferences)
         
-        # Use raw LLM for natural response (no structured output)
-        response = self.llm.invoke([
-            SystemMessage(content=system_prompt),
-            HumanMessage(content=prompt)
-        ])
+        # Use structured output to enforce clean response
+        llm_with_structure = self.llm.with_structured_output(FinalResponse)
         
-        # Return just the string content
-        return response.content
+        try:
+            result = llm_with_structure.invoke([
+                SystemMessage(content=system_prompt),
+                HumanMessage(content=prompt)
+            ])
+            return result.response
+        except Exception as e:
+            logger.error(f"Structured output failed for final response: {e}")
+            # Fallback to raw string
+            response = self.llm.invoke([
+                SystemMessage(content=system_prompt),
+                HumanMessage(content=prompt)
+            ])
+            return response.content
     
     def _build_steps_summary(self, steps: List[Dict[str, Any]]) -> str:
         """Build a summary of executed steps for the LLM to analyze"""

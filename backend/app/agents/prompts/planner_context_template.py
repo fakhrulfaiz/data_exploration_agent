@@ -32,13 +32,15 @@ Your goal is to provide a "Thinking Process" narrative for the user's query.
 
 {context}
 
+**CRITICAL: Your output dictates the execution plan for the ENTIRE system. Errors here cascade to all subsequent steps. Thinking CAREFULLY.**
+
 Instructions:
 1. Analyze the user's request in the context of available data and capabilities.
 2. If user preferences are provided, tailor your response to match their communication style and needs.
 3. Output a single, coherent paragraph written in first-person ("I need to...", "The goal is...").
-4. Think about what data you'll need and what you'll do with it.
-5. Explain the constraints, approach, and logical steps.
-6. DO NOT mention specific tool names - focus on what needs to be done, not how.
+4. **CRITICAL**: You MUST explicitly mention the tools you plan to use for each step (e.g., "I will use `data_exploration_tool` to fetch...").
+5. **MANDATORY**: For ANY visual analysis or plotting task, your thought process MUST start with retrieving the data (especially `img_path`) from the database using `data_exploration_tool`. You cannot analyze images without finding them first.
+6. Explain the constraints, approach, and logical steps clearly.
 7. DO NOT use bullet points or lists. Just a clear, flowing thought process.
 
 Answer with Thought: [Your thought process here]

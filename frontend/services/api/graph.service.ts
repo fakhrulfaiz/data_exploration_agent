@@ -113,12 +113,12 @@ export class GraphService {
         let reconnectAttempts = 0;
         const maxReconnectAttempts = 3;
         let lastHeartbeat = Date.now();
-        const heartbeatTimeout = 30000; // 30 seconds
+        const heartbeatTimeout = 300000; // 5 minutes
 
         // Heartbeat monitoring
         const heartbeatInterval = setInterval(() => {
             if (Date.now() - lastHeartbeat > heartbeatTimeout) {
-                console.warn('⚠️ Stream heartbeat timeout, connection may be stale');
+                console.warn('Stream heartbeat timeout, connection may be stale');
                 clearInterval(heartbeatInterval);
                 eventSource.close();
                 onError(new Error('Stream connection timeout'));
@@ -225,6 +225,7 @@ export class GraphService {
         // Handle graph_node events (visualization updates)
         eventSource.addEventListener('graph_node', (event) => {
             try {
+                lastHeartbeat = Date.now(); // Update heartbeat
                 // Pass directly to onMessage with status='graph_node'
                 // event.data is already a JSON string containing { node_id, status, previous_node_id }
                 onMessage({
@@ -239,10 +240,12 @@ export class GraphService {
 
         // Handle start/resume events
         eventSource.addEventListener('start', (event) => {
+            lastHeartbeat = Date.now();
             console.log('Stream started:', event.data);
         });
 
         eventSource.addEventListener('resume', (event) => {
+            lastHeartbeat = Date.now();
             console.log('Stream resumed:', event.data);
         });
 

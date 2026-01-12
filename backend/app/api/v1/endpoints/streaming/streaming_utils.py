@@ -307,6 +307,16 @@ async def handle_error(
     run_data: Dict
 ) -> AsyncGenerator[Dict, None]:
     error_message = str(error) if error else "Unknown error occurred"
+    
+    # NEW: Specific handling for LLM Connection Errors
+    import openai
+    if isinstance(error, openai.APIConnectionError):
+        error_message = "Connection Error: Could not connect to the AI service. Please checks your internet connection."
+    elif isinstance(error, openai.APITimeoutError):
+        error_message = "Timeout Error: The AI service took too long to respond. The system is likely overloaded, please try again."
+    elif "503" in str(error) or "502" in str(error):
+        error_message = "Service Unavailable: The AI service is currently down or upgrading. Please try again later."
+        
     logger.error(f"Streaming error for thread {context.thread_id}: {error_message}", exc_info=True)
     
     if not context.assistant_message_id:

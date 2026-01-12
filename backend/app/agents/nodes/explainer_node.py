@@ -71,12 +71,6 @@ class DomainExplanation(BaseModel):
         default=[],
         description="Specific factors contributing to the confidence score"
     )
-    
-    # ===== P1: CLICKABLE ACTIONS =====
-    next_actions: List[str] = Field(
-        default=[],
-        description="2-3 clickable actions the user can take with this step's result"
-    )
 
     
     @validator('execution_summary')
@@ -281,17 +275,6 @@ Generate the following fields based on VERIFIABLE FACTS:
    Avoid generic statements like "no errors" or "as expected" unless there were actual issues.
    Examples: "101 rows retrieved", "All 5 columns present", "Data spans 1400-2000", "3 rows missing dates".
 
-6. **next_actions**: Suggest 1-3 actions the user can take with THIS step's result.
-   Each action will be sent as a new query, so phrase as complete questions/commands.
-   Use actual column names and values from VERIFIABLE FACTS.
-   
-   By tool type:
-   - data_exploration_tool: "View full table", "Filter by [column_name]", "Sort by [column_name]"
-   - smart_transform_for_viz: "Switch to pie chart", "Show top 10 only"
-   - image_qa: "Analyze similar images", "Compare with [subject]"
-   
-   Avoid: Generic actions, unimplementable features, actions needing data from other steps.
-
 REMEMBER: Only state facts from the VERIFIABLE FACTS section above!
 """
         
@@ -437,21 +420,15 @@ REMEMBER: Only state facts from the VERIFIABLE FACTS section above!
         step['task_completion_status'] = explanation.task_completion_status
         step['execution_summary'] = explanation.execution_summary
         step['data_evidence'] = explanation.data_evidence
-        # P1: Confidence scoring
         step['confidence_score'] = explanation.confidence_score
         step['confidence_factors'] = explanation.confidence_factors
-        # P1: Clickable actions
-        step['next_actions'] = explanation.next_actions
         
         explanation_json = {
             'task_completion_status': explanation.task_completion_status,
             'execution_summary': explanation.execution_summary,
             'data_evidence': explanation.data_evidence,
-            # P1: Confidence scoring
             'confidence_score': explanation.confidence_score,
             'confidence_factors': explanation.confidence_factors,
-            # P1: Clickable actions
-            'next_actions': explanation.next_actions,
         }
         
         explanation_message = AIMessage(
@@ -459,14 +436,64 @@ REMEMBER: Only state facts from the VERIFIABLE FACTS section above!
             additional_kwargs={'is_explanation': True}
         )
         
-        # Return updated state with ONLY the new message
-        return {
+        # Base updates
+        updates = {
             **state, 
             "steps": steps, 
             "messages": [explanation_message] 
         }
-                
-        return {**state, "steps": steps} #
+
+        # CHECK FOR LOGICAL FAILURE
+        if explanation.task_completion_status == 'failed':
+            logger.warning(f"Explainer detected logical failure: {explanation.execution_summary}")
+            
+            # Set feedback to trigger interrupt in main execution flow
+            updates["feedback"] = f"Logical Failure detected: {explanation.execution_summary}"
+            
+            # Create structured error detail
+            error_detail = {
+                'tool_name': tool_name,
+                'tool_call_id': 'logical_failure',
+                'error_message': explanation.execution_summary,
+                'error_type': 'LogicalFailure',
+                'details': {'evidence': explanation.data_evidence},
+                'recoverable': True,
+                'detection_method': 'explainer'
+            }
+            updates["error_details"] = [error_detail]
+            
+            # Rollback step index so we don't move to next step
+            # Note: process_query incremented it, so we need to validly decrement to retry/replan THIS step
+            current_index = state.get("current_step_index", 0)
+            updates["current_step_index"] = max(0, current_index - 1)
+        
+        # CHECK FOR PARTIAL SUCCESS (AUTO-RETRY FOR IMAGE QA)
+        elif explanation.task_completion_status == 'partial' and tool_name == 'image_batch_qa_tool':
+            # Get current retry attempt from feedback
+            current_feedback = state.get("feedback", "")
+            retry_attempt = 1
+            if current_feedback and "RETRY_IMAGE_QA" in current_feedback:
+                # Extract attempt number from feedback like "RETRY_IMAGE_QA:2"
+                try:
+                    retry_attempt = int(current_feedback.split(":")[1]) + 1
+                except:
+                    retry_attempt = 2
+            
+            # Only retry if we haven't exceeded max attempts (2)
+            if retry_attempt <= 2:
+                # Set feedback to trigger retry (same as error retry flow)
+                updates["feedback"] = f"RETRY_IMAGE_QA:{retry_attempt}"
+                logger.info(f"Auto-retry scheduled (attempt {retry_attempt}/2)")
+
+                current_index = state.get("current_step_index", 0)
+                updates["current_step_index"] = max(0, current_index - 1)
+            else:
+                logger.info(f"Max retry attempts reached (2), not scheduling retry")
+        
+        
+            
+            
+        return updates
 
     def execute(self, state: Dict[str, Any]) -> Dict[str, Any]:
         try:

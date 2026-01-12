@@ -108,6 +108,9 @@ def parse_thought_process_patterns(file_path: str) -> List[Document]:
             else:
                 pattern_type = "Category 6: Simple Aggregation"
                 complexity = "simple"
+        elif "depict" in example_query.lower() and ("number" in example_query.lower() or "count" in example_query.lower()):
+            pattern_type = "Category: Multi-step Visual Analysis"
+            complexity = "complex"
         else:
             pattern_type = "Category 6: Simple Aggregation"
             complexity = "simple"

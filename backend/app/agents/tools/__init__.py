@@ -4,11 +4,13 @@ Contains various tools that can be used by the agent for data analysis and visua
 """
 
 from .visualization_tools import SmartTransformForVizTool, LargePlottingTool
+from .data_analysis_tools import SmartDataAnalysisTool
 from .custom_toolkit import CustomToolkit
 
 __all__ = [
     'SmartTransformForVizTool',
     'LargePlottingTool',
+    'SmartDataAnalysisTool',
     'CustomToolkit'
 ]
 

@@ -8,7 +8,7 @@ from pydantic import BaseModel
 from typing import List, Any, Optional
 from pydantic import Field
 from .visualization_tools import SmartTransformForVizTool, LargePlottingTool
-from .data_analysis_tools import SecurePythonREPLTool, DataFrameInfoTool
+from .data_analysis_tools import SmartDataAnalysisTool, DataFrameInfoTool
 from .data_exploration_agent_tool import DataExplorationAgentTool
 from .image_QA_tools import ImageBatchQATool
 
@@ -24,7 +24,7 @@ class CustomToolkit(BaseModel):
     def get_tools(self) -> List[BaseTool]:
         tools = [
             SmartTransformForVizTool(llm=self.llm),
-            SecurePythonREPLTool(),
+            SmartDataAnalysisTool(llm=self.llm),
             DataFrameInfoTool(),
             ImageBatchQATool(),
         ]

@@ -14,7 +14,7 @@ TOOL USAGE:
 - data_exploration_agent: For database queries and SQL
 - smart_transform_for_viz: For interactive frontend charts (small data)
 - large_plotting_tool: For matplotlib plots (large data or complex visualizations)
-- python_repl: For data analysis and transformations
+- smart_data_analysis: For specific data questions, filtered counts, aggregations, and statistics
 - dataframe_info: To check available data
 - image_batch_qa_tool: For analyzing images in the DataFrame
 

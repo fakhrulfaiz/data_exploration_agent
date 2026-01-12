@@ -66,9 +66,12 @@ FORMAT:
 - Use **bold** for emphasis
 - Use code blocks for data/SQL if relevant
 - Keep it concise but complete
-- If citing local images (e.g., 'images/img_X.jpg'), format them as images: `![Image](/api/static/images/img_X.jpg)`
-- Make sure local images are always displayed in tables, only external image are in normal markdown format
-- Use relative paths `/api/static/...` for local resources"""
+
+IMAGE FORMATTING RULES:
+- **Generated Plots**: If the output contains plot images from large_plotting_tool (URLs starting with https://), preserve them EXACTLY as-is. Do NOT modify the URL.
+- **Local Dataset Images**: If citing local images from the dataset (e.g., 'images/img_X.jpg'), format them as: `![Image](/api/static/images/img_X.jpg)`
+- **Tables**: Make sure local dataset images are always displayed in tables, only external images (plots, web images) are in normal markdown format
+- **Relative Paths**: Use relative paths `/api/static/...` for local dataset resources only, NOT for generated plots"""
 
     # Inject user preferences if provided
     if user_preferences:

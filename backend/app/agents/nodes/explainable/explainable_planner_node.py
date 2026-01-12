@@ -152,6 +152,7 @@ The previous plan failed with the following error:
         planning_prompt = f"""You are an efficient task planner. Your job is to plan tasks that handle dependencies correctly.
     You are given a user query/task and a list of tools.
  
+If Intent provided, it may included many technical detail, do not include it in the strategy and each step goal. Be concise. 
 {intent_context}
 
 {error_context}
@@ -164,8 +165,9 @@ The previous plan failed with the following error:
 3. **Think Through Data Flow** - Ask yourself: "Does this tool have the data it needs to execute?"
 4. **Write CLEAR step goals** - Each goal will be used as a prompt for the execution agent, so be specific and actionable
 5. **One Step Can Mean Multiple Tool Calls** - The execution agent can call the same tool multiple times with different arguments for a single step
-6. **Prefer SQL over Python** - If a sub-agent can filter/sort/limit data in the database (e.g., "oldest", "top 5"), do it in the query step instead of retrieving all data and using python_repl.
-7. **If use Image QA tool** - must query and return 'img_path' not image URL column
+6. **Prefer SQL over Python** - If a sub-agent can filter/sort/limit data in the database (e.g., "oldest", "top 5"), do it in the query step instead of retrieving all data and using 'smart_data_analysis'.
+7. **Visual/Depiction Queries**: If query implies visual content (e.g. 'depicting', 'showing', 'swords', 'war'), you MUST create a step for `image_batch_qa_tool` to extract this data FIRST. DO NOT use `smart_data_analysis` to "count" or "find" visual attributes directly - it cannot see images.
+8. **If use Image QA tool** - must query and return 'img_path' not image URL column
 **When to Create Multiple Steps**:
 - Tool needs data that must be retrieved first (database → analysis)
 - Tool needs output from another tool (query → transform → visualize)

@@ -1019,6 +1019,45 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
               // Handle tool events
               handleToolEvents(status, eventData, streamingMsgId);
 
+              // Handle error status
+              if (status === 'error') {
+                let errorText = '';
+                try {
+                  if (eventData) {
+                    const parsed = JSON.parse(eventData);
+                    errorText = parsed?.error || parsed?.message || String(eventData);
+                  }
+                } catch {
+                  errorText = eventData || 'Unknown error';
+                }
+
+                setToolStepHistory(null);
+                setExecutionStatus('error');
+
+                const errorBlock = createErrorBlock(`error_${Date.now()}`, {
+                    what_happened: "An error occurred during execution",
+                    why_it_happened: "Process interrupted", 
+                    what_was_attempted: "Processing your request",
+                    alternative_suggestions: ["Try again"],
+                    technical_details: errorText,
+                    user_action_needed: "Please check your connection and try again."
+                });
+                
+                // Add error block to content
+                currentContentBlocks = [...currentContentBlocks, errorBlock];
+                updateContentBlocksCallback(streamingMsgId, currentContentBlocks);
+
+                setMessages(prev => prev.map(m =>
+                  m.message_id === streamingMsgId
+                    ? {
+                      ...m,
+                      isStreaming: false
+                    }
+                    : m
+                ));
+                return;
+              }
+
               // Handle streaming status updates
               if (status === 'finished' || status === 'user_feedback') {
                 setToolStepHistory(null);
@@ -1151,9 +1190,20 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
                 errorText = eventData || 'Unknown error';
               }
 
+              // Clear tool history to remove spinner
+              setToolStepHistory(null);
               setExecutionStatus('error');
 
-              const errorBlock = createTextBlock(`error_${Date.now()}`, errorText ? `Error: ${errorText}` : 'Unknown error', false);
+              // Use createErrorBlock for better UI
+              const errorBlock = createErrorBlock(`error_${Date.now()}`, {
+                  what_happened: "An error occurred during execution",
+                  why_it_happened: "Process interrupted",
+                  what_was_attempted: "Processing your request",
+                  alternative_suggestions: ["Try again"],
+                  technical_details: errorText,
+                  user_action_needed: "Please check your connection and try again."
+              });
+              
               currentContentBlocks = [...currentContentBlocks, errorBlock];
               updateContentBlocksCallback(streamingMsgId, [...currentContentBlocks]);
 
@@ -1422,18 +1472,26 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
                     errorText = eventData || 'Unknown error';
                   }
 
-                  // Update execution status to error
+                  // Clear tool spinner
+                  setToolStepHistory(null);
                   setExecutionStatus('error');
+
+                  const errorBlock = createErrorBlock(`error_${streamingMsgId}_${Date.now()}`, {
+                      what_happened: "An error occurred during execution",
+                      why_it_happened: "Process interrupted",
+                      what_was_attempted: "Processing your request",
+                      alternative_suggestions: ["Try again"],
+                      technical_details: errorText,
+                      user_action_needed: "Please check your connection and try again."
+                  });
+
+                  // Update message with error block appended using callback
+                  updateContentBlocksCallback(streamingMsgId, [errorBlock]);
 
                   setMessages(prev => prev.map(m => {
                     if (m.message_id === streamingMsgId) {
-                      const existingText = Array.isArray(m.content)
-                        ? m.content.filter(b => b.type === 'text').map(b => (b.data as any).text).join('\n')
-                        : '';
-                      const errorBlock = createTextBlock(`error_${streamingMsgId}`, errorText ? `Error: ${errorText}` : 'Error occurred', false);
                       return {
                         ...m,
-                        content: existingText ? [createTextBlock(`text_${streamingMsgId}`, existingText, false), errorBlock] : [errorBlock],
                         isStreaming: false
                       };
                     }
@@ -1928,7 +1986,7 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
           {/* Messages - scrollable area with padding for fixed input and header */}
           <div
             ref={messagesContainerRef}
-            className={`relative space-y-4 min-h-0 slim-scroll pb-48 overflow-y-auto ${messages.length === 0 && !currentThreadId ? '' : 'flex-1'} ${threadTitle ? 'pt-38' : 'pt-8'}`}
+            className={`relative space-y-4 min-h-0 slim-scroll pb-4 overflow-y-auto ${messages.length === 0 && !currentThreadId ? '' : 'flex-1'} ${threadTitle ? 'pt-38' : 'pt-8'}`}
           >
             <div className="max-w-3xl mx-auto px-4">
               {messages.map((message) => (
@@ -1965,7 +2023,7 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
 
           {/* Scroll to bottom button - fixed above input form, aligned with messages */}
           {!isAtBottom && messages.length > 0 && (
-            <div className={`absolute left-0 right-0 bottom-40 z-30 pointer-events-none px-4`}>
+            <div className={`absolute left-0 right-0 bottom-32 z-30 pointer-events-none px-4`}>
               <div className="max-w-3xl px-4 mx-auto">
                 <div className="flex justify-end">
                   <button
@@ -1981,9 +2039,9 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
             </div>
           )}
 
-          <div className={`z-10 transition-all duration-300 ease-in-out bg-background/80 backdrop-blur-sm ${messages.length === 0 && !currentThreadId
-            ? 'w-full flex justify-center pb-3'
-            : 'absolute left-0 right-0 bottom-0 pb-3'
+          <div className={`z-10 transition-all duration-300 ease-in-out bg-background/80 backdrop-blur-sm shrink-0 w-full ${messages.length === 0 && !currentThreadId
+            ? 'flex justify-center pb-3'
+            : 'border-t pb-3'
             }`}>
 
             <div className={`${messages.length === 0 && !currentThreadId ? 'max-w-4xl px-6' : 'max-w-3xl px-4'} min-w-[320px] w-full mx-auto`}>

@@ -58,7 +58,7 @@ class MainAgent:
         
         self.planner = ExplainablePlannerNode(llm, self.tools)
         self.explainer = ExplainerNode(llm, available_tools=self.tools)
-        self.error_explainer = ErrorExplainerNode(llm)
+        self.error_explainer = ErrorExplainerNode(llm, db_engine=self.engine)
         self.finalizer = FinalizerNode(llm, error_explainer=self.error_explainer)
         
         # Create handoff tools and assistant agent
@@ -214,6 +214,9 @@ class MainAgent:
         error_details = state.get("error_details", [])
         is_retry = state.get("status") == "retry" and error_details
         
+        feedback = state.get("feedback", "")
+        is_partial_retry = feedback and "RETRY_IMAGE_QA" in feedback
+        
         if is_retry and error_details:
             error_info = error_details[0]
             error_context = f"\n\n**RETRY CONTEXT:**\n"
@@ -222,8 +225,22 @@ class MainAgent:
             if error_info.get('recoverable'):
                 error_context += "This error is recoverable - try again or fix the approach.\n"
             instruction_content = f"Execute the following step: {step_instruction}{error_context}"
+        elif is_partial_retry:
+            try:
+                retry_attempt = int(feedback.split(":")[1])
+            except:
+                retry_attempt = 1
+            
+            # Get execution summary from last step
+            retry_context = f"\n\n**RETRY CONTEXT (Attempt {retry_attempt}/2):**\n"
+            if steps:
+                last_step = steps[-1]
+                execution_summary = last_step.get("execution_summary", "")
+                if execution_summary:
+                    retry_context += f"Previous result: {execution_summary}\n"
+            retry_context += "Some images failed to process. Retry with the same parameters to process only the failed images.\n"
+            instruction_content = f"Execute the following step: {step_instruction}{retry_context}"
         else:
-            # NEW: Get next step requirements to ensure compatibility
             next_step_info = ""
             if dynamic_plan and current_idx + 1 < len(dynamic_plan.steps):
                 next_step = dynamic_plan.steps[current_idx + 1]
@@ -249,6 +266,7 @@ class MainAgent:
                     next_step_info += "Example: SELECT title, inception, img_path FROM ...\n"
 
             instruction_content = f"Execute the following step: {step_instruction}{next_step_info}"
+        
         
         instruction_message = HumanMessage(content=instruction_content)
         
@@ -316,9 +334,13 @@ class MainAgent:
         state: Dict[str, Any]
     ) -> Dict[str, str]:
         context = self._analyze_execution_context(state)
+        df_info = self._get_current_dataframe_info(state)
         
         tool_names = [tc.get('name', 'unknown') for tc in tool_calls]
         tool_summary = ", ".join(tool_names)
+        
+        # Get validation warnings
+        validation_warnings = self._validate_tool_requirements(tool_calls, state)
         
         tool_details = []
         for tool_name in tool_names:
@@ -330,14 +352,85 @@ class MainAgent:
         
         tool_details_str = "\n".join(tool_details)
         
-        # Build context info
-        context_info = f"""- Available Data: {', '.join(context['available_data'])}
-- Data Needed: {current_step.goal}
-- Previous Output: {context.get('previous_output', 'None')}
-- User Query: {state.get('query', 'Unknown')}"""
+        # Build available data description with actual schema
+        available_data_desc = "No data in memory"
+        if df_info:
+            cols_str = ", ".join(df_info['columns'][:10])  # Show first 10 columns
+            if len(df_info['columns']) > 10:
+                cols_str += f"... ({len(df_info['columns'])} total)"
+            
+            available_data_desc = f"""Current DataFrame in state:
+- ID: {df_info['df_id']}
+- Shape: {df_info['shape'][0]} rows × {df_info['shape'][1]} columns
+- Columns: {cols_str}
+- Source Query: {df_info['sql_query'][:100] if df_info['sql_query'] else 'N/A'}..."""
         
-        # Generate reasoning via LLM
-        prompt = f"""Explain the tool selection decision for this step.
+        elif context.get('available_data'):
+            # Fallback to context analysis from previous steps
+            data_items = []
+            for item in context['available_data']:
+                if isinstance(item, dict) and item.get('columns'):
+                    cols_preview = ', '.join(item['columns'][:5])
+                    if len(item['columns']) > 5:
+                        cols_preview += '...'
+                    data_items.append(
+                        f"- {item['source']}: {len(item['columns'])} columns ({cols_preview})"
+                    )
+                elif isinstance(item, dict):
+                    data_items.append(f"- {item['source']}: {item.get('type', 'data')}")
+                else:
+                    data_items.append(f"- {item}")
+            available_data_desc = "\n".join(data_items) if data_items else "No data in memory"
+        
+        # Build tool call details with validation
+        tool_call_details = []
+        for i, tc in enumerate(tool_calls):
+            tool_name = tc.get('name', 'unknown')
+            args = tc.get('args', {})
+            
+            # Add validation notes for specific tools
+            validation_note = ""
+            if tool_name == "image_batch_qa_tool":
+                if df_info and 'img_path' not in df_info.get('columns', []):
+                    validation_note = " ⚠️ WARNING: 'img_path' column not found in current DataFrame"
+                elif df_info and 'img_path' in df_info.get('columns', []):
+                    validation_note = " ✓ 'img_path' column available"
+            
+            tool_call_details.append(
+                f"- Call {i+1}: {tool_name} with args: {json.dumps(args)}{validation_note}"
+            )
+        
+        # Build context info
+        context_info = f"""**Available Data:**
+{available_data_desc}
+
+**Current Step Goal:** {current_step.goal}
+
+**Previous Step Output:** {context.get('previous_output', 'None')}
+
+**User Query:** {state.get('query', 'Unknown')}"""
+        
+        # Add validation warnings if any
+        validation_section = ""
+        if validation_warnings:
+            validation_section = f"""
+
+**Validation Warnings:**
+{chr(10).join(validation_warnings)}"""
+        
+        # Generate reasoning via LLM with clear role definition
+        system_role = """You are a Tool Reasoning Explainer for a data exploration agent.
+
+Your role is to explain WHY specific tools were selected for execution at this moment, given the current state of the system.
+
+You are NOT selecting tools - that decision has already been made. Your job is to provide clear, concise reasoning that helps users understand:
+1. What tool(s) are being called
+2. Why these tools make sense given the available data and step goal
+3. How the tool inputs address the current objective
+
+Be specific and grounded in the actual context provided. Do not make assumptions about data that isn't shown."""
+
+        prompt = f"""**SITUATION**: The agent is about to execute the following tool call(s) to accomplish a step in the plan.
 
 **Current Step Goal**: {current_step.goal if current_step else 'Execute task'}
 
@@ -345,30 +438,39 @@ class MainAgent:
 {tool_summary}
 
 **Tool Call Details**:
-{chr(10).join([f"- Call {i+1}: {tc.get('name', 'unknown')} with args: {json.dumps(tc.get('args', {}))}" for i, tc in enumerate(tool_calls)])}
+{chr(10).join(tool_call_details)}
 
 **Tool Descriptions**:
 {tool_details_str}
 
-**Available Context**:
-{context_info}
+**Execution Context**:
+{context_info}{validation_section}
 
 **Alternative Tools from Plan**:
 {self._format_tool_alternatives(current_step, tool_names)}
 
-**Task**: Provide:
+---
+
+**YOUR TASK**: Provide:
 1. **Decision**: What tool(s) are being used (1 sentence, mention if multiple calls)
 2. **Reasoning**: Why this tool and these specific inputs are chosen NOW given the current context (2-3 sentences)
 
 Focus on execution-time factors:
-- What data is currently available?
+- What data is currently available? (Be specific about columns and shape if shown above)
 - Why is this tool appropriate for the current situation?
 - How do the inputs address the step goal?
 - If multiple calls: Why are multiple calls needed?
+- Are there any validation warnings that need attention?
+
+CRITICAL: Base your reasoning ONLY on the information provided above. Do NOT assume or hallucinate data that isn't explicitly shown in the "Available Data" section. If data details are not available, reason to use for data choose rather than making assumptions.
 """
         
         try:
-            response = self.llm.invoke([SystemMessage(content=prompt)])
+            # Invoke LLM with system role and user prompt
+            response = self.llm.invoke([
+                SystemMessage(content=system_role),
+                HumanMessage(content=prompt)
+            ])
             content = response.content
             
             decision_match = re.search(r'\*\*Decision\*\*:?\s*(.+?)(?=\n\n|\n\d+\.|\*\*Reasoning\*\*|$)', content, re.DOTALL | re.IGNORECASE)
@@ -376,9 +478,7 @@ Focus on execution-time factors:
             
             reasoning_match = re.search(r'\*\*Reasoning\*\*:?\s*(.+?)(?=\n\n|\n\d+\.|$)', content, re.DOTALL | re.IGNORECASE)
             reasoning = reasoning_match.group(1).strip() if reasoning_match else content
-            
-            logger.info(f"Parsed decision: {decision[:50]}...")
-            logger.info(f"Parsed reasoning: {reasoning[:50]}...")
+
             
             return {
                 "decision": decision,
@@ -392,25 +492,120 @@ Focus on execution-time factors:
             }
     
     def _analyze_execution_context(self, state: Dict[str, Any]) -> Dict[str, Any]:
+        """Analyze execution context with rich DataFrame metadata from previous steps."""
         available_data = []
         steps = state.get('steps', [])
         
-        # Check what data is available from previous steps
+        # Parse previous step outputs for structured data
         for step in steps:
-            output = step.get('output', '')
-            if 'DataFrame' in str(output) or 'stored' in str(output) or 'rows' in str(output).lower():
-                tool_name = step.get('tool_name', 'unknown')
-                available_data.append(f"Data from {tool_name}")
+            tool_calls = step.get('tool_calls', [])
+            for tc in tool_calls:
+                output = tc.get('output', '')
+                tool_name = tc.get('tool_name', 'unknown')
+                
+                # Try to parse JSON output
+                try:
+                    output_data = json.loads(output)
+                    if isinstance(output_data, dict):
+                        # Check for data_context in output
+                        if 'data_context' in output_data:
+                            dc = output_data['data_context']
+                            available_data.append({
+                                'source': tool_name,
+                                'df_id': dc.get('df_id'),
+                                'columns': dc.get('columns', []),
+                                'shape': dc.get('shape', [0, 0]),
+                                'description': output_data.get('description', '')
+                            })
+                        # Check for visualization output
+                        elif 'type' in output_data and output_data.get('type') in ['bar', 'line', 'scatter', 'pie', 'histogram']:
+                            available_data.append({
+                                'source': tool_name,
+                                'type': 'visualization',
+                                'viz_type': output_data.get('type')
+                            })
+                except json.JSONDecodeError:
+                    # Fallback to pattern matching for non-JSON outputs
+                    if 'stored' in str(output).lower() or 'dataframe' in str(output).lower():
+                        available_data.append({
+                            'source': tool_name,
+                            'type': 'unknown_data'
+                        })
         
-        # Get previous step output
-        previous_output = None
+        # Get previous step output with better parsing
+        previous_output_summary = None
         if steps:
-            previous_output = str(steps[-1].get('output', ''))[:200]
+            last_step = steps[-1]
+            last_tool_calls = last_step.get('tool_calls', [])
+            if last_tool_calls:
+                last_output = last_tool_calls[-1].get('output', '')
+                try:
+                    parsed = json.loads(last_output)
+                    if isinstance(parsed, dict):
+                        # Create a concise summary
+                        if 'description' in parsed:
+                            previous_output_summary = parsed['description']
+                        elif 'error' in parsed:
+                            previous_output_summary = f"Error: {parsed['error']}"
+                        else:
+                            previous_output_summary = str(last_output)[:200]
+                except json.JSONDecodeError:
+                    previous_output_summary = str(last_output)[:200]
         
         return {
-            "available_data": available_data if available_data else ["No data in memory"],
-            "previous_output": previous_output
+            "available_data": available_data if available_data else [],
+            "previous_output": previous_output_summary
         }
+    
+    def _get_current_dataframe_info(self, state: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Get current DataFrame information from state (no Redis call needed)."""
+        data_context = state.get('data_context')
+        if not data_context:
+            return None
+        
+        # Extract metadata from data_context (already in state)
+        return {
+            'df_id': data_context.df_id,
+            'columns': data_context.columns,
+            'shape': data_context.shape,
+            'sql_query': data_context.sql_query,
+            'metadata': data_context.metadata if hasattr(data_context, 'metadata') else {}
+        }
+    
+    def _validate_tool_requirements(self, tool_calls: List[Dict[str, Any]], state: Dict[str, Any]) -> List[str]:
+        warnings = []
+        df_info = self._get_current_dataframe_info(state)
+        
+        for tc in tool_calls:
+            tool_name = tc.get('name', 'unknown')
+            
+            # Image QA tool requires img_path column
+            if tool_name == "image_batch_qa_tool":
+                if not df_info:
+                    warnings.append(
+                        f"{tool_name} requires a DataFrame in memory, but none found"
+                    )
+                elif 'img_path' not in df_info.get('columns', []):
+                    warnings.append(
+                        f"{tool_name} requires 'img_path' column, but current DataFrame "
+                        f"only has: {', '.join(df_info['columns'])}"
+                    )
+            
+            # Visualization tools need DataFrame
+            elif tool_name in ["large_plotting_tool", "smart_transform_for_viz"]:
+                if not df_info:
+                    warnings.append(
+                        f"{tool_name} requires a DataFrame in memory, but none found"
+                    )
+            
+            # Python REPL typically needs DataFrame
+            elif tool_name == "python_repl":
+                if not df_info:
+                    warnings.append(
+                        f"ℹ{tool_name} typically needs a DataFrame, but none found in state"
+                    )
+        
+        return warnings
     
     def _format_tool_alternatives(self, current_step: Any, selected_tools: List[str]) -> str:
         alternatives = []
@@ -492,8 +687,12 @@ Focus on execution-time factors:
                         pass
                     
                     if not error_detected_via_json:
-                        output_lower = str(tool_output).lower()
-                        # Detect common error patterns
+                        output_str = str(tool_output)
+                        output_lower = output_str.lower()
+                        
+                        if output_str.startswith('Analysis Result:'):
+                            continue
+                        
                         error_indicators = [
                             'error:', 'exception:', 'failed', 'traceback',
                             'could not', 'unable to', 'invalid', 'not found'
@@ -501,17 +700,21 @@ Focus on execution-time factors:
                         
                         # Check if this is an error message
                         if any(indicator in output_lower for indicator in error_indicators):
-                            # Additional check: not just a natural language response containing these words
-                            # Look for actual error structure or explicit error markers
-                            if ('error:' in output_lower or 
-                                'exception:' in output_lower or 
-                                'traceback' in output_lower or
+                            lines = output_str.split('\n')
+                            has_error_line = any(
+                                line.strip().lower().startswith('error:') or
+                                line.strip().lower().startswith('exception:') or
+                                'traceback' in line.lower()
+                                for line in lines
+                            )
+                            
+                            if (has_error_line or
                                 (tool_message and hasattr(tool_message, 'status') and tool_message.status == 'error')):
                                 has_error = True
                                 failed_tool_names.append(tool_name)
                                 # Extract first line of error for summary
-                                error_lines = str(tool_output).split('\n')
-                                error_summary = error_lines[0][:200] if error_lines else str(tool_output)[:200]
+                                error_lines = output_str.split('\n')
+                                error_summary = error_lines[0][:200] if error_lines else output_str[:200]
                                 error_details.append({
                                     'tool_name': tool_name,
                                     'tool_call_id': tool_call_id,
@@ -519,7 +722,7 @@ Focus on execution-time factors:
                                     'error_type': 'unknown',  # Can't determine from pattern
                                     'details': {},
                                     'recoverable': True,  # Assume recoverable for pattern-detected errors
-                                    'full_output': str(tool_output),
+                                    'full_output': output_str,
                                     'detection_method': 'pattern'  # Track how we detected it
                                 })
                                 logger.warning(f"⚠️  Pattern-based error detected in tool {tool_name}: {error_summary}")
@@ -609,6 +812,22 @@ Focus on execution-time factors:
         if state.get("feedback"):
             return "human_feedback"    
         return "explainer"
+    
+    def should_continue_from_explainer(self, state: ExplainableAgentState) -> Literal["human_feedback", "process_query"]:
+        """Route after explainer based on whether it detected a logical failure."""
+        feedback = state.get("feedback", "")
+        
+        # Check if it's a retry feedback (auto-retry, no interrupt)
+        if feedback and "RETRY_IMAGE_QA" in feedback:
+            logger.info("Explainer detected partial failure - auto-retry without interrupt")
+            return "process_query"
+        
+        # Check for error feedback (interrupt user)
+        if feedback:
+            logger.info("Explainer detected failure - routing to human_feedback interrupt")
+            return "human_feedback"
+        
+        return "process_query"
     
     def finalizer_node(self, state: ExplainableAgentState) -> Dict[str, Any]:
         return self.finalizer.execute(state)
@@ -718,8 +937,8 @@ Focus on execution-time factors:
         logger.info(f"[ROUTING] route_after_feedback called with status: {status}")
         
         if status == "cancelled":
-            logger.info("[ROUTING] Routing to finalizer (cancelled)")
-            return "finalizer"
+            logger.info("[ROUTING] Routing to error_explainer (cancelled) - to explain error before stopping")
+            return "error_explainer"
         elif status == "approved":
             logger.info("[ROUTING] Routing to process_query (approved)")
             return "process_query"
@@ -727,16 +946,25 @@ Focus on execution-time factors:
             logger.info("[ROUTING] Routing to process_query (retry)")
             return "process_query"
         elif status == "feedback":
-            # Replan: check if error-triggered (use error_explainer) or manual (direct to planner)
-            if state.get("error_details"):
-                logger.info("Error-triggered replan - routing to error_explainer")
-                return "error_explainer"
-            else:
-                logger.info("Manual replan - routing to planner")
-                return "planner"
+            # Replan: ALWAYS go to planner directly (User request)
+            # Even if error-triggered, we skip ErrorExplainer for replans to avoid loop/delay
+            logger.info("Feedback/Replan - routing directly to planner")
+            return "planner"
         else:
             logger.warning(f"[ROUTING] Unknown status '{status}', routing to finalizer")
             return "finalizer"
+
+    def route_after_error_explainer(self, state: ExplainableAgentState) -> Literal["planner", "finalizer"]:
+   
+        status = state.get("status")
+        
+        if status == "cancelled":
+            logger.info("[ROUTING] Error explained for cancellation - routing to finalizer to stop")
+            return "finalizer"
+        else:
+            # Default fallback (though we shouldn't reach here for replans anymore) is planner
+            logger.info("[ROUTING] Error explained - routing to planner")
+            return "planner"
     
     def route_after_planner(self, state: ExplainableAgentState) -> Literal["human_feedback", "process_query"]:
         use_planning = state.get("use_planning", True)
@@ -768,7 +996,22 @@ Focus on execution-time factors:
     def error_explainer_node(self, state: ExplainableAgentState) -> Dict[str, Any]:
         """Generate user-friendly error explanation before replanning."""
         logger.info("Generating error explanation for replan context")
-        return self.error_explainer.execute(state)
+        
+        # Extract potential df_id from state to help explainer check Redis
+        df_id = None
+        data_context = state.get("data_context")
+        if data_context:
+            df_id = data_context.df_id
+            
+        # We need to update how we call execute since we changed signature of explain_error
+        # But wait, execute() usually calls explain_error(). I need to check execute() implementation.
+        # Let's assume for now I should pass it via state or kwargs if execute handles it.
+        # Actually, looking at the previous file view, ErrorExplainerNode didn't have an execute method shown in the snippet?
+        # I need to verify if ErrorExplainerNode inherits from something with execute or if it's missing.
+        # The 'view_code_item' showed "MainAgent.error_explainer_node" calling "self.error_explainer.execute(state)".
+        # So ErrorExplainerNode MUST have an execute method.
+        # I better check ErrorExplainerNode.execute first before making this change.
+        return self.error_explainer.execute(state, df_id=df_id)
     
     def _build_system_message(self, state: ExplainableAgentState = None) -> str:
         """Build system message for the execution agent with user preferences."""
@@ -845,11 +1088,25 @@ Focus on execution-time factors:
             }
         )
         
-        # After explainer, go back to process_query
-        graph.add_edge("explainer", "process_query")
+        # After explainer, conditionally route (interrupt if failure detected)
+        graph.add_conditional_edges(
+            "explainer",
+            self.should_continue_from_explainer,
+            {
+                "human_feedback": "human_feedback",
+                "process_query": "process_query"
+            }
+        )
         
-        # After error_explainer, go to planner
-        graph.add_edge("error_explainer", "planner")
+        # After error_explainer, conditionally route (Finalizer if cancelled, Planner otherwise)
+        graph.add_conditional_edges(
+            "error_explainer",
+            self.route_after_error_explainer,
+            {
+                "finalizer": "finalizer",
+                "planner": "planner"
+            }
+        )
         
         # After human_feedback, route based on action
         graph.add_conditional_edges(
@@ -866,10 +1123,8 @@ Focus on execution-time factors:
         # Finalizer goes to END
         graph.add_edge("finalizer", END)
         
-        # Compile with checkpointer and store
+        # Compile the graph
         if self.checkpointer:
             return graph.compile(checkpointer=self.checkpointer, store=self.store)
         else:
             return graph.compile(checkpointer=MemorySaver(), store=self.store)
-
-

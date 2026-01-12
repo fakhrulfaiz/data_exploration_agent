@@ -4,7 +4,7 @@ import React, { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { markdownComponents } from '../../utils/markdownComponents';
-import { ChevronDown, ChevronRight, ListOrdered, Wrench } from 'lucide-react';
+import { ChevronDown, ChevronRight, ListOrdered, Wrench, AlertCircle } from 'lucide-react';
 
 interface ToolOption {
     name: string;
@@ -41,71 +41,72 @@ interface PlanMessageProps {
     disabled?: boolean;
 }
 
-const PlanStepItem: React.FC<{ step: PlanStep }> = ({ step }) => {
-    const [isToolsExpanded, setIsToolsExpanded] = useState(false);
+const PlanStepItem: React.FC<{ step: PlanStep; isLast: boolean }> = ({ step, isLast }) => {
+    const [isExpanded, setIsExpanded] = useState(false);
 
     return (
-        <div className="border border-border rounded-lg bg-background shadow-sm overflow-hidden">
-            {/* Step header */}
-            <div className="px-3 py-2 bg-accent/50">
-                <div className="flex items-start gap-2">
-                    <span className="flex-shrink-0 flex items-center justify-center w-6 h-6 rounded-full bg-primary text-primary-foreground text-xs font-bold">
+        <div className={`flex flex-col ${!isLast ? 'border-b border-border' : ''}`}>
+             {/* Clickable Header Row */}
+            <button
+                onClick={() => setIsExpanded(!isExpanded)}
+                className="flex items-start gap-3 px-4 py-3 w-full text-left hover:bg-muted/30 transition-colors group"
+            >
+                {/* Chevron indicator */}
+                <span className="mt-0.5 text-muted-foreground/50 group-hover:text-muted-foreground transition-colors">
+                    {isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+                </span>
+
+                {/* Step Content */}
+                <div className="flex-1 min-w-0 flex gap-3">
+                    <span className="flex-shrink-0 flex items-center justify-center w-6 h-6 rounded-md bg-muted text-muted-foreground text-xs font-mono font-medium">
                         {step.stepNumber}
                     </span>
-                    <div className="flex-1 min-w-0 flex items-center h-6">
-                        <p className="text-sm font-medium text-foreground">{step.title}</p>
-                    </div>
+                    <p className="text-sm font-medium text-foreground pt-0.5">{step.title}</p>
                 </div>
-            </div>
+            </button>
 
-            {/* Tool options */}
-            {step.toolOptions.length > 0 && (
-                <div className="border-t border-border">
-                    <button
-                        onClick={() => setIsToolsExpanded(!isToolsExpanded)}
-                        className="w-full px-3 py-1.5 flex items-center justify-between hover:bg-muted/50 transition-colors group"
-                    >
-                        <div className="flex items-center gap-2">
-                            <Wrench className="w-3.5 h-3.5 text-muted-foreground group-hover:text-foreground transition-colors" />
-                            <span className="text-[10px] font-semibold text-muted-foreground group-hover:text-foreground uppercase tracking-wide transition-colors">
-                                Suggested Tool Options
-                            </span>
-                        </div>
-                        {isToolsExpanded ? (
-                            <ChevronDown className="w-4 h-4 text-muted-foreground group-hover:text-foreground transition-colors" />
-                        ) : (
-                            <ChevronRight className="w-4 h-4 text-muted-foreground group-hover:text-foreground transition-colors" />
-                        )}
-                    </button>
-
-                    {isToolsExpanded && (
-                        <div className="px-3 pb-2 pt-1">
-                            <ul className="space-y-1">
+            {/* Collapsible Details */}
+            {isExpanded && (
+                <div className="px-4 pb-3 pl-12 mt-2 space-y-3 animation-fade-in">
+                    {/* Tool options */}
+                    {step.toolOptions.length > 0 && (
+                        <div className="bg-muted/30 rounded-md p-3 border border-border/50">
+                            <div className="flex items-center gap-2 mb-2">
+                                <Wrench className="w-3.5 h-3.5 text-muted-foreground" />
+                                <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
+                                    Suggested Tool Options
+                                </span>
+                            </div>
+                            <ul className="space-y-1.5">
                                 {step.toolOptions.map((tool, idx) => (
                                     <li key={idx} className="flex gap-2 items-start text-xs">
-                                        <span className="flex-shrink-0 text-muted-foreground font-medium">
-                                            {idx + 1}.
+                                        <span className="font-mono text-[10px] bg-background border border-border px-1.5 py-0.5 rounded text-foreground/80">
+                                            {tool.name}
                                         </span>
-                                        <div className="flex-1 min-w-0">
-                                            <span className="font-mono text-[10px] bg-muted px-1.5 py-0.5 rounded">
-                                                {tool.name}
-                                            </span>
-                                            <span className="text-muted-foreground ml-2">
-                                                {tool.description}
-                                            </span>
-                                        </div>
+                                        <span className="text-muted-foreground">
+                                            {tool.description}
+                                        </span>
                                     </li>
                                 ))}
                             </ul>
                         </div>
                     )}
-                </div>
-            )}
 
-            {/* Requirements */}
-            {step.requires && (
-                <div className="px-3 py-1.5 bg-muted/50 text-[10px] text-muted-foreground border-t border-border">
-                    <span className="font-semibold">Requires:</span> {step.requires}
+                    {/* Requirements */}
+                    {step.requires && (
+                        <div className="flex gap-2 text-xs text-muted-foreground bg-amber-500/5 border border-amber-500/20 p-2.5 rounded-md">
+                            <AlertCircle className="w-3.5 h-3.5 text-amber-600/70 mt-0.5 flex-shrink-0" />
+                            <div>
+                                <span className="font-medium text-amber-700/80 mr-1">Requires:</span>
+                                {step.requires}
+                            </div>
+                        </div>
+                    )}
+                    
+                    {/* Fallback if no details */}
+                    {!step.requires && step.toolOptions.length === 0 && (
+                        <p className="text-xs text-muted-foreground italic pl-1">No additional details for this step.</p>
+                    )}
                 </div>
             )}
         </div>
@@ -119,8 +120,6 @@ export const PlanMessage: React.FC<PlanMessageProps> = ({
     onReject,
     disabled = false
 }) => {
-    const [isExpanded, setIsExpanded] = useState(true);
-
     // Parse the new plan format
     const parsePlan = (planText: string): ParsedPlan => {
         const lines = planText.split('\n');
@@ -139,7 +138,7 @@ export const PlanMessage: React.FC<PlanMessageProps> = ({
 
             // Check for Intent header
             if (trimmedLine.startsWith('**Intent**:')) {
-                intentMainIntent = trimmedLine.substring(11).trim(); // '**Intent**:'.length === 11
+                intentMainIntent = trimmedLine.substring(11).trim();
                 inIntent = true;
                 continue;
             }
@@ -152,7 +151,7 @@ export const PlanMessage: React.FC<PlanMessageProps> = ({
 
             // Check for Strategy (ends intent section)
             if (trimmedLine.startsWith('**Strategy**:')) {
-                strategy = trimmedLine.substring(13).trim(); // '**Strategy**:'.length === 13
+                strategy = trimmedLine.substring(13).trim();
                 inIntent = false;
                 continue;
             }
@@ -164,7 +163,6 @@ export const PlanMessage: React.FC<PlanMessageProps> = ({
             }
 
             // Check for Step headers (e.g., **Step 1**: ...)
-            // Allow leading whitespace
             const stepMatch = line.match(/^\s*\*\*Step (\d+)\*\*:\s*(.+)$/);
             if (stepMatch) {
                 // Save previous step if exists
@@ -203,7 +201,7 @@ export const PlanMessage: React.FC<PlanMessageProps> = ({
 
             // Check for Requires
             if (trimmedLine.startsWith('Requires:') && currentStep) {
-                currentStep.requires = trimmedLine.substring(9).trim(); // 'Requires:'.length === 9
+                currentStep.requires = trimmedLine.substring(9).trim();
                 inToolOptions = false;
                 inRequires = true;
                 continue;
@@ -215,7 +213,6 @@ export const PlanMessage: React.FC<PlanMessageProps> = ({
             steps.push(currentStep);
         }
 
-        // Build intent object if we found intent data
         const parsedIntent = intentMainIntent ? {
             main_intent: intentMainIntent,
             sub_intents: intentSubIntents
@@ -224,12 +221,10 @@ export const PlanMessage: React.FC<PlanMessageProps> = ({
         return { intent: parsedIntent, strategy, steps };
     };
 
-    const { intent: parsedIntent, strategy, steps } = parsePlan(plan);
+    const { strategy, steps } = parsePlan(plan);
 
     return (
         <div className="plan-message">
-            {/* Intent removed - will be streamed as "Thought: " text block */}
-
             {/* Strategy header */}
             {strategy && (
                 <div className="mb-4">
@@ -237,64 +232,56 @@ export const PlanMessage: React.FC<PlanMessageProps> = ({
                         <ListOrdered className="w-4 h-4 text-primary" />
                         <span className="font-semibold text-sm text-muted-foreground uppercase tracking-wide">Strategy</span>
                     </div>
-                    <p className="text-foreground">{strategy}</p>
+                    <p className="text-foreground text-sm">{strategy}</p>
                 </div>
             )}
 
             {/* Execution Plan steps */}
             {steps.length > 0 && (
-                <div>
-                    {/* Clickable header */}
-                    <button
-                        onClick={() => setIsExpanded(!isExpanded)}
-                        className="mb-3 flex items-center gap-2 hover:opacity-80 transition-opacity"
-                    >
-                        {isExpanded ? (
-                            <ChevronDown className="w-4 h-4 text-muted-foreground" />
-                        ) : (
-                            <ChevronRight className="w-4 h-4 text-muted-foreground" />
-                        )}
-                        <span className="font-medium text-sm text-foreground">
-                            Execution Plan ({steps.length} {steps.length === 1 ? 'step' : 'steps'})
-                        </span>
-                    </button>
-
-                    {/* Steps list */}
-                    {isExpanded && (
-                        <div className="space-y-2">
-                            {steps.map((step) => (
-                                <PlanStepItem key={step.stepNumber} step={step} />
-                            ))}
-                        </div>
-                    )}
+                <div className="mb-4">
+                    <div className="flex items-center gap-2 mb-2">
+                        <span className="font-semibold text-sm text-foreground">Execution Plan</span>
+                        <span className="text-xs text-muted-foreground">({steps.length} steps)</span>
+                    </div>
+                    
+                    {/* Unified Card Container */}
+                    <div className="border border-border rounded-lg bg-background shadow-sm overflow-hidden">
+                        {steps.map((step, index) => (
+                            <PlanStepItem 
+                                key={step.stepNumber} 
+                                step={step} 
+                                isLast={index === steps.length - 1} 
+                            />
+                        ))}
+                    </div>
                 </div>
             )}
 
-            {/* Approval buttons (same style as ToolCallMessage) */}
+            {/* Approval buttons */}
             {needsApproval && (onApprove || onReject) && (
                 <div className="mt-4 flex gap-2">
                     {onApprove && (
                         <button
                             onClick={onApprove}
                             disabled={disabled}
-                            className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                            className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
                         >
                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                             </svg>
-                            Approve
+                            Approve Plan
                         </button>
                     )}
                     {onReject && (
                         <button
                             onClick={onReject}
                             disabled={disabled}
-                            className="flex-1 flex items-center justify-center gap-2 px-4 py-2 border border-input bg-background rounded-md hover:bg-accent hover:text-accent-foreground transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                            className="flex-1 flex items-center justify-center gap-2 px-4 py-2 border border-input bg-background rounded-md hover:bg-accent hover:text-accent-foreground transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
                         >
                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                             </svg>
-                            Reject
+                            Reject Plan
                         </button>
                     )}
                 </div>
