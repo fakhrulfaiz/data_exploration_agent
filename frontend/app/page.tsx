@@ -201,17 +201,6 @@ const ChatWithApproval: React.FC = () => {
             if (block.messageStatus !== undefined) {
               blockUpdates.messageStatus = block.messageStatus as MessageStatus;
             }
-
-            // Only call API if there are actual updates
-            if (Object.keys(blockUpdates).length > 0) {
-              try {
-                // Use message_id (UUID) instead of id (numeric timestamp)
-                const messageId = msg.message_id || String(msg.message_id); // Fallback to string id if UUID not available
-                await ConversationService.updateBlockApproval(threadId, messageId, block.id, blockUpdates);
-              } catch (blockError) {
-                console.error(`Failed to update block ${block.id} flags:`, blockError);
-              }
-            }
           }
         }
       }
@@ -977,21 +966,6 @@ const ChatWithApproval: React.FC = () => {
   // Unified error recovery handler that routes to the appropriate action
   const handleErrorRecovery = async (blockId: string, action: string, message: Message): Promise<HandlerResponse | void> => {
     console.log(`Error recovery requested: ${action} for block ${blockId}`);
-
-    // Persist approval status change to backend (needsApproval=false)
-    const threadId = currentThreadIdRef.current || currentThreadId || selectedChatThreadId || message.threadId;
-    if (threadId) {
-      try {
-        await ConversationService.updateBlockApproval(
-          threadId,
-          message.message_id,
-          blockId,
-          { needsApproval: false }
-        );
-      } catch (err) {
-        console.error("Failed to persist error recovery approval status:", err);
-      }
-    }
 
     switch (action) {
       case 'retry':

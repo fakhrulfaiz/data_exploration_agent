@@ -119,7 +119,8 @@ async def create_graph_streaming(
 @router.post("/resume", response_model=GraphResponse)
 async def resume_graph_streaming(
     request: ResumeGraphRequest,
-    current_user: SupabaseUser = Depends(get_current_user)
+    current_user: SupabaseUser = Depends(get_current_user),
+    message_service: MessageManagementService = Depends(get_message_management_service)
 ):
     thread_id = request.thread_id
     user_id = current_user.user_id
@@ -128,6 +129,28 @@ async def resume_graph_streaming(
     
     assistant_message_id = request.message_id or str(uuid4())
     
+    try:
+        target_message_id = request.message_id
+        if target_message_id:
+            message = await message_service._get_message_by_id(thread_id, target_message_id)
+            if message and message.content:
+                blocks_to_update = []
+                for block in message.content:
+                    if isinstance(block, dict) and block.get('needsApproval') is True:
+                         blocks_to_update.append(block.get('id'))
+                
+                if blocks_to_update:
+                    for block_id in blocks_to_update:
+                         await message_service.update_block_status(
+                             thread_id=thread_id,
+                             message_id=target_message_id,
+                             block_id=block_id,
+                             needsApproval=False
+                         )
+    except Exception as e:
+        # Don't fail the resume if this cleanup fails, just log it
+        logger.error(f"Failed to auto-clear approval flags on resume: {e}")
+
     if request.tool_response:
         logger.info(f"Tool approval response received - type: {request.tool_response.get('type')}")
         run_configs[thread_id] = {
