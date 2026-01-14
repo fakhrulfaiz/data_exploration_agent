@@ -32,6 +32,11 @@ class TextContentHandler(ContentHandler):
         # Skip messages with tool_calls - they're handled by tool_call_handler
         if hasattr(msg, 'tool_calls') and msg.tool_calls:
             return False
+            
+        # Skip reasoning chain and finalizer response messages - they're handled by their own handlers
+        additional_kwargs = getattr(msg, 'additional_kwargs', {})
+        if additional_kwargs.get('is_reasoning_chain', False) or additional_kwargs.get('is_finalizer_response', False):
+            return False
         
         return (
             hasattr(msg, 'content') and 

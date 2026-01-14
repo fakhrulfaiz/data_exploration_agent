@@ -2,7 +2,7 @@
 
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { ThumbsUp, ThumbsDown, ChevronDown } from 'lucide-react';
-import { Message as MessageType, ChatComponentProps, HandlerResponse, ContentBlock, ToolCallsContent, ToolErrorInterrupt, createTextBlock, createToolCallsBlock, createExplorerBlock, createVisualizationsBlock, createPlanBlock, createErrorBlock, createExplanationBlock, createReasoningChainBlock } from '@/types/chat';
+import { Message as MessageType, ChatComponentProps, HandlerResponse, ContentBlock, ToolCallsContent, ToolErrorInterrupt, createTextBlock, createToolCallsBlock, createExplorerBlock, createVisualizationsBlock, createPlanBlock, createErrorBlock, createExplanationBlock, createReasoningChainBlock, createFinalizerBlock } from '@/types/chat';
 import Message from './Message';
 import GeneratingIndicator from './GeneratingIndicator';
 import InputForm from './InputForm';
@@ -656,13 +656,16 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
           const isReplan = planBlock && (planBlock.data as any).plan !== blockData.content;
           
           if (isReplan && planBlock) {
-            // This is a replan - just update the existing block with new content
-            (planBlock.data as any).plan = blockData.content;
-            planBlock.needsApproval = needsApproval;
-            
-            // Force re-render by updating the block reference
+            // This is a replan - update the existing block with new content
+            // Create a new object to ensure React detects the change
             updatedBlocks = updatedBlocks.map(block =>
-              block.id === blockId ? { ...block } : block
+              block.id === blockId 
+                ? { 
+                    ...block, 
+                    needsApproval: needsApproval,
+                    data: { plan: blockData.content }
+                  } 
+                : block
             );
           } else if (!planBlock) {
             // First time seeing this plan - create it
@@ -670,8 +673,16 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
             updatedBlocks = [...updatedBlocks, planBlock];
           } else {
             // Same plan, just update (e.g., streaming in progress)
-            (planBlock.data as any).plan = blockData.content;
-            planBlock.needsApproval = needsApproval;
+            // Create a new object to ensure React detects the change
+            updatedBlocks = updatedBlocks.map(block =>  
+              block.id === blockId 
+                ? { 
+                    ...block, 
+                    needsApproval: needsApproval,
+                    data: { plan: blockData.content }
+                  } 
+                : block
+            );
           }
         } else if (action === 'replan') {
           setMessages(prev => prev.map(msg => ({
@@ -919,6 +930,13 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
           const reasoningChainBlock = createReasoningChainBlock(blockId, chainData);
           updatedBlocks = [...updatedBlocks, reasoningChainBlock];
         }
+      } else if (blockType === 'finalizer_response' && action === 'add_block') {
+         // Handle finalizer response blocks
+         const finalizerData = blockData.data;
+         if (finalizerData) {
+            const finalizerBlock = createFinalizerBlock(blockId, finalizerData);
+            updatedBlocks = [...updatedBlocks, finalizerBlock];
+         }
       }
 
       // Update the message with current content blocks
@@ -933,7 +951,13 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
       console.error('Error handling content_block event:', error);
       return currentContentBlocks;
     }
+
   }, [resolveMessageId, updateContentBlocksCallback, handleToolEvents]);
+
+  const handleSuggestionClick = (query: string) => {
+    setInputValue(query);
+    // Ideally focus the input too, but just setting value is a good start
+  };
 
 
   const handleSend = async (): Promise<void> => {
@@ -1222,6 +1246,11 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
               setToolStepHistory(null);
 
               setExecutionStatus(status === 'finished' ? 'idle' : status);
+              
+              // Clear pending approval when execution finishes
+              if (status === 'finished') {
+                setPendingApproval(null);
+              }
 
               setMessages(prev => prev.map(m => {
                 if (m.message_id === streamingMsgId) {
@@ -1237,9 +1266,9 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
                           return { ...block, needsApproval: true };
                         }
                         return block;
-                      } else if (block.type === 'plan') {
-                        return { ...block, needsApproval: true };
                       }
+                      // DO NOT force plan blocks to needsApproval=true
+                      // The backend already sets the correct value based on use_planning
                       return block;
                     });
                   }
@@ -1996,7 +2025,17 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
                     onRetry={handleRetry}
                     onApproveBlock={handleApprove}
                     onRejectBlock={handleCancel}
-                    onErrorRecovery={handleErrorRecovery}
+                    onErrorRecovery={async (blockId, action) => {
+                      // Intercept cancel action to clear pending approval state locally
+                      if (action === 'cancel') {
+                        setPendingApproval(null);
+                      }
+                      // Pass through to parent handler, appending the message object which Message.tsx might omit
+                      if (onErrorRecovery) {
+                        return await onErrorRecovery(blockId, action, message);
+                      }
+                    }}
+                    onSuggestionClick={handleSuggestionClick}
                   />
 
                   {(() => {

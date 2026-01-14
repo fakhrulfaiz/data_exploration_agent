@@ -9,7 +9,8 @@ const Message: React.FC<MessageComponentProps> = ({
   showIcon = true, // Default to true for backward compatibility
   onApproveBlock,
   onRejectBlock,
-  onErrorRecovery
+  onErrorRecovery,
+  onSuggestionClick
 }) => {
   const hasToolCalls = message.content?.some(block => block.type === 'tool_calls') || false;
 
@@ -68,6 +69,11 @@ const Message: React.FC<MessageComponentProps> = ({
       case 'openVisualization':
         if ((window as any).openVisualization) {
           (window as any).openVisualization(data);
+        }
+        break;
+      case 'suggestionClick':
+        if (onSuggestionClick && data) {
+          onSuggestionClick(data);
         }
         break;
     }

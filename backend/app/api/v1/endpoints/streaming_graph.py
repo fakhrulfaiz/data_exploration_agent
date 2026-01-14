@@ -24,7 +24,8 @@ from app.api.v1.endpoints.streaming.handlers import (
     TextContentHandler,
     PlanContentHandler,
     ExplanationContentHandler,
-    ReasoningChainContentHandler
+    ReasoningChainContentHandler,
+    FinalizerActionsContentHandler
     # ErrorExplanationHandler removed - now handled directly in streaming loop
 )
 from app.api.v1.endpoints.streaming.streaming_persistence import StreamingMessagePersistence
@@ -329,6 +330,7 @@ async def stream_graph(
         plan_handler = PlanContentHandler(context, agent)
         explanation_handler = ExplanationContentHandler(context)
         reasoning_chain_handler = ReasoningChainContentHandler(context)
+        finalizer_actions_handler = FinalizerActionsContentHandler(context)
         tool_call_handler = ToolCallHandler(context)
         # error_explanation_handler removed - now handled directly in streaming loop
         persistence = StreamingMessagePersistence(message_service)
@@ -337,6 +339,7 @@ async def stream_graph(
             tool_call_handler,
             explanation_handler,  # Check explanations before text
             reasoning_chain_handler,  # Check reasoning chains before text
+            finalizer_actions_handler,  # Check finalizer actions before text
             # error_explanation_handler removed - streamed directly when error_explainer completes
             plan_handler,
             text_handler
@@ -483,6 +486,9 @@ async def stream_graph(
                         yield event
                 elif await reasoning_chain_handler.can_handle(msg, metadata):
                     async for event in reasoning_chain_handler.handle(msg, metadata):
+                        yield event
+                elif await finalizer_actions_handler.can_handle(msg, metadata):
+                    async for event in finalizer_actions_handler.handle(msg, metadata):
                         yield event
                 elif await plan_handler.can_handle(msg, metadata):
                     async for event in plan_handler.handle(msg, metadata):

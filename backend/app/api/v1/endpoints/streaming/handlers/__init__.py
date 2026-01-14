@@ -9,6 +9,7 @@ from .plan_handler import PlanContentHandler
 from .explanation_handler import ExplanationContentHandler
 from .reasoning_chain_handler import ReasoningChainContentHandler
 from .error_explanation_handler import ErrorExplanationHandler
+from .finalizer_actions_handler import FinalizerActionsContentHandler
 
 __all__ = [
     "ContentHandler",
@@ -20,4 +21,5 @@ __all__ = [
     "ExplanationContentHandler",
     "ReasoningChainContentHandler",
     "ErrorExplanationHandler",
+    "FinalizerActionsContentHandler",
 ]

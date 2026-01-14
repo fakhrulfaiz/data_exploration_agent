@@ -1,9 +1,14 @@
 """Data management endpoints for DataFrame operations."""
 
 from fastapi import APIRouter, HTTPException, Depends, Request
-from typing import Dict, Any
+from fastapi.responses import Response
+from typing import Dict, Any, List
 import logging
 import pandas as pd
+import io
+import zipfile
+import httpx
+from pydantic import BaseModel
 
 from app.services.redis_dataframe_service import RedisDataFrameService
 from app.services.dependencies import get_redis_dataframe_service
@@ -102,6 +107,32 @@ async def recreate_dataframe(
     Returns a preview payload identical to the /{df_id}/preview endpoint.
     """
     try:
+
+        # Optimized Logic: Check if DataFrame exists first if df_id is provided
+        if request_body.df_id and not request_body.force_recreate:
+            if redis_service.exists(request_body.df_id):
+                logger.info(f"DataFrame {request_body.df_id} exists, returning preview instead of recreating")
+                
+                df = redis_service.get_dataframe(request_body.df_id)
+                context = redis_service.get_metadata(request_body.df_id)
+                
+                if df is not None:
+                     # Convert to records for frontend display
+                    preview_df = df.head(100)
+                    records = preview_df.where(pd.notnull(preview_df), None).to_dict(orient='records')
+                    
+                    return RecreateDataFrameResponse(
+                        data=RecreateDataFrameData(
+                            df_id=context["df_id"],
+                            columns=df.columns.tolist(),
+                            total_rows=len(df),
+                            preview_rows=len(records),
+                            data=records,
+                            metadata=context
+                        ),
+                        message="Existing DataFrame retrieved successfully"
+                    )
+
         logger.info(f"Recreating DataFrame for thread {request_body.thread_id}")
 
         # Get agent to reuse its SQL engine
@@ -174,3 +205,152 @@ async def recreate_dataframe(
             message=f"Error recreating DataFrame: {str(e)}",
             errors=[{"code": "RECREATE_ERROR", "message": str(e)}]
         )
+
+
+class ExportRequest(BaseModel):
+    df_id: str
+
+
+class DownloadPlotsRequest(BaseModel):
+    plot_urls: List[str]
+
+
+@router.post("/export-dataframe")
+async def export_dataframe(
+    request: ExportRequest,
+    redis_service: RedisDataFrameService = Depends(get_redis_dataframe_service)
+):
+    """
+    Export a DataFrame from Redis to XLSX format.
+    Returns all rows (not limited like preview).
+    """
+    try:
+        # Check if DataFrame exists
+        if not redis_service.exists(request.df_id):
+            raise HTTPException(
+                status_code=404,
+                detail="DataFrame not found or expired. Please create a new chat to regenerate the data."
+            )
+        
+        # Get the DataFrame
+        df = redis_service.get_dataframe(request.df_id)
+        if df is None:
+            raise HTTPException(
+                status_code=404,
+                detail="DataFrame not found or expired. Please create a new chat to regenerate the data."
+            )
+        
+        # Convert to XLSX
+        output = io.BytesIO()
+        with io.BytesIO() as buffer:
+            with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+                df.to_excel(writer, index=False, sheet_name='Data')
+            buffer.seek(0)
+            output = buffer.getvalue()
+        
+        logger.info(f"Exported DataFrame {request.df_id} with {len(df)} rows to XLSX")
+        
+        # Return as downloadable file
+        return Response(
+            content=output,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={
+                "Content-Disposition": "attachment; filename=data_export.xlsx"
+            }
+        )
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to export DataFrame: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to export DataFrame: {str(e)}")
+
+
+@router.post("/download-plots")
+async def download_plots(
+    request: DownloadPlotsRequest
+):
+    """
+    Download plot images from URLs.
+    If multiple plots, returns a ZIP file.
+    Only downloads plots from HTTP URLs (not local file paths).
+    """
+    try:
+        if not request.plot_urls:
+            raise HTTPException(status_code=400, detail="No plot URLs provided")
+        
+        # Filter only HTTP URLs (exclude local file paths)
+        http_urls = [url for url in request.plot_urls if url.startswith("http")]
+        
+        if not http_urls:
+            raise HTTPException(
+                status_code=400,
+                detail="No valid plot URLs found. Only HTTP URLs are supported for download."
+            )
+        
+        # Download images
+        images = []
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            for idx, url in enumerate(http_urls):
+                try:
+                    response = await client.get(url)
+                    response.raise_for_status()
+                    
+                    # Determine file extension from URL or content-type
+                    content_type = response.headers.get('content-type', '')
+                    if 'png' in content_type or url.endswith('.png'):
+                        ext = 'png'
+                    elif 'jpeg' in content_type or 'jpg' in content_type or url.endswith(('.jpg', '.jpeg')):
+                        ext = 'jpg'
+                    elif 'svg' in content_type or url.endswith('.svg'):
+                        ext = 'svg'
+                    else:
+                        ext = 'png'  # default
+                    
+                    images.append({
+                        'filename': f'plot_{idx + 1}.{ext}',
+                        'content': response.content
+                    })
+                    logger.info(f"Downloaded plot {idx + 1} from {url}")
+                except Exception as e:
+                    logger.warning(f"Failed to download plot from {url}: {e}")
+                    # Continue with other plots
+        
+        if not images:
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to download any plots. Images may have expired or URLs are invalid."
+            )
+        
+        # If single image, return directly
+        if len(images) == 1:
+            return Response(
+                content=images[0]['content'],
+                media_type="image/png",
+                headers={
+                    "Content-Disposition": f"attachment; filename={images[0]['filename']}"
+                }
+            )
+        
+        # Multiple images - create ZIP
+        zip_buffer = io.BytesIO()
+        with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+            for img in images:
+                zip_file.writestr(img['filename'], img['content'])
+        
+        zip_buffer.seek(0)
+        logger.info(f"Created ZIP file with {len(images)} plots")
+        
+        return Response(
+            content=zip_buffer.getvalue(),
+            media_type="application/zip",
+            headers={
+                "Content-Disposition": "attachment; filename=plots.zip"
+            }
+        )
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to download plots: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to download plots: {str(e)}")

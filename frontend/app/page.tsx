@@ -3,7 +3,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Message, HandlerResponse } from '@/types/chat';
 import { ConversationService, GraphService, ExplorerService, VisualizationService, DataService } from '@/services';
-import type { DataFramePreviewData, MessageStatus, GraphResponse } from '@/types';
+import type { DataFramePreviewData, MessageStatus, GraphResponse, DataContext } from '@/types';
 import { ApprovalStatus } from '@/types';
 import ChatComponent from '@/components/chat/ChatComponent';
 import Sidebar from '@/components/sidebar/Sidebar';
@@ -39,6 +39,7 @@ const ChatWithApproval: React.FC = () => {
   const [dataFrameData, setDataFrameData] = useState<DataFramePreviewData | null>(null);
   const [graphPanelOpen, setGraphPanelOpen] = useState(false);
   const [graphStructure, setGraphStructure] = useState<GraphStructure | null>(null);
+  const [currentDataContext, setCurrentDataContext] = useState<DataContext | null>(null);
 
   const eventSourceRef = useRef<EventSource | null>(null);
   const currentThreadIdRef = useRef<string | null>(null);
@@ -158,6 +159,12 @@ const ChatWithApproval: React.FC = () => {
       console.log('Fetching DataFrame preview for:', dfId);
       const previewResponse = await DataService.getDataFramePreview(dfId);
       setDataFrameData(previewResponse.data || null);
+      
+      // Update currentDataContext to enable refresh button
+      if (previewResponse.data?.metadata) {
+          setCurrentDataContext(previewResponse.data.metadata as unknown as DataContext);
+      }
+
       console.log('DataFrame preview loaded successfully');
     } catch (err: any) {
       console.error('Failed to load DataFrame preview:', err);
@@ -971,6 +978,21 @@ const ChatWithApproval: React.FC = () => {
   const handleErrorRecovery = async (blockId: string, action: string, message: Message): Promise<HandlerResponse | void> => {
     console.log(`Error recovery requested: ${action} for block ${blockId}`);
 
+    // Persist approval status change to backend (needsApproval=false)
+    const threadId = currentThreadIdRef.current || currentThreadId || selectedChatThreadId || message.threadId;
+    if (threadId) {
+      try {
+        await ConversationService.updateBlockApproval(
+          threadId,
+          message.message_id,
+          blockId,
+          { needsApproval: false }
+        );
+      } catch (err) {
+        console.error("Failed to persist error recovery approval status:", err);
+      }
+    }
+
     switch (action) {
       case 'retry':
         return await handleRetryError(message);
@@ -1001,6 +1023,9 @@ const ChatWithApproval: React.FC = () => {
         const response = await ConversationService.restoreConversation(threadId);
         const { thread_id, title, messages } = response.data || {};
         const data_context = response.data?.data_context;
+        // Store data context for potential refresh operations
+        setCurrentDataContext(data_context || null);
+
         const convertedMessages = convertChatHistoryToMessages(messages || []);
         setRestoredMessages(convertedMessages);
 
@@ -1015,41 +1040,19 @@ const ChatWithApproval: React.FC = () => {
 
         // Check for data context: try to load preview silently if DataFrame still exists in Redis.
         // If missing, offer to recreate it using the original SQL query and also refresh agent state.
-        if (data_context && data_context.df_id) {
+        // Check for data context and unify loading (preview if exists, recreate if not)
+        if (data_context && data_context.sql_query && threadId) {
           try {
-            const previewResponse = await DataService.getDataFramePreview(data_context.df_id);
-            setDataFrameData(previewResponse.data || null);
-            // Do NOT auto-open the panel; user can open via the button in the input form.
+             // Pass df_id to allow backend to check existence first (Unified logic)
+             const response = await DataService.recreateDataFrame(
+                 threadId, 
+                 data_context.sql_query, 
+                 data_context.df_id
+             );
+             setDataFrameData(response.data || null);
           } catch (err: any) {
-            setDataFrameData(null);
-            const hasSql = !!data_context.sql_query;
-            
-            if (hasSql) {
-              console.warn("DataFrame preview expired, auto-reloading:", {
-                dfId: data_context.df_id,
-                hasSqlQuery: true
-              });
-              
-              // Auto-reload without confirmation
-              try {
-                const recreatedResponse = await DataService.recreateDataFrame(threadId, data_context.sql_query);
-                setDataFrameData(recreatedResponse.data || null);
-                
-                // Show success notification
-                console.log("Data context successfully recreated from previous SQL query");
-                // You can add a toast notification here if you have a toast system
-              } catch (reloadErr: any) {
-                console.error("Failed to recreate data context:", reloadErr);
-                // Show error notification instead of alert
-                console.error("Failed to recreate data context. Please rerun your original request.");
-              }
-            } else {
-              // No SQL query available, log as error since we cannot recover
-              console.error("DataFrame preview failed and cannot be recreated (no SQL query):", {
-                dfId: data_context.df_id,
-                error: err?.response?.data || err?.message
-              });
-            }
+             console.error("Failed to load/refresh data context:", err);
+             setDataFrameData(null);
           }
         }
       } else {
@@ -1111,6 +1114,7 @@ const ChatWithApproval: React.FC = () => {
     setVisualizationOpen(false);
     setDataFrameOpen(false);
     setDataFrameData(null);
+    setCurrentDataContext(null);
     setShowExecutionHistory(false);
   };
 
@@ -1125,6 +1129,31 @@ const ChatWithApproval: React.FC = () => {
     } catch (error) {
       console.error('Failed to update thread title:', error);
       // You might want to show an error message to the user
+    }
+  };
+
+  const handleRefreshDataFrame = async () => {
+    const threadId = currentThreadId || selectedChatThreadId;
+    if (!threadId || !currentDataContext?.sql_query) {
+      console.warn("Cannot refresh DataFrame: Missing thread ID or SQL query");
+      return;
+    }
+
+    try {
+      // Recreate DataFrame using the stored SQL query (checks for existing first)
+      const response = await DataService.recreateDataFrame(
+          threadId, 
+          currentDataContext.sql_query, 
+          currentDataContext.df_id
+      );
+      
+      // Update the panel data
+      setDataFrameData(response.data || null);
+      
+      console.log("DataFrame refreshed successfully");
+    } catch (error) {
+      console.error("Failed to refresh DataFrame:", error);
+      alert("Failed to refresh data. Please try running the query again.");
     }
   };
 
@@ -1206,6 +1235,7 @@ const ChatWithApproval: React.FC = () => {
           open={dataFrameOpen && !explorerOpen && !visualizationOpen}
           onClose={() => setDataFrameOpen(false)}
           data={dataFrameData}
+          onRefresh={currentDataContext?.sql_query ? handleRefreshDataFrame : undefined}
         />
         {/* GraphFlowPanel now rendered inline in split view above */}
       </div>

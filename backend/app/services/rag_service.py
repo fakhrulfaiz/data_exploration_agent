@@ -37,8 +37,13 @@ class RAGService:
             persist_directory=f"{persist_directory}/feedback_kb"
         )
         
-        logger.info("RAG Service initialized with 2 knowledge bases: thought_process_kb, feedback_kb")
-
+        # Finalizer Response KB - stores response formatting patterns and action templates
+        self.finalizer_response_kb = Chroma(
+            collection_name="finalizer_response_kb",
+            embedding_function=self.embeddings,
+            persist_directory=f"{persist_directory}/finalizer_response_kb"
+        )
+        
     
     
     # ==================== Thought Process KB ====================
@@ -80,6 +85,30 @@ class RAGService:
         
         logger.info(f"Retrieved {len(patterns)} thought pattern examples for query: {query[:50]}...")
         return patterns
+    
+    def retrieve_finalizer_patterns(
+        self,
+        search_context: str,
+        n_results: int = 2
+    ) -> List[Dict[str, Any]]:
+        results = self.finalizer_response_kb.similarity_search_with_score(
+            search_context,
+            k=n_results
+        )
+        
+        patterns = []
+        for doc, score in results:
+            patterns.append({
+                "pattern_category": doc.metadata.get("pattern_category", "unknown"),
+                "execution_context": doc.metadata.get("execution_context", ""),
+                "response_template": doc.page_content,
+                "action_rules": json.loads(doc.metadata.get("action_rules", "{}")) if isinstance(doc.metadata.get("action_rules"), str) else doc.metadata.get("action_rules", {}),
+                "relevance_score": 1 - score,  
+                "metadata": doc.metadata
+            })
+        
+        return patterns
+    
     
     # ==================== Feedback Collection ====================
     

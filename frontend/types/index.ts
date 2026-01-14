@@ -222,6 +222,8 @@ export interface DataFramePreviewResponse extends BaseResponse<DataFramePreviewD
 export interface RecreateDataFrameRequest {
     thread_id: string;
     sql_query: string;
+    df_id?: string;
+    force_recreate?: boolean;
 }
 
 export interface RecreateDataFrameData extends DataFramePreviewData { }

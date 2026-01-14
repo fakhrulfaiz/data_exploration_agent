@@ -89,13 +89,26 @@ export interface ReasoningChainContent {
   }>;
 }
 
+export interface FinalizerContent {
+  response: string;
+  actions: {
+    export_dataframe?: {
+      df_id?: string;
+    } | null;
+    download_plots?: {
+      plot_urls?: string[];
+    } | null;
+    next_queries?: string[];
+  };
+}
+
 export interface ContentBlock {
   id: string;
-  type: 'text' | 'tool_calls' | 'explorer' | 'visualizations' | 'plan' | 'error' | 'explanation' | 'reasoning_chain';
+  type: 'text' | 'tool_calls' | 'explorer' | 'visualizations' | 'plan' | 'error' | 'explanation' | 'reasoning_chain' | 'finalizer_response';
   needsApproval?: boolean;
   messageStatus?: 'pending' | 'approved' | 'rejected' | 'error' | 'timeout';
   metadata?: any;
-  data: TextContent | ToolCallsContent | ExplorerContent | VisualizationsContent | PlanContent | ErrorContent | ExplanationContent | ReasoningChainContent;
+  data: TextContent | ToolCallsContent | ExplorerContent | VisualizationsContent | PlanContent | ErrorContent | ExplanationContent | ReasoningChainContent | FinalizerContent;
 }
 
 export interface Message {
@@ -214,6 +227,16 @@ export const createReasoningChainBlock = (id: string, chainData: ReasoningChainC
 export const isReasoningChainBlock = (block: ContentBlock): block is ContentBlock & { data: ReasoningChainContent } =>
   block.type === 'reasoning_chain';
 
+export const createFinalizerBlock = (id: string, finalizerData: FinalizerContent): ContentBlock => ({
+  id,
+  type: 'finalizer_response',
+  needsApproval: false,
+  data: finalizerData
+});
+
+export const isFinalizerBlock = (block: ContentBlock): block is ContentBlock & { data: FinalizerContent } =>
+  block.type === 'finalizer_response';
+
 // Response object that handlers can return
 export interface HandlerResponse {
   message: string;
@@ -267,6 +290,7 @@ export interface MessageComponentProps {
   onApproveBlock?: (blockId: string) => void; // Handler for approving a block
   onRejectBlock?: (blockId: string) => void; // Handler for rejecting a block
   onErrorRecovery?: (blockId: string, action: string) => void; // Handler for error recovery actions (retry/replan/cancel)
+  onSuggestionClick?: (query: string) => void; // Handler for clicking a suggestion
 }
 
 
