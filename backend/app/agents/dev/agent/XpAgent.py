@@ -624,6 +624,100 @@ def _execute_tool(
 
 
 # ============================================================================
+# NODE: CONTEXT BUILDER - Handles multi-turn memory
+# ============================================================================
+
+def create_context_builder_node():
+    """Create the context builder node that accumulates conversation history."""
+    
+    def context_builder_node(state: MainAgentState):
+        """
+        Build conversation context from previous turns.
+        This node runs at the start of each new query to accumulate context.
+        """
+        # Get previous conversation context
+        previous_context = state.get("conversation_context", "")
+        previous_final_answer = state.get("final_answer", "")
+        previous_query = state.get("original_query", "")
+        
+        # Get the new query from the latest message
+        new_query = ""
+        messages = state.get("messages", [])
+        for msg in reversed(messages):
+            if isinstance(msg, HumanMessage):
+                new_query = msg.content
+                break
+            elif isinstance(msg, dict) and msg.get("role") == "user":
+                new_query = msg.get("content", "")
+                break
+        
+        if not new_query:
+            return {}  # No new query, nothing to do
+        
+        # Check if this is a continuation (previous answer exists)
+        if previous_final_answer and previous_query:
+            # Extract a one-line summary from the final answer
+            summary_line = ""
+            answer_lines = [l.strip() for l in previous_final_answer.split('\n') 
+                          if l.strip() and not l.strip().startswith("#")]
+            if answer_lines:
+                summary_line = answer_lines[0]
+                if len(summary_line) > 200:
+                    summary_line = summary_line[:200] + "..."
+            
+            # Build accumulated context
+            if previous_context:
+                # Append to existing context
+                new_context = f"{previous_context}\n→ Answer: {summary_line}\n\nFollow-up: {new_query}"
+            else:
+                # First follow-up after initial query
+                new_context = f"Query: {previous_query}\n→ Answer: {summary_line}\n\nFollow-up: {new_query}"
+            
+            print(f"📚 Built conversation context ({len(new_context)} chars)")
+            print(f"   Previous query: {previous_query[:50]}...")
+            print(f"   Answer summary: {summary_line[:50]}...")
+            print(f"   New query: {new_query[:50]}...")
+            
+            return {
+                "conversation_context": new_context,
+                "original_query": new_query,  # Set current query
+                # Reset execution state for new query
+                "plan_steps": [],
+                "step_results": [],
+                "tool_context": "",
+                "current_step_index": 0,
+                "total_steps": 0,
+                "completed_steps": 0,
+                "execution_complete": False,
+                "final_answer": None,
+                "feedback": None,
+                "pending_interrupt": False,
+                "generated_files": []
+            }
+        else:
+            # First query in conversation - no context to build
+            print(f"📝 New conversation started: {new_query[:50]}...")
+            return {
+                "conversation_context": "",
+                "original_query": new_query,
+                # Reset execution state
+                "plan_steps": [],
+                "step_results": [],
+                "tool_context": "",
+                "current_step_index": 0,
+                "total_steps": 0,
+                "completed_steps": 0,
+                "execution_complete": False,
+                "final_answer": None,
+                "feedback": None,
+                "pending_interrupt": False,
+                "generated_files": []
+            }
+    
+    return context_builder_node
+
+
+# ============================================================================
 # NODE: PLANNER
 # ============================================================================
 
@@ -634,6 +728,8 @@ def create_planner_node(llm):
         """Plan how to accomplish the user's task."""
         
         query = state.get("original_query", "")
+        conversation_context = state.get("conversation_context", "")
+        
         if not query:
             # Extract from messages if not set
             for msg in state.get("messages", []):
@@ -645,10 +741,21 @@ def create_planner_node(llm):
         feedback = state.get("feedback")
         previous_results = state.get("step_results", [])
         
-        # Build the planning prompt
+        # Build the planning prompt with conversation context
+        context_section = ""
+        if conversation_context:
+            context_section = f"""
+## Conversation History (IMPORTANT - Use this context!)
+The user is continuing a conversation. Here's what happened before:
+
+{conversation_context}
+
+**IMPORTANT**: The current query may reference previous results. Use the context above to understand references like "it", "that", "the painting", etc.
+"""
+        
         system_prompt = f"""## Role
 You are a Strategic AI Planner for an artwork database analysis system.
-
+{context_section}
 ## Available Tools
 {json.dumps({k: v.model_dump() for k, v in TOOL_CAPABILITIES.items()}, indent=2)}
 
@@ -661,6 +768,7 @@ You are a Strategic AI Planner for an artwork database analysis system.
    - If only database info is needed → 1 step (database_exploration_agent)
    - If visual analysis is needed → 2 steps (database to get img_path, then image_qna_agent)
    - Add plotting ONLY if user explicitly asks for visualizations
+   - **If the answer is already in conversation context, you may not need any database query!**
 
 2. **Tool Selection Rules**:
    - database_exploration_agent: Use for ANY database query (counts, lists, filtering, etc.)
@@ -674,6 +782,7 @@ You are a Strategic AI Planner for an artwork database analysis system.
 
 4. **Efficiency**:
    - Don't add steps "just in case"
+   - **Use information from conversation context when available**
    - Don't create data exploration steps if data is already available from previous results
    - Skip plotting unless explicitly requested
 
@@ -684,11 +793,11 @@ You are a Strategic AI Planner for an artwork database analysis system.
    - Example: {{"task": "bar chart showing distribution"}} - NO file_path needed!
 
 ## Your Task
-Create a minimal, efficient plan to answer the user's query.
+Create a minimal, efficient plan to answer the user's query. Use conversation context when relevant.
 """
 
         # Build user message with context
-        user_content = f"**User Query**: {query}\n\n"
+        user_content = f"**Current Query**: {query}\n\n"
         
         if feedback:
             user_content += f"**Previous Attempt Feedback**: {feedback}\n\n"
@@ -711,9 +820,8 @@ Create a minimal, efficient plan to answer the user's query.
                 HumanMessage(content=user_content)
             ])
             
-            # Update state with plan
+            # Update state with plan (keep conversation_context intact)
             return {
-                "original_query": query,
                 "plan_steps": plan.steps,
                 "total_steps": len(plan.steps),
                 "current_step_index": 0,
@@ -1023,6 +1131,7 @@ def build_xp_agent(
     set_factory(factory)
     
     # Create nodes
+    context_builder = create_context_builder_node()
     planner = create_planner_node(llm)
     executor = create_executor_node(llm, factory)
     aggregator = create_aggregator_node(llm)
@@ -1031,13 +1140,15 @@ def build_xp_agent(
     builder = StateGraph(MainAgentState)
     
     # Add nodes
+    builder.add_node("context_builder", context_builder)  # NEW: Handles multi-turn memory
     builder.add_node("planner", planner)
     builder.add_node("executor", executor)
     builder.add_node("aggregator", aggregator)
     builder.add_node("interrupt_for_replan", interrupt_for_replan_node)
     
     # Add edges
-    builder.add_edge(START, "planner")
+    builder.add_edge(START, "context_builder")  # START -> context_builder
+    builder.add_edge("context_builder", "planner")  # context_builder -> planner
     builder.add_conditional_edges(
         "planner",
         route_after_planner,

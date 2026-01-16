@@ -1,23 +1,35 @@
 import gradio as gr
 import uuid
 import sys
+import os
 from pathlib import Path
 from dotenv import load_dotenv
 
 load_dotenv()
 
+# Define workspace directories
+WORKSPACE_DIR = Path(__file__).parent / "workspace"
+PLOT_DIR = WORKSPACE_DIR / "plot"
+OUTPUTS_DIR = WORKSPACE_DIR / "outputs"
+
 # Add agent directory to path
 sys.path.append(str(Path(__file__).parent / "agent"))
 
-# Import from main_agent_v2 (the redesigned supervisor)
-# from agent.main_agent_v2 import initialize_agent_with_checkpointer, create_thread_config
+# Import from XpAgent (the latest supervisor implementation)
 from agent.XpAgent import build_xp_agent
+from langgraph.checkpoint.memory import MemorySaver
 from langgraph.types import Command
 
 # Initialize the LangGraph agent with checkpointer (once at module level)
-print("Initializing LangGraph Agent v2...")
-agent, checkpointer = initialize_agent_with_checkpointer()
-print("Agent v2 initialized successfully!")
+print("Initializing XpAgent...")
+checkpointer = MemorySaver()
+agent = build_xp_agent(checkpointer=checkpointer)
+print("XpAgent initialized successfully!")
+
+
+def create_thread_config(thread_id: str) -> dict:
+    """Create a configuration dictionary for a specific thread."""
+    return {"configurable": {"thread_id": thread_id}}
 
 
 # Global session storage (for persistence across requests)
@@ -89,10 +101,9 @@ def respond(
     response = ""
 
     try:
-        # Use the proper initial state format for main_agent_v2
+        # Simple message passing - the agent handles context internally via checkpointer
         initial_state = {
             "messages": [{"role": "user", "content": message}],
-            "original_query": message
         }
         
         for chunk in agent.stream(
@@ -115,6 +126,8 @@ def respond(
 
         if final_state.next and "interrupt_for_replan" in final_state.next:
             print(f"🔔 Agent reached interrupt_for_replan! Modal will appear.")
+            # Yield a special message to indicate interrupt - this will trigger the modal check
+            yield response + "\n\n⏸️ **Agent paused - awaiting your approval...**"
         elif final_state.next:
             print(f"⏸️ Agent paused at: {final_state.next}")
         else:
@@ -294,6 +307,106 @@ def get_agent_status(session_id: str):
         return f"⚠️ Status unavailable: {str(e)}"
 
 
+def get_plot_images():
+    """
+    Get all plot images from the workspace/plot directory, sorted by modification time.
+    
+    Returns:
+        list: List of tuples (image_path, caption) sorted by most recent first
+    """
+    if not PLOT_DIR.exists():
+        PLOT_DIR.mkdir(parents=True, exist_ok=True)
+        return []
+    
+    # Get all PNG files in the plot directory
+    image_extensions = {'.png', '.jpg', '.jpeg', '.gif', '.webp'}
+    images = []
+    
+    for file_path in PLOT_DIR.iterdir():
+        if file_path.is_file() and file_path.suffix.lower() in image_extensions:
+            # Get modification time
+            mod_time = file_path.stat().st_mtime
+            # Create caption with filename and timestamp
+            from datetime import datetime
+            timestamp = datetime.fromtimestamp(mod_time).strftime("%Y-%m-%d %H:%M:%S")
+            caption = f"{file_path.stem} ({timestamp})"
+            images.append((str(file_path), mod_time, caption))
+    
+    # Sort by modification time (most recent first)
+    images.sort(key=lambda x: x[1], reverse=True)
+    
+    # Return as list of (path, caption) tuples for Gradio Gallery
+    return [(img[0], img[2]) for img in images]
+
+
+def refresh_plots():
+    """
+    Refresh the plot gallery with latest images.
+    
+    Returns:
+        list: Updated list of plot images
+    """
+    return get_plot_images()
+
+
+def get_output_files():
+    """
+    Get all CSV output files from the workspace/outputs directory, sorted by modification time.
+    
+    Returns:
+        list: List of filenames sorted by most recent first
+    """
+    if not OUTPUTS_DIR.exists():
+        OUTPUTS_DIR.mkdir(parents=True, exist_ok=True)
+        return []
+    
+    csv_files = []
+    for file_path in OUTPUTS_DIR.iterdir():
+        if file_path.is_file() and file_path.suffix.lower() == '.csv':
+            mod_time = file_path.stat().st_mtime
+            csv_files.append((file_path.name, mod_time))
+    
+    # Sort by modification time (most recent first)
+    csv_files.sort(key=lambda x: x[1], reverse=True)
+    
+    return [f[0] for f in csv_files]
+
+
+def load_csv_file(filename: str):
+    """
+    Load a CSV file and return its content as a pandas DataFrame.
+    
+    Args:
+        filename: Name of the CSV file to load
+        
+    Returns:
+        tuple: (DataFrame or None, status message)
+    """
+    import pandas as pd
+    
+    if not filename or filename.strip() == "":
+        return None, "📭 Enter a filename to display its contents."
+    
+    filename = filename.strip()
+    
+    # Add .csv extension if not present
+    if not filename.lower().endswith('.csv'):
+        filename = filename + '.csv'
+    
+    file_path = OUTPUTS_DIR / filename
+    
+    if not file_path.exists():
+        available = get_output_files()
+        available_str = ", ".join(available[:5]) if available else "None"
+        return None, f"❌ File '{filename}' not found. Available files: {available_str}{'...' if len(available) > 5 else ''}"
+    
+    try:
+        df = pd.read_csv(file_path)
+        return df, f"✅ Loaded '{filename}' ({len(df)} rows, {len(df.columns)} columns)"
+    except Exception as e:
+        return None, f"❌ Error loading '{filename}': {str(e)}"
+
+
 # ============================================================
 # GRADIO UI SETUP
 # ============================================================
@@ -354,28 +467,172 @@ CUSTOM_CSS = """
     box-shadow: 0 2px 8px rgba(0,0,0,0.08) !important;
 }
 
-/* Interrupt modal styling */
+/* ============================================
+   MODERN INTERRUPT MODAL STYLING
+   ============================================ */
+
+/* Modal backdrop overlay */
+.modal-backdrop {
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    background: rgba(0, 0, 0, 0.6) !important;
+    backdrop-filter: blur(4px) !important;
+    z-index: 999 !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+}
+
+/* Modal container */
 .interrupt-modal {
     position: fixed !important;
     top: 50% !important;
     left: 50% !important;
     transform: translate(-50%, -50%) !important;
     z-index: 1000 !important;
-    background: white !important;
-    padding: 2rem !important;
-    border-radius: 16px !important;
-    box-shadow: 0 12px 48px rgba(0,0,0,0.25) !important;
-    max-width: 480px !important;
+    background: linear-gradient(145deg, #ffffff 0%, #f8f9ff 100%) !important;
+    padding: 0 !important;
+    border-radius: 20px !important;
+    box-shadow: 
+        0 25px 50px -12px rgba(0, 0, 0, 0.25),
+        0 0 0 1px rgba(102, 126, 234, 0.1),
+        inset 0 1px 0 rgba(255, 255, 255, 0.8) !important;
+    max-width: 440px !important;
     width: 90% !important;
-    border: 2px solid #667eea !important;
+    overflow: hidden !important;
+    animation: modalSlideIn 0.3s ease-out !important;
 }
 
-.interrupt-modal h2 {
-    color: #667eea !important;
-    margin-top: 0 !important;
+@keyframes modalSlideIn {
+    from {
+        opacity: 0;
+        transform: translate(-50%, -48%) scale(0.96);
+    }
+    to {
+        opacity: 1;
+        transform: translate(-50%, -50%) scale(1);
+    }
 }
 
-/* Button styling */
+/* Modal header with gradient */
+.modal-header {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+    padding: 1.5rem 1.75rem !important;
+    text-align: center !important;
+}
+
+.modal-header h2 {
+    color: white !important;
+    margin: 0 !important;
+    font-size: 1.25rem !important;
+    font-weight: 600 !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    gap: 0.5rem !important;
+}
+
+/* Modal body */
+.modal-body {
+    padding: 1.75rem !important;
+    background: white !important;
+}
+
+.modal-body p {
+    color: #4a5568 !important;
+    font-size: 0.95rem !important;
+    line-height: 1.6 !important;
+    margin: 0 0 1rem 0 !important;
+}
+
+/* Question/Reason box */
+.modal-reason {
+    background: linear-gradient(135deg, #f7f8ff 0%, #eef1ff 100%) !important;
+    border: 1px solid rgba(102, 126, 234, 0.2) !important;
+    border-radius: 12px !important;
+    padding: 1rem 1.25rem !important;
+    margin: 1rem 0 !important;
+}
+
+.modal-reason p {
+    color: #5a67d8 !important;
+    font-weight: 500 !important;
+    margin: 0 !important;
+    font-size: 0.9rem !important;
+}
+
+/* Modal footer with buttons */
+.modal-footer {
+    padding: 0 1.75rem 1.75rem 1.75rem !important;
+    background: white !important;
+    display: flex !important;
+    gap: 0.75rem !important;
+}
+
+/* Button base styling */
+.modal-btn {
+    flex: 1 !important;
+    padding: 0.875rem 1.5rem !important;
+    border-radius: 12px !important;
+    font-weight: 600 !important;
+    font-size: 0.95rem !important;
+    cursor: pointer !important;
+    transition: all 0.2s ease !important;
+    border: none !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    gap: 0.5rem !important;
+}
+
+/* Approve button */
+.approve-btn {
+    background: linear-gradient(135deg, #48bb78 0%, #38a169 100%) !important;
+    color: white !important;
+    box-shadow: 0 4px 14px rgba(72, 187, 120, 0.35) !important;
+}
+
+.approve-btn:hover {
+    transform: translateY(-2px) !important;
+    box-shadow: 0 6px 20px rgba(72, 187, 120, 0.45) !important;
+}
+
+/* Reject button */
+.reject-btn {
+    background: linear-gradient(135deg, #fc8181 0%, #f56565 100%) !important;
+    color: white !important;
+    box-shadow: 0 4px 14px rgba(245, 101, 101, 0.35) !important;
+}
+
+.reject-btn:hover {
+    transform: translateY(-2px) !important;
+    box-shadow: 0 6px 20px rgba(245, 101, 101, 0.45) !important;
+}
+
+/* Pulse animation for the icon */
+.pulse-icon {
+    animation: pulse 2s infinite !important;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.6; }
+}
+
+/* Hide default Gradio group styling */
+.interrupt-modal > .gr-group {
+    border: none !important;
+    background: transparent !important;
+    padding: 0 !important;
+}
+
+/* ============================================
+   OTHER BUTTON STYLING
+   ============================================ */
+
 .primary-btn {
     background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
     border: none !important;
@@ -402,6 +659,13 @@ CUSTOM_CSS = """
     color: white !important;
 }
 
+.check-btn {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+    border: none !important;
+    color: white !important;
+    font-weight: 500 !important;
+}
+
 /* Feature cards */
 .feature-badge {
     display: inline-block;
@@ -411,6 +675,127 @@ CUSTOM_CSS = """
     border-radius: 20px;
     font-size: 0.85rem;
     margin: 0.25rem;
+}
+
+/* ============================================
+   PLOT GALLERY SECTION
+   ============================================ */
+
+.plot-section {
+    background: linear-gradient(145deg, #ffffff 0%, #f8f9ff 100%) !important;
+    border: 1px solid rgba(102, 126, 234, 0.2) !important;
+    border-radius: 12px !important;
+    padding: 1rem !important;
+    margin-top: 1rem !important;
+}
+
+.plot-header {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    margin-bottom: 0.75rem !important;
+    padding-bottom: 0.5rem !important;
+    border-bottom: 1px solid rgba(102, 126, 234, 0.1) !important;
+}
+
+.plot-header h3 {
+    margin: 0 !important;
+    color: #4a5568 !important;
+    font-size: 1rem !important;
+    font-weight: 600 !important;
+}
+
+.plot-gallery {
+    border-radius: 8px !important;
+    overflow: hidden !important;
+}
+
+.plot-gallery .gallery-item {
+    border-radius: 8px !important;
+    transition: transform 0.2s ease !important;
+}
+
+.plot-gallery .gallery-item:hover {
+    transform: scale(1.02) !important;
+}
+
+.refresh-plots-btn {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+    border: none !important;
+    color: white !important;
+    font-weight: 500 !important;
+    padding: 0.5rem 1rem !important;
+    border-radius: 8px !important;
+    font-size: 0.85rem !important;
+}
+
+.empty-plots {
+    text-align: center !important;
+    padding: 2rem !important;
+    color: #718096 !important;
+    font-style: italic !important;
+}
+
+/* ============================================
+   TASK OUTPUTS SECTION
+   ============================================ */
+
+.outputs-section {
+    background: linear-gradient(145deg, #ffffff 0%, #f0fff4 100%) !important;
+    border: 1px solid rgba(72, 187, 120, 0.2) !important;
+    border-radius: 12px !important;
+    padding: 1rem !important;
+    margin-top: 1rem !important;
+}
+
+.outputs-header {
+    margin-bottom: 0.75rem !important;
+    padding-bottom: 0.5rem !important;
+    border-bottom: 1px solid rgba(72, 187, 120, 0.1) !important;
+}
+
+.outputs-header h3 {
+    margin: 0 !important;
+    color: #276749 !important;
+    font-size: 1rem !important;
+    font-weight: 600 !important;
+}
+
+.file-input-row {
+    display: flex !important;
+    gap: 0.5rem !important;
+    align-items: flex-end !important;
+    margin-bottom: 0.75rem !important;
+}
+
+.load-csv-btn {
+    background: linear-gradient(135deg, #48bb78 0%, #38a169 100%) !important;
+    border: none !important;
+    color: white !important;
+    font-weight: 500 !important;
+    padding: 0.5rem 1rem !important;
+    border-radius: 8px !important;
+    font-size: 0.85rem !important;
+}
+
+.output-status {
+    font-size: 0.9rem !important;
+    padding: 0.5rem !important;
+    border-radius: 6px !important;
+    background: #f7fafc !important;
+}
+
+.output-table {
+    border-radius: 8px !important;
+    overflow: hidden !important;
+    max-height: 400px !important;
+    overflow-y: auto !important;
+}
+
+.available-files {
+    font-size: 0.8rem !important;
+    color: #718096 !important;
+    margin-top: 0.25rem !important;
 }
 """
 
@@ -448,12 +833,18 @@ with gr.Blocks(title="🎨 Art Analysis Agent", css=CUSTOM_CSS) as demo:
 
     # Status Bar
     with gr.Row():
-        with gr.Column(scale=4):
+        with gr.Column(scale=3):
             status_display = gr.Textbox(
                 label="🔄 Agent Status",
                 value="🆕 Ready to start — Send a message to begin!",
                 interactive=False,
                 elem_classes="status-bar"
+            )
+        with gr.Column(scale=1):
+            check_interrupt_btn = gr.Button(
+                "🔍 Check Approval",
+                variant="secondary",
+                elem_classes="check-btn"
             )
         with gr.Column(scale=1):
             reset_btn = gr.Button(
@@ -462,33 +853,41 @@ with gr.Blocks(title="🎨 Art Analysis Agent", css=CUSTOM_CSS) as demo:
                 elem_classes="reset-btn"
             )
 
-    # Interrupt Modal (Hidden by default)
+    # Interrupt Modal (Hidden by default) - Modern Design
     with gr.Group(visible=False, elem_classes="interrupt-modal") as interrupt_modal:
-        gr.Markdown("## ⚠️ Approval Required")
-        gr.Markdown("The agent needs your confirmation before proceeding with the next action.")
+        # Modal Header
+        gr.HTML("""
+            <div class="modal-header">
+                <h2>⚡ Approval Required</h2>
+            </div>
+        """)
         
-        interrupt_question = gr.Markdown("**Details:** Loading...")
-
-        gr.Markdown("---")
+        # Modal Body
+        with gr.Column(elem_classes="modal-body"):
+            gr.HTML("""
+                <p style="text-align: center; color: #4a5568; margin-bottom: 0.5rem;">
+                    The agent has paused and needs your confirmation<br>before proceeding with the next action.
+                </p>
+            """)
+            
+            # Question/Reason display
+            with gr.Group(elem_classes="modal-reason"):
+                interrupt_question = gr.Markdown("Loading details...")
         
-        with gr.Row():
+        # Modal Footer with Buttons
+        with gr.Row(elem_classes="modal-footer"):
             approve_btn = gr.Button(
                 "✅ Approve & Continue", 
                 variant="primary", 
                 scale=1,
-                elem_classes="primary-btn"
+                elem_classes="modal-btn approve-btn"
             )
             reject_btn = gr.Button(
                 "❌ Reject & Stop", 
                 variant="stop", 
                 scale=1,
-                elem_classes="danger-btn"
+                elem_classes="modal-btn reject-btn"
             )
-
-        gr.Markdown(
-            "*The agent is paused and waiting for your decision to continue.*",
-            elem_classes="modal-footer"
-        )
 
     # Main chat interface
     chatbot = gr.ChatInterface(
@@ -504,8 +903,128 @@ with gr.Blocks(title="🎨 Art Analysis Agent", css=CUSTOM_CSS) as demo:
         ),
     )
 
-    # Hidden check button (for debugging)
-    check_interrupt_btn = gr.Button("🔍 Check Status", visible=False)
+    # ============================================================
+    # PLOT GALLERY SECTION
+    # ============================================================
+    with gr.Group(elem_classes="plot-section"):
+        with gr.Row():
+            gr.Markdown("### 📊 Generated Plots")
+            refresh_plots_btn = gr.Button(
+                "🔄 Refresh",
+                size="sm",
+                elem_classes="refresh-plots-btn"
+            )
+        
+        # Gallery to display plot images
+        plot_gallery = gr.Gallery(
+            value=get_plot_images(),
+            label="Plot Gallery",
+            show_label=False,
+            elem_classes="plot-gallery",
+            columns=3,
+            rows=2,
+            height="auto",
+            object_fit="contain",
+            allow_preview=True,
+            preview=True,
+        )
+        
+        # Empty state message (shown when no plots)
+        no_plots_msg = gr.Markdown(
+            "<div class='empty-plots'>📭 No plots generated yet. Ask the agent to create visualizations!</div>",
+            visible=len(get_plot_images()) == 0
+        )
+    
+    # Refresh plots button click handler
+    def update_plot_gallery():
+        plots = get_plot_images()
+        return plots, gr.update(visible=len(plots) == 0)
+    
+    refresh_plots_btn.click(
+        update_plot_gallery,
+        outputs=[plot_gallery, no_plots_msg]
+    )
+
+    # ============================================================
+    # TASK OUTPUTS SECTION (CSV Display)
+    # ============================================================
+    with gr.Group(elem_classes="outputs-section"):
+        gr.Markdown("### 📋 Task Outputs", elem_classes="outputs-header")
+        
+        # Get available files for hint
+        available_files = get_output_files()
+        available_hint = f"Available: {', '.join(available_files[:5])}{'...' if len(available_files) > 5 else ''}" if available_files else "No files yet"
+        
+        with gr.Row(elem_classes="file-input-row"):
+            with gr.Column(scale=4):
+                csv_filename_input = gr.Textbox(
+                    label="📄 Enter CSV Filename",
+                    placeholder="e.g., painting_count.csv or painting_count",
+                    info=available_hint,
+                    scale=4
+                )
+            with gr.Column(scale=1):
+                load_csv_btn = gr.Button(
+                    "📂 Load File",
+                    elem_classes="load-csv-btn",
+                    size="sm"
+                )
+            with gr.Column(scale=1):
+                refresh_files_btn = gr.Button(
+                    "🔄 Refresh List",
+                    size="sm"
+                )
+        
+        # Status message
+        csv_status = gr.Markdown(
+            "📭 Enter a filename to display its contents.",
+            elem_classes="output-status"
+        )
+        
+        # Table to display CSV content
+        csv_table = gr.Dataframe(
+            label="CSV Content",
+            show_label=False,
+            elem_classes="output-table",
+            interactive=False,
+            wrap=True,
+            visible=False
+        )
+    
+    # Load CSV button handler
+    def on_load_csv(filename):
+        df, status = load_csv_file(filename)
+        if df is not None:
+            return gr.update(value=df, visible=True), status
+        else:
+            return gr.update(visible=False), status
+    
+    load_csv_btn.click(
+        on_load_csv,
+        inputs=[csv_filename_input],
+        outputs=[csv_table, csv_status]
+    )
+    
+    # Also load on Enter key
+    csv_filename_input.submit(
+        on_load_csv,
+        inputs=[csv_filename_input],
+        outputs=[csv_table, csv_status]
+    )
+    
+    # Refresh available files list
+    def refresh_file_list():
+        files = get_output_files()
+        hint = f"Available: {', '.join(files[:5])}{'...' if len(files) > 5 else ''}" if files else "No files yet"
+        return gr.update(info=hint)
+    
+    refresh_files_btn.click(
+        refresh_file_list,
+        outputs=[csv_filename_input]
+    )
+
+    # Hidden trigger for interrupt check (used to manually trigger modal after response)
+    interrupt_check_trigger = gr.Textbox(visible=False, value="")
 
     # Wire up the reset button
     reset_btn.click(
@@ -525,11 +1044,43 @@ with gr.Blocks(title="🎨 Art Analysis Agent", css=CUSTOM_CSS) as demo:
         else:
             return gr.update(visible=False), "", {}
 
-    # Trigger interrupt check after bot responds
+    # Use a more reliable trigger mechanism
+    # When the chatbot value changes after bot finishes, check for interrupts
+    def delayed_interrupt_check(history, session_id):
+        """Called after chatbot updates - check for interrupts."""
+        # Check if the last message contains the interrupt indicator
+        if history and len(history) > 0:
+            last_msg = history[-1]
+            if isinstance(last_msg, dict) and "awaiting your approval" in last_msg.get("content", ""):
+                print(f"🔔 Interrupt indicator detected in message, showing modal...")
+                is_interrupted, data, modal_update, question = check_interrupt_status(session_id)
+                if is_interrupted:
+                    question_md = f"**Reason:** {question}"
+                    return modal_update, question_md, data
+        
+        # Also do a regular check
+        is_interrupted, data, modal_update, question = check_interrupt_status(session_id)
+        if is_interrupted:
+            print(f"🔔 Modal trigger: Interrupt detected!")
+            question_md = f"**Reason:** {question}"
+            return modal_update, question_md, data
+        return gr.update(visible=False), "", {}
+
+    # Trigger interrupt check when chatbot changes (after each message)
     chatbot.chatbot.change(
-        check_and_show_interrupt,
-        inputs=[session_id_state],
+        delayed_interrupt_check,
+        inputs=[chatbot.chatbot, session_id_state],
         outputs=[interrupt_modal, interrupt_question, interrupt_state]
+    )
+    
+    # Also refresh plots when chatbot changes (new messages might have generated plots)
+    def refresh_plots_on_update():
+        plots = get_plot_images()
+        return plots, gr.update(visible=len(plots) == 0)
+    
+    chatbot.chatbot.change(
+        refresh_plots_on_update,
+        outputs=[plot_gallery, no_plots_msg]
     )
 
     # Handle approval

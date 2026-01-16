@@ -164,12 +164,19 @@ class MainAgentState(MessagesState):
     - Step result accumulation
     - Proper completion detection
     - Subagent feedback integration
+    - Conversation context for multi-turn memory
     """
     
     # Original query tracking
     original_query: str = Field(
         default="",
         description="The original user query/task"
+    )
+    
+    # Conversation context - accumulates across turns for memory
+    conversation_context: str = Field(
+        default="",
+        description="Accumulated conversation context (previous queries + answer summaries)"
     )
     
     # Structured plan
