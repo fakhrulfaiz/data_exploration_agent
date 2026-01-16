@@ -203,6 +203,88 @@ def parse_finalizer_response_patterns(file_path: str) -> List[Document]:
     return documents
 
 
+def parse_explanation_patterns(file_path: str) -> List[Document]:
+    """Parse tool explanation patterns from markdown file."""
+    with open(file_path, 'r', encoding='utf-8') as f:
+        content = f.read()
+    
+    documents = []
+    
+    # Pattern: ## Pattern: [Tool Name] - [Task Type]
+    pattern_regex = r'## Pattern: ([^-]+) - ([^\n]+)\n\n\*\*Tool\*\*: ([^\n]+)\n\*\*Task Type\*\*: ([^\n]+)\n\*\*Complexity\*\*: ([^\n]+)'
+    patterns = re.finditer(pattern_regex, content)
+    
+    for match in patterns:
+        pattern_name = match.group(1).strip()
+        task_type_name = match.group(2).strip()
+        tool_name = match.group(3).strip()
+        task_type = match.group(4).strip()
+        complexity = match.group(5).strip()
+        
+        # Extract section content
+        start_pos = match.end()
+        next_match = re.search(r'\n## Pattern:', content[start_pos:])
+        if next_match:
+            end_pos = start_pos + next_match.start()
+        else:
+            # Check for end of patterns section
+            usage_notes = re.search(r'\n## Usage Notes', content[start_pos:])
+            if usage_notes:
+                end_pos = start_pos + usage_notes.start()
+            else:
+                end_pos = len(content)
+        
+        section_content = content[start_pos:end_pos]
+        
+        # Extract context
+        context_match = re.search(r'\*\*Context\*\*:\n(.*?)\n\n\*\*Explanation Template\*\*:', section_content, re.DOTALL)
+        context = context_match.group(1).strip() if context_match else ""
+        
+        # Extract template (JSON block)
+        template_match = re.search(r'\*\*Explanation Template\*\*:\n```json\n(.*?)\n```', section_content, re.DOTALL)
+        template = template_match.group(1).strip() if template_match else ""
+        
+        # Extract example section
+        example_match = re.search(r'\*\*Example.*?\*\*:\n(.*?)(?:\n##|\n---|\Z)', section_content, re.DOTALL)
+        example = example_match.group(1).strip() if example_match else ""
+        
+        # Extract example details
+        example_step_goal = ""
+        example_input = ""
+        example_output = ""
+        if example:
+            step_goal_match = re.search(r'- \*\*Step Goal\*\*: "([^"]+)"', example)
+            input_match = re.search(r'- \*\*Tool Input\*\*: `([^`]+)`', example)
+            output_match = re.search(r'- \*\*Tool Output\*\*: (.+?)(?:\n  -|\n\*\*|$)', example, re.DOTALL)
+            
+            example_step_goal = step_goal_match.group(1).strip() if step_goal_match else ""
+            example_input = input_match.group(1).strip() if input_match else ""
+            example_output = output_match.group(1).strip() if output_match else ""
+        
+        # Create document
+        # Use tool name + task type + context as page_content for semantic matching
+        content_text = f"Tool: {tool_name}\nTask Type: {task_type}\n\nContext:\n{context}\n\nTemplate:\n{template}"
+        if example_step_goal:
+            content_text += f"\n\nExample Goal: {example_step_goal}"
+        
+        doc = Document(
+            page_content=content_text,
+            metadata={
+                "tool_name": tool_name,
+                "task_type": task_type,
+                "complexity": complexity,
+                "pattern_name": pattern_name,
+                "context": context,
+                "template": template,
+                "example_step_goal": example_step_goal,
+                "example_input": example_input,
+                "example_output": example_output,
+                "source": "tool_explanation_patterns.md"
+            }
+        )
+        documents.append(doc)
+    
+    return documents
 
 
 
@@ -280,6 +362,36 @@ def initialize_rag_kb():
     else:
         print(f"\n⚠ Warning: {finalizer_patterns_file} not found, skipping finalizer KB initialization")
     
+    # Parse and load explanation patterns
+    explanation_patterns_file = kb_dir / "tool_explanation_patterns.md"
+    explanation_docs = []
+    if explanation_patterns_file.exists():
+        print(f"\nParsing {explanation_patterns_file.name}...")
+        explanation_docs = parse_explanation_patterns(str(explanation_patterns_file))
+        print(f"   ✓ Extracted {len(explanation_docs)} explanation patterns")
+        
+        # Clear existing explanation patterns collection
+        print(f"\n🔄 Initializing explanation_patterns_kb collection...")
+        try:
+            rag_service.explanation_patterns_kb.delete_collection()
+            print("   ✓ Cleared existing collection")
+        except Exception as e:
+            print(f"   ℹ No existing collection to clear: {e}")
+        
+        # Recreate collection
+        rag_service.explanation_patterns_kb = Chroma(
+            collection_name="explanation_patterns_kb",
+            embedding_function=rag_service.embeddings,
+            persist_directory=f"{rag_service.persist_directory}/explanation_patterns_kb"
+        )
+        
+        # Add documents
+        if explanation_docs:
+            rag_service.explanation_patterns_kb.add_documents(explanation_docs)
+            print(f"   ✓ Added {len(explanation_docs)} documents to explanation_patterns_kb")
+    else:
+        print(f"\n⚠ Warning: {explanation_patterns_file} not found, skipping explanation patterns KB initialization")
+    
     # Summary
     print("\n" + "=" * 60)
     print("RAG Initialization Complete!")
@@ -287,6 +399,7 @@ def initialize_rag_kb():
     print(f"\nCollections initialized:")
     print(f"  • thought_process_kb: {len(thought_docs)} documents")
     print(f"  • finalizer_response_kb: {len(finalizer_docs)} documents")
+    print(f"  • explanation_patterns_kb: {len(explanation_docs)} documents")
     print(f"  • feedback_kb: (populated dynamically from user feedback)")
     print("\nReady to use!")
 

@@ -64,6 +64,7 @@ class TextContentHandler(ContentHandler):
                     })
                 }
                 self.json_buffer = ""
+                return  # CRITICAL: Stop here to prevent duplicate content_block event
             except json.JSONDecodeError:
                 return  # Wait for more chunks
         else:

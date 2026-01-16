@@ -9,8 +9,6 @@ import InputForm from './InputForm';
 import ThreadTitle from '../ThreadTitle';
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from '@/components/ui/resizable';
 import GraphFlowPanel from '../graph-flow/GraphFlowPanel';
-import { extractToolError } from '@/utils/interruptDetection';
-import { GraphService } from '@/services/api/graph.service';
 
 
 const EphemeralToolIndicator: React.FC<{
@@ -1887,6 +1885,7 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
       if (result && result.isStreaming && result.streamingHandler) {
         const streamingMsgId = result.backendMessageId || message.message_id;
 
+        setPendingApproval(null);
         setStreamingActive(true);
         setHasReceivedContent(false);
 
@@ -2025,16 +2024,7 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
                     onRetry={handleRetry}
                     onApproveBlock={handleApprove}
                     onRejectBlock={handleCancel}
-                    onErrorRecovery={async (blockId, action) => {
-                      // Intercept cancel action to clear pending approval state locally
-                      if (action === 'cancel') {
-                        setPendingApproval(null);
-                      }
-                      // Pass through to parent handler, appending the message object which Message.tsx might omit
-                      if (onErrorRecovery) {
-                        return await onErrorRecovery(blockId, action, message);
-                      }
-                    }}
+                    onErrorRecovery={handleErrorRecovery}
                     onSuggestionClick={handleSuggestionClick}
                   />
 

@@ -43,7 +43,13 @@ Instructions:
 6. Explain the constraints, approach, and logical steps clearly.
 7. DO NOT use bullet points or lists. Just a clear, flowing thought process.
 
-Answer with Thought: [Your thought process here]
+**OUTPUT FORMAT (MANDATORY)**:
+Your response MUST start with the exact word "Thought:" followed by your analysis.
+
+Example format:
+Thought: The goal is to... I will use `data_exploration_tool` to...
+
+**CRITICAL**: Start your response with "Thought:" - this is NOT optional!
 """
     
     return base_prompt

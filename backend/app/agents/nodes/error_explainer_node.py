@@ -68,7 +68,7 @@ class ErrorExplainerNode:
                     context_lines.append(f"Database Reality Check: Could not fetch schema ({str(e)}).")
 
         # 2. DataFrame / Analysis / Plotting Errors
-        if tool_name in ["smart_data_analysis", "large_plotting_tool", "image_batch_qa_tool", "dataframe_info"]:
+        if tool_name in ["smart_data_analysis", "large_plotting_tool", "image_batch_qa_tool"]:
             # Try to find df_id in multiple places
             target_df_id = df_id or details.get("df_id")
             

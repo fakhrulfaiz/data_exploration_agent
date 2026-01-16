@@ -224,14 +224,29 @@ class ImageBatchQATool(BaseTool):
             logger.info(f"Image processing complete. Success: {success_count}, Errors: {error_count}")
                 
         # 6. UPDATE DATAFRAME IN REDIS
-        df[output_column] = results
+        # CRITICAL FIX for Parallel Execution:
+        # Re-fetch the latest DataFrame from Redis to ensure we don't overwrite changes made by other parallel tools.
+        latest_df = redis_service.get_dataframe(data_context.df_id)
+        
+        df_to_save = df
+        if latest_df is not None and len(latest_df) == len(df):
+            # Safe to merge
+            logger.info("Merging new column into latest DataFrame version to prevent race conditions")
+            # We assume row order hasn't changed since tools generally don't sort in-place and save
+            latest_df[output_column] = results
+            df_to_save = latest_df
+        else:
+            # Fallback if latest is gone or size/index mismatch
+            logger.warning("Latest DataFrame not found or size mismatch during merge. Overwriting with local version.")
+            df[output_column] = results
+            
         if column_exists:
             logger.info(f"Updated column '{output_column}' in DataFrame (reprocessed errors only)")
         else:
             logger.info(f"Added new column '{output_column}' to DataFrame")
         
         # Update the DataFrame in Redis (preserves the same df_id)
-        if not redis_service.update_dataframe(df, data_context.df_id):
+        if not redis_service.update_dataframe(df_to_save, data_context.df_id):
             return json.dumps({
                 "error": "Failed to update DataFrame in Redis",
                 "error_type": "storage_error",

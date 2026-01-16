@@ -140,12 +140,24 @@ async def resume_graph_streaming(
                          blocks_to_update.append(block.get('id'))
                 
                 if blocks_to_update:
+                    # Determine the new status based on the request
+                    new_status = None
+                    if request.review_action:
+                         # Map ApprovalStatus enum to string (approved/rejected)
+                         new_status = request.review_action.value if hasattr(request.review_action, 'value') else str(request.review_action)
+                    elif request.tool_response and request.tool_response.get('action') == 'cancel':
+                         new_status = 'rejected' # or 'cancelled' if supported by frontend
+
                     for block_id in blocks_to_update:
+                         update_data = {'needsApproval': False}
+                         if new_status:
+                             update_data['messageStatus'] = new_status
+                             
                          await message_service.update_block_status(
                              thread_id=thread_id,
                              message_id=target_message_id,
                              block_id=block_id,
-                             needsApproval=False
+                             **update_data
                          )
     except Exception as e:
         # Don't fail the resume if this cleanup fails, just log it
@@ -476,7 +488,16 @@ async def stream_graph(
                         error_explanation = values.get("error_explanation")
                         
                         if error_explanation:
-                            block_id = f"error_{assistant_message_id}"
+                            # Use unique ID to allow multiple error blocks in same message
+                            block_id = f"error_{uuid4()}"
+                            error_block = {
+                                "id": block_id,
+                                "type": "error",
+                                "needsApproval": False,
+                                "data": error_explanation
+                            }
+                            await context.save_block(error_block)
+                            
                             error_event = json.dumps({
                                 "block_type": "error",
                                 "block_id": block_id,

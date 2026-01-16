@@ -299,7 +299,6 @@ async def analyze_tool_performance(
             "python_repl",
             "smart_transform_for_viz",
             "large_plotting_tool",
-            "dataframe_info"
         ]
         
         performance = []

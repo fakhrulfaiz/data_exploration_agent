@@ -25,7 +25,7 @@ from langchain_core.tools import InjectedToolCallId
 
 from app.agents.tools.custom_toolkit import CustomToolkit
 from app.agents.state import ExplainableAgentState
-from app.agents.nodes.explainable.explainable_planner_node import ExplainablePlannerNode
+from app.agents.nodes.planner_node import PlannerNode
 from app.agents.nodes.explainer_node import ExplainerNode
 from app.agents.nodes.finalizer_node import FinalizerNode
 from app.agents.nodes.error_explainer_node import ErrorExplainerNode
@@ -56,7 +56,7 @@ class MainAgent:
         )
         self.tools = self.custom_toolkit.get_tools()
         
-        self.planner = ExplainablePlannerNode(llm, self.tools)
+        self.planner = PlannerNode(llm, self.tools)
         self.explainer = ExplainerNode(llm, available_tools=self.tools)
         self.error_explainer = ErrorExplainerNode(llm, db_engine=self.engine)
         self.finalizer = FinalizerNode(llm, error_explainer=self.error_explainer)
