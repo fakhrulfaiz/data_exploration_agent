@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Message, ContentBlock, isTextBlock, isToolCallsBlock, isExplorerBlock, isVisualizationsBlock, isPlanBlock, isErrorBlock, isExplanationBlock, isReasoningChainBlock } from '@/types/chat';
+import { Message, ContentBlock, isTextBlock, isToolCallsBlock, isExplorerBlock, isVisualizationsBlock, isPlanBlock, isErrorBlock, isExplanationBlock, isReasoningChainBlock, isFinalizerBlock } from '@/types/chat';
 import { ExplorerMessage } from '@/components/messages/ExplorerMessage';
 import { markdownComponents } from '@/utils/markdownComponents';
 import VisualizationMessage from '@/components/messages/VisualizationMessage';
@@ -11,6 +11,7 @@ import { ErrorMessage } from '@/components/messages/ErrorMessage';
 import { ExplanationMessage } from '@/components/messages/ExplanationMessage';
 import { ReasoningChainMessage } from '@/components/messages/ReasoningChainMessage';
 import { SqlApprovalMessage } from '@/components/messages/SqlApprovalMessage';
+import FinalResponseMessage from '@/components/messages/FinalResponseMessage';
 import {
   Collapsible,
   CollapsibleContent,
@@ -313,6 +314,17 @@ export const MessageRenderer: React.FC<MessageRendererProps> = ({ message, onAct
       return (
         <div key={block.id} className="content-block reasoning-chain-block mb-4">
           <ReasoningChainMessage data={block.data} />
+        </div>
+      );
+    }
+
+    if (isFinalizerBlock(block)) {
+      return (
+        <div key={block.id} className="content-block finalizer-block mb-4">
+          <FinalResponseMessage 
+            data={block.data} 
+            onSuggestionClick={(query) => onAction && onAction('suggestionClick', query)}
+          />
         </div>
       );
     }

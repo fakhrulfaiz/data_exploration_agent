@@ -24,7 +24,8 @@ from app.api.v1.endpoints.streaming.handlers import (
     TextContentHandler,
     PlanContentHandler,
     ExplanationContentHandler,
-    ReasoningChainContentHandler
+    ReasoningChainContentHandler,
+    FinalizerActionsContentHandler
     # ErrorExplanationHandler removed - now handled directly in streaming loop
 )
 from app.api.v1.endpoints.streaming.streaming_persistence import StreamingMessagePersistence
@@ -118,7 +119,8 @@ async def create_graph_streaming(
 @router.post("/resume", response_model=GraphResponse)
 async def resume_graph_streaming(
     request: ResumeGraphRequest,
-    current_user: SupabaseUser = Depends(get_current_user)
+    current_user: SupabaseUser = Depends(get_current_user),
+    message_service: MessageManagementService = Depends(get_message_management_service)
 ):
     thread_id = request.thread_id
     user_id = current_user.user_id
@@ -127,6 +129,40 @@ async def resume_graph_streaming(
     
     assistant_message_id = request.message_id or str(uuid4())
     
+    try:
+        target_message_id = request.message_id
+        if target_message_id:
+            message = await message_service._get_message_by_id(thread_id, target_message_id)
+            if message and message.content:
+                blocks_to_update = []
+                for block in message.content:
+                    if isinstance(block, dict) and block.get('needsApproval') is True:
+                         blocks_to_update.append(block.get('id'))
+                
+                if blocks_to_update:
+                    # Determine the new status based on the request
+                    new_status = None
+                    if request.review_action:
+                         # Map ApprovalStatus enum to string (approved/rejected)
+                         new_status = request.review_action.value if hasattr(request.review_action, 'value') else str(request.review_action)
+                    elif request.tool_response and request.tool_response.get('action') == 'cancel':
+                         new_status = 'rejected' # or 'cancelled' if supported by frontend
+
+                    for block_id in blocks_to_update:
+                         update_data = {'needsApproval': False}
+                         if new_status:
+                             update_data['messageStatus'] = new_status
+                             
+                         await message_service.update_block_status(
+                             thread_id=thread_id,
+                             message_id=target_message_id,
+                             block_id=block_id,
+                             **update_data
+                         )
+    except Exception as e:
+        # Don't fail the resume if this cleanup fails, just log it
+        logger.error(f"Failed to auto-clear approval flags on resume: {e}")
+
     if request.tool_response:
         logger.info(f"Tool approval response received - type: {request.tool_response.get('type')}")
         run_configs[thread_id] = {
@@ -329,6 +365,7 @@ async def stream_graph(
         plan_handler = PlanContentHandler(context, agent)
         explanation_handler = ExplanationContentHandler(context)
         reasoning_chain_handler = ReasoningChainContentHandler(context)
+        finalizer_actions_handler = FinalizerActionsContentHandler(context)
         tool_call_handler = ToolCallHandler(context)
         # error_explanation_handler removed - now handled directly in streaming loop
         persistence = StreamingMessagePersistence(message_service)
@@ -337,6 +374,7 @@ async def stream_graph(
             tool_call_handler,
             explanation_handler,  # Check explanations before text
             reasoning_chain_handler,  # Check reasoning chains before text
+            finalizer_actions_handler,  # Check finalizer actions before text
             # error_explanation_handler removed - streamed directly when error_explainer completes
             plan_handler,
             text_handler
@@ -450,7 +488,16 @@ async def stream_graph(
                         error_explanation = values.get("error_explanation")
                         
                         if error_explanation:
-                            block_id = f"error_{assistant_message_id}"
+                            # Use unique ID to allow multiple error blocks in same message
+                            block_id = f"error_{uuid4()}"
+                            error_block = {
+                                "id": block_id,
+                                "type": "error",
+                                "needsApproval": False,
+                                "data": error_explanation
+                            }
+                            await context.save_block(error_block)
+                            
                             error_event = json.dumps({
                                 "block_type": "error",
                                 "block_id": block_id,
@@ -483,6 +530,9 @@ async def stream_graph(
                         yield event
                 elif await reasoning_chain_handler.can_handle(msg, metadata):
                     async for event in reasoning_chain_handler.handle(msg, metadata):
+                        yield event
+                elif await finalizer_actions_handler.can_handle(msg, metadata):
+                    async for event in finalizer_actions_handler.handle(msg, metadata):
                         yield event
                 elif await plan_handler.can_handle(msg, metadata):
                     async for event in plan_handler.handle(msg, metadata):

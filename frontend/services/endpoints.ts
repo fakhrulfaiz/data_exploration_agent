@@ -41,6 +41,8 @@ export const API_ENDPOINTS = {
     DATA: {
         PREVIEW: (dfId: string) => `/v1/data/${dfId}/preview`,
         RECREATE: '/v1/data/recreate',
+        EXPORT: '/v1/data/export-dataframe',
+        DOWNLOAD_PLOTS: '/v1/data/download-plots',
     },
 
     // ==================== Graph Endpoints ====================

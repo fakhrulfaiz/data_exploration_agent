@@ -24,8 +24,7 @@ TOOL_METADATA = {
         "alternative": "data_exploration_tool"
     },
     "image_analysis": {
-        "category": "analysis",
-        "alternative": "dataframe_info"
+        "category": "analysis"
     }
 }
 
@@ -171,34 +170,74 @@ class ExplainerNode:
             facts_section += f"- Status: SUCCESS\n"
             facts_section += f"- Output Type: {facts.get('output_type', 'unknown')}\n"
             
-            # Add tool-specific facts
-            if facts.get('row_count') is not None:
-                facts_section += f"- Row Count: {facts['row_count']}\n"
-            if facts.get('columns'):
-                facts_section += f"- Columns: {', '.join(facts['columns'][:5])}\n"
-            if facts.get('shape'):
-                facts_section += f"- Shape: {facts['shape'][0]} rows × {facts['shape'][1]} columns\n"
-            if facts.get('viz_type'):
-                facts_section += f"- Visualization Type: {facts['viz_type']}\n"
-            if facts.get('total_rows') is not None:
-                facts_section += f"- Total Rows: {facts['total_rows']}\n"
-            if facts.get('displayed_rows') is not None:
-                facts_section += f"- Displayed Rows: {facts['displayed_rows']}\n"
-            if facts.get('data_points') is not None:
-                facts_section += f"- Data Points: {facts['data_points']}\n"
-            if facts.get('plot_type'):
-                facts_section += f"- Plot Type: {facts['plot_type']}\n"
+            # DYNAMIC FACT RENDERING: Add all other facts from extractor
+            # This makes the system scalable - new extractors can add any facts
+            for key, value in facts.items():
+                # Skip already-handled fields
+                if key in ['has_error', 'output_type', 'error_type', 'error_message', 'recoverable']:
+                    continue
+                
+                # Skip None values
+                if value is None:
+                    continue
+                
+                # Convert key to human-readable format (e.g., 'row_count' -> 'Row Count')
+                display_name = key.replace('_', ' ').title()
+                
+                # Format value appropriately based on type
+                if isinstance(value, list):
+                    # For lists, show first 5 items
+                    value_str = ', '.join(str(v) for v in value[:5])
+                    if len(value) > 5:
+                        value_str += f" (and {len(value) - 5} more)"
+                elif isinstance(value, tuple) and len(value) == 2:
+                    # For tuples like shape (150, 5), format as "150 rows × 5 columns"
+                    value_str = f"{value[0]} rows × {value[1]} columns"
+                elif isinstance(value, dict):
+                    # For dicts, show as key-value pairs
+                    items = [f"{k}: {v}" for k, v in list(value.items())[:3]]
+                    value_str = ', '.join(items)
+                    if len(value) > 3:
+                        value_str += f" (and {len(value) - 3} more)"
+                else:
+                    value_str = str(value)
+                
+                facts_section += f"- {display_name}: {value_str}\n"
         
         metadata = get_tool_metadata(tool_name)
         alternative = metadata.get("alternative")
         tool_desc = self._get_tool_description(tool_name)
+        
+        # NEW: Retrieve explanation patterns from RAG (as reference examples)
+        examples_context = ""
+        try:
+            from app.services.rag_service import get_rag_service
+            
+            rag_service = get_rag_service()
+            patterns = rag_service.retrieve_explanation_patterns(
+                tool_name=tool_name,
+                task_goal=existing_reasoning or "execute task",
+                n_results=2
+            )
+            
+            if patterns:
+                examples_context = "\n\n**REFERENCE EXAMPLES** (for inspiration, not strict rules):\n"
+                examples_context += "These are examples of how similar executions were explained. Use them as a guide for structure and style, but adapt to the actual facts.\n\n"
+                
+                for i, pattern in enumerate(patterns, 1):
+                    examples_context += f"Example {i} - {pattern['task_type']} ({pattern['complexity']} complexity):\n"
+                    examples_context += f"Context: {pattern['context'][:150]}...\n"
+                    examples_context += f"Template approach:\n{pattern['template'][:250]}...\n\n"
+                
+                logger.info(f"Retrieved {len(patterns)} explanation patterns for {tool_name}")
+        except Exception as e:
+            logger.warning(f"Failed to retrieve explanation patterns from RAG: {e}")
         
         # Fetch user preferences if available
         user_preferences = ""
         if user_id:
             try:
                 from app.services.dependencies import get_redis_profile_service, get_profile_service
-                from app.agents.prompts.user_preferences import get_user_preference_prompt_safe
                 
                 redis_service = get_redis_profile_service()
                 profile_service = get_profile_service()
@@ -222,6 +261,8 @@ class ExplainerNode:
 3. DO NOT claim success/failure unless explicitly stated in facts
 4. If information is not available in facts, say "Not available" or omit the field
 5. Describe WHAT the tool returned, NOT how well it performed
+
+{examples_context}
 
 **CONTEXT**:
 - Decision: {existing_decision if existing_decision else "Tool was selected for this step"}

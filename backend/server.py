@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from langchain_openai import ChatOpenAI
+from langchain_groq import ChatGroq
 
 from app.api.v1 import api_router
 from app.core.config import settings
@@ -40,8 +41,15 @@ async def lifespan(app: FastAPI):
             model=settings.openai_model,
             api_key=settings.openai_api_key or os.getenv("OPENAI_API_KEY"),
         )
+    elif settings.llm_provider == "groq":
+        llm = ChatGroq(
+            model=settings.groq_model,
+            api_key=settings.groq_api_key or os.getenv("GROQ_API_KEY"),
+            temperature=0.0,  # For consistent explanations
+        )
     else:
-        # Default to OpenAI for now
+        # Default to OpenAI
+        logger.warning(f"Unknown LLM provider '{settings.llm_provider}', defaulting to OpenAI")
         llm = ChatOpenAI(model="gpt-4o-mini")
     
     # Initialize AgentService with proper service layer pattern

@@ -37,8 +37,20 @@ class RAGService:
             persist_directory=f"{persist_directory}/feedback_kb"
         )
         
-        logger.info("RAG Service initialized with 2 knowledge bases: thought_process_kb, feedback_kb")
-
+        # Finalizer Response KB - stores response formatting patterns and action templates
+        self.finalizer_response_kb = Chroma(
+            collection_name="finalizer_response_kb",
+            embedding_function=self.embeddings,
+            persist_directory=f"{persist_directory}/finalizer_response_kb"
+        )
+        
+        # Explanation Patterns KB - stores tool-specific explanation templates
+        self.explanation_patterns_kb = Chroma(
+            collection_name="explanation_patterns_kb",
+            embedding_function=self.embeddings,
+            persist_directory=f"{persist_directory}/explanation_patterns_kb"
+        )
+        
     
     
     # ==================== Thought Process KB ====================
@@ -80,6 +92,73 @@ class RAGService:
         
         logger.info(f"Retrieved {len(patterns)} thought pattern examples for query: {query[:50]}...")
         return patterns
+    
+    def retrieve_finalizer_patterns(
+        self,
+        search_context: str,
+        n_results: int = 2
+    ) -> List[Dict[str, Any]]:
+        results = self.finalizer_response_kb.similarity_search_with_score(
+            search_context,
+            k=n_results
+        )
+        
+        patterns = []
+        for doc, score in results:
+            patterns.append({
+                "pattern_category": doc.metadata.get("pattern_category", "unknown"),
+                "execution_context": doc.metadata.get("execution_context", ""),
+                "response_template": doc.page_content,
+                "action_rules": json.loads(doc.metadata.get("action_rules", "{}")) if isinstance(doc.metadata.get("action_rules"), str) else doc.metadata.get("action_rules", {}),
+                "relevance_score": 1 - score,  
+                "metadata": doc.metadata
+            })
+        
+        return patterns
+    
+    def retrieve_explanation_patterns(
+        self,
+        tool_name: str,
+        task_goal: str,
+        n_results: int = 2
+    ) -> List[Dict[str, Any]]:
+        """
+        Retrieve relevant explanation patterns for a tool execution.
+        
+        Args:
+            tool_name: Name of the tool that was executed
+            task_goal: The goal/reasoning for this step (from dynamic plan)
+            n_results: Number of patterns to retrieve
+            
+        Returns:
+            List of explanation pattern examples with metadata
+        """
+        # Combine tool name + task goal for semantic search
+        search_query = f"{tool_name}: {task_goal}"
+        
+        results = self.explanation_patterns_kb.similarity_search_with_score(
+            search_query,
+            k=n_results
+        )
+        
+        patterns = []
+        for doc, score in results:
+            patterns.append({
+                "tool_name": doc.metadata.get("tool_name", "unknown"),
+                "task_type": doc.metadata.get("task_type", "unknown"),
+                "complexity": doc.metadata.get("complexity", "medium"),
+                "pattern_name": doc.metadata.get("pattern_name", ""),
+                "template": doc.page_content,
+                "context": doc.metadata.get("context", ""),
+                "example_input": doc.metadata.get("example_input", ""),
+                "example_output": doc.metadata.get("example_output", ""),
+                "relevance_score": 1 - score,
+                "metadata": doc.metadata
+            })
+        
+        logger.info(f"Retrieved {len(patterns)} explanation patterns for {tool_name}")
+        return patterns
+    
     
     # ==================== Feedback Collection ====================
     

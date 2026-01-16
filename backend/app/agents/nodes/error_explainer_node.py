@@ -17,10 +17,15 @@ logger = logging.getLogger(__name__)
 class ErrorExplanation(BaseModel):
     what_happened: str = Field(description="Simple, user-friendly description of what went wrong")
     why_it_happened: str = Field(description="Root cause analysis in plain language")
-    what_was_attempted: str = Field(description="What the agent was trying to accomplish")
-    alternative_suggestions: List[str] = Field(description="List of alternative approaches or solutions")
-    user_action_needed: str = Field(description="Clear guidance on what the user should do next")
-    technical_details: Optional[str] = Field(default=None, description="Optional technical details for advanced users")
+    
+    # NEW: Focused clarifying questions to help resolve the issue
+    clarifying_questions: List[str] = Field(
+        default=[],
+        description="List of specific questions to help user resolve the issue (max 2 to avoid hallucination)"
+    )
+    
+    # Simplified: Single clear next step instead of multiple suggestions
+    next_step: str = Field(description="Single clear action user should take to resolve the issue")
 
 
 class ErrorExplainerNode:
@@ -63,7 +68,7 @@ class ErrorExplainerNode:
                     context_lines.append(f"Database Reality Check: Could not fetch schema ({str(e)}).")
 
         # 2. DataFrame / Analysis / Plotting Errors
-        if tool_name in ["smart_data_analysis", "large_plotting_tool", "image_batch_qa_tool", "dataframe_info"]:
+        if tool_name in ["smart_data_analysis", "large_plotting_tool", "image_batch_qa_tool"]:
             # Try to find df_id in multiple places
             target_df_id = df_id or details.get("df_id")
             
@@ -116,13 +121,19 @@ class ErrorExplainerNode:
                     elif 'AIMessage' in msg_type and not hasattr(msg, 'tool_calls'):
                         recent_context += f"Assistant: {msg.content[:100]}...\n"
             
-            system_prompt = """You are an AI assistant helping users understand what went wrong when an error occurs.
+            # Get communication style directive
+            user_id = error_info.get('user_id')  # Pass user_id in error_info from state
+            style_directive = self._get_communication_style_directive(user_id)
             
+            system_prompt = f"""You are an AI assistant helping users understand what went wrong when an error occurs.
+
+{style_directive}
+
 Your Role:
-- Analyze technical errors and translate them into simple, non-technical language.
-- Provide actionable solutions and guidance.
-- Be empathetic and helpful.
-- Keep explanations concise but complete."""
+- Analyze technical errors and translate them into simple, non-technical language
+- Provide actionable solutions and guidance
+- Be empathetic and helpful
+- Follow the communication style directive above"""
 
             human_prompt = f"""**Error Details:**
 - Error Type: {error_type}
@@ -137,19 +148,42 @@ Your Role:
 {self._gather_context(error_info, df_id)}
 
 **Your Task:**
-Generate a helpful, user-friendly error explanation that:
-1. Explains what happened in simple terms (avoid technical jargon)
-2. Explains why it happened (root cause)
-3. Describes what the system was trying to do
-4. Provides 2-3 specific alternative suggestions or solutions
-5. Gives clear guidance on what the user should do next
+Generate a focused, natural error explanation with these fields:
 
-**Guidelines:**
+1. **what_happened**: Explain what went wrong in natural, first-person language
+   - Be specific about what failed
+   - Use conversational phrasing like "I tried to..." or "I couldn't find..."
+   
+2. **why_it_happened**: Provide detailed analysis of the root cause (2-3 sentences minimum)
+   - Explain the underlying reason in detail
+   - Reference specific details from the error context (table names, column names, etc.)
+   - Help the user understand the technical reason in accessible language
+   
+3. **clarifying_questions**: Ask 1-2 SPECIFIC questions based on the error:
+   - If column not found → Ask about alternative column names from actual schema
+   - If table not found → Ask which table they meant from actual tables
+   - If data missing → Ask about date range or filters
+   - Keep it focused - max 2 questions
+   
+4. **next_step**: Provide clear, conversational guidance (mention 1-3 action options)
+   - Explain WHAT to do and WHY it will help
+   - Mention if they should Retry (with what change), Replan (why), or Cancel (why not possible)
+   - Use natural language, not robotic instructions
+
+**CRITICAL RULES:**
+- ONLY use information from "System Knowledge (Grounding Context)" above
+- DO NOT suggest columns/tables that aren't in the actual schema
+- Use first-person, conversational language ("I tried to...", "I found that...")
+- Provide detailed analysis (2-3 sentences minimum for why_it_happened)
 - Be empathetic and helpful, not blaming
-- Use plain language that non-technical users can understand
-- Provide actionable suggestions
-- If it's a SQL error, suggest checking table names, column names, or query syntax
-- If it's a tool error, suggest alternative tools or approaches
+
+**Example for "table 'customer' not found":**
+{{
+  "what_happened": "I tried to query the 'customer' table, but it doesn't exist in your database.",
+  "why_it_happened": "After checking your database schema, I found that only the 'paintings' table is available. The 'customer' table you're asking about hasn't been created yet, or it might be named differently in your database structure.",
+  "clarifying_questions": ["Did you mean to query the 'paintings' table instead? It contains columns: title, artist, year_created, movement"],
+  "next_step": "I recommend trying again (Retry) with the 'paintings' table instead. If you actually need customer data, you'll need to either create that table first or check if the data exists under a different name. Would you like me to show you what's in the paintings table?"
+}}
 
 Generate a structured explanation following the ErrorExplanation model."""
 
@@ -161,9 +195,7 @@ Generate a structured explanation following the ErrorExplanation model."""
             
             llm_with_structure = self.llm.with_structured_output(ErrorExplanation)
             explanation = llm_with_structure.invoke(messages)
-            
-            explanation.technical_details = f"{error_type}: {error_message}"
-            
+      
             logger.info(f"Generated error explanation for {tool_name} failure")
             return explanation
             
@@ -173,15 +205,59 @@ Generate a structured explanation following the ErrorExplanation model."""
             return ErrorExplanation(
                 what_happened=f"An error occurred while using {tool_name}",
                 why_it_happened="The system encountered an unexpected issue",
-                what_was_attempted=f"The system was trying to execute {tool_name}",
-                alternative_suggestions=[
-                    "Try rephrasing your question",
-                    "Check if the data you're asking about exists",
-                    "Try a simpler query first"
+                clarifying_questions=[
+                    "Would you like to try rephrasing your question?",
+                    "Should I show you what data is available?"
                 ],
-                user_action_needed="Please try again with a different approach or contact support if the issue persists",
-                technical_details=str(error_info.get("error_message", "Unknown error"))
+                next_step="Please try again with a different approach or contact support if the issue persists"
             )
+    
+    def _get_communication_style_directive(self, user_id: Optional[str] = None) -> str: 
+        if not user_id:
+            return ""
+        
+        try:
+            from app.services.dependencies import get_redis_profile_service, get_profile_service
+            redis_service = get_redis_profile_service()
+            profile_service = get_profile_service()
+            
+            profile = profile_service.get_user_profile(user_id)
+            style = profile.get('communication_style', 'balanced') if profile else 'balanced'
+            
+        except Exception as e:
+            logger.warning(f"Failed to fetch communication style: {e}")
+            style = 'balanced'
+        
+        directives = {
+            'concise': """
+**ERROR COMMUNICATION STYLE: CONCISE**
+- One sentence for what happened
+- One sentence for why
+- One specific clarifying question
+- One clear next step
+- Skip lengthy explanations
+Example: "Column 'inception' not found. The database uses 'year_created' instead. Did you mean 'year_created'? Try using 'year_created' in your query."
+""",
+            'detailed': """
+**ERROR COMMUNICATION STYLE: DETAILED**
+- Explain what the user was trying to do
+- Explain why the system couldn't do it
+- Provide context about the database structure
+- Ask clarifying questions with full context
+- Explain the recommended next step
+Example: "You asked about 'inception' dates for paintings, but our database schema uses the column name 'year_created' to track when artworks were made. The 'inception' column doesn't exist in the artworks table, which has columns: title, artist, year_created, movement, img_path. Would you like to see paintings sorted by 'year_created' instead? I can help you rephrase the query to use the correct column name."
+""",
+            'balanced': """
+**ERROR COMMUNICATION STYLE: BALANCED**
+- Clear explanation of the error
+- Brief context about why it occurred
+- One focused clarifying question with available options
+- Clear next step
+Example: "The column 'inception' doesn't exist in our database. The artworks table uses 'year_created' instead. Did you mean 'year_created'? (Available date columns: year_created, acquisition_date). Try rephrasing your question using 'year_created' instead of 'inception'."
+"""
+        }
+        
+        return directives.get(style, directives['balanced'])
     
     def execute(self, state: Dict[str, Any], **kwargs) -> Dict[str, Any]:
         messages = state.get("messages", [])
@@ -220,7 +296,8 @@ Generate a structured explanation following the ErrorExplanation model."""
                         "error_message": extracted_error,
                         "error_type": "ToolExecutionError",
                         "tool_name": tool_name,
-                        "tool_input": "See conversation history"
+                        "tool_input": "See conversation history",
+                        "user_id": state.get("user_id")  # NEW: Pass user_id for style directive
                     }
                     logger.info(f"Extracted error info from tool message: {extracted_error[:100]}...")
 
@@ -231,7 +308,8 @@ Generate a structured explanation following the ErrorExplanation model."""
                 "error_message": "An unspecified error occurred during execution.",
                 "error_type": "UnknownError",
                 "tool_name": "Agent System",
-                "tool_input": "N/A"
+                "tool_input": "N/A",
+                "user_id": state.get("user_id")  # NEW: Pass user_id for style directive
             }
         
         # 4. Generate Explanation (with dual detection support)
@@ -239,8 +317,6 @@ Generate a structured explanation following the ErrorExplanation model."""
         
         return {
             "error_explanation": explanation_result.model_dump(),
-            # Status update to planner not strictly needed here as graph routes it,
-            # but good for state completeness
             "error_details": [],  # Clear error details to prevent rerunning error_explainer
             "feedback": None  # Clear feedback as well
         }

@@ -26,14 +26,6 @@ class PlanStep(BaseModel):
     )
 
 
-class IntentUnderstanding(BaseModel):
-    """Simplified intent understanding for explainable planning."""
-    main_intent: str = Field(description="The primary goal of the user's query")
-    sub_intents: List[str] = Field(
-        description="Specific sub-tasks needed to achieve the main intent (2-5 items)"
-    )
-
-
 class DynamicPlan(BaseModel):
     query: str = Field(description="Original user query")
     overall_strategy: str = Field(
@@ -43,8 +35,4 @@ class DynamicPlan(BaseModel):
     completed_steps: Optional[List[str]] = Field(
         default=None,
         description="List of completed steps (if any)"
-    )
-    intent: Optional[IntentUnderstanding] = Field(
-        default=None,
-        description="Intent understanding (only if explainer mode enabled)"
     )

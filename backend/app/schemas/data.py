@@ -27,6 +27,8 @@ class RecreateDataFrameRequest(BaseModel):
     """Request to recreate a DataFrame"""
     thread_id: str = Field(..., description="Thread identifier")
     sql_query: str = Field(..., description="SQL query to execute")
+    df_id: Optional[str] = Field(None, description="Existing DataFrame identifier (if any)")
+    force_recreate: bool = Field(False, description="Whether to force recreation even if DataFrame exists")
 
 
 class RecreateDataFrameData(BaseModel):

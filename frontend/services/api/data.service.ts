@@ -30,15 +30,37 @@ export class DataService {
      */
     static async recreateDataFrame(
         threadId: string,
-        sqlQuery: string
+        sqlQuery: string,
+        dfId?: string
     ): Promise<RecreateDataFrameResponse> {
         const request: RecreateDataFrameRequest = {
             thread_id: threadId,
             sql_query: sqlQuery,
+            df_id: dfId,
         };
         return apiClient.post<RecreateDataFrameResponse>(
             API_ENDPOINTS.DATA.RECREATE,
             request
+        );
+    }
+
+    /**
+     * Export DataFrame to Excel
+     */
+    static async exportDataFrame(dfId: string): Promise<Blob> {
+        return apiClient.download(
+            API_ENDPOINTS.DATA.EXPORT,
+            { df_id: dfId }
+        );
+    }
+
+    /**
+     * Download generated plots
+     */
+    static async downloadPlots(plotUrls: string[]): Promise<Blob> {
+        return apiClient.download(
+            API_ENDPOINTS.DATA.DOWNLOAD_PLOTS,
+            { plot_urls: plotUrls }
         );
     }
 }

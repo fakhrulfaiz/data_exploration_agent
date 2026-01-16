@@ -25,7 +25,7 @@ from langchain_core.tools import InjectedToolCallId
 
 from app.agents.tools.custom_toolkit import CustomToolkit
 from app.agents.state import ExplainableAgentState
-from app.agents.nodes.explainable.explainable_planner_node import ExplainablePlannerNode
+from app.agents.nodes.planner_node import PlannerNode
 from app.agents.nodes.explainer_node import ExplainerNode
 from app.agents.nodes.finalizer_node import FinalizerNode
 from app.agents.nodes.error_explainer_node import ErrorExplainerNode
@@ -56,7 +56,7 @@ class MainAgent:
         )
         self.tools = self.custom_toolkit.get_tools()
         
-        self.planner = ExplainablePlannerNode(llm, self.tools)
+        self.planner = PlannerNode(llm, self.tools)
         self.explainer = ExplainerNode(llm, available_tools=self.tools)
         self.error_explainer = ErrorExplainerNode(llm, db_engine=self.engine)
         self.finalizer = FinalizerNode(llm, error_explainer=self.error_explainer)
@@ -690,43 +690,42 @@ CRITICAL: Base your reasoning ONLY on the information provided above. Do NOT ass
                         output_str = str(tool_output)
                         output_lower = output_str.lower()
                         
-                        if output_str.startswith('Analysis Result:'):
-                            continue
-                        
-                        error_indicators = [
-                            'error:', 'exception:', 'failed', 'traceback',
-                            'could not', 'unable to', 'invalid', 'not found'
-                        ]
-                        
-                        # Check if this is an error message
-                        if any(indicator in output_lower for indicator in error_indicators):
-                            lines = output_str.split('\n')
-                            has_error_line = any(
-                                line.strip().lower().startswith('error:') or
-                                line.strip().lower().startswith('exception:') or
-                                'traceback' in line.lower()
-                                for line in lines
-                            )
+                        # Skip error detection for analysis results, but still match the output!
+                        if not output_str.startswith('Analysis Result:'):
+                            error_indicators = [
+                                'error:', 'exception:', 'failed', 'traceback',
+                                'could not', 'unable to', 'invalid', 'not found'
+                            ]
                             
-                            if (has_error_line or
-                                (tool_message and hasattr(tool_message, 'status') and tool_message.status == 'error')):
-                                has_error = True
-                                failed_tool_names.append(tool_name)
-                                # Extract first line of error for summary
-                                error_lines = output_str.split('\n')
-                                error_summary = error_lines[0][:200] if error_lines else output_str[:200]
-                                error_details.append({
-                                    'tool_name': tool_name,
-                                    'tool_call_id': tool_call_id,
-                                    'error_message': error_summary,
-                                    'error_type': 'unknown',  # Can't determine from pattern
-                                    'details': {},
-                                    'recoverable': True,  # Assume recoverable for pattern-detected errors
-                                    'full_output': output_str,
-                                    'detection_method': 'pattern'  # Track how we detected it
-                                })
-                                logger.warning(f"⚠️  Pattern-based error detected in tool {tool_name}: {error_summary}")
-                                logger.info(f"   (Consider updating this tool to use standardized JSON error format)")
+                            # Check if this is an error message
+                            if any(indicator in output_lower for indicator in error_indicators):
+                                lines = output_str.split('\n')
+                                has_error_line = any(
+                                    line.strip().lower().startswith('error:') or
+                                    line.strip().lower().startswith('exception:') or
+                                    'traceback' in line.lower()
+                                    for line in lines
+                                )
+                                
+                                if (has_error_line or
+                                    (tool_message and hasattr(tool_message, 'status') and tool_message.status == 'error')):
+                                    has_error = True
+                                    failed_tool_names.append(tool_name)
+                                    # Extract first line of error for summary
+                                    error_lines = output_str.split('\n')
+                                    error_summary = error_lines[0][:200] if error_lines else output_str[:200]
+                                    error_details.append({
+                                        'tool_name': tool_name,
+                                        'tool_call_id': tool_call_id,
+                                        'error_message': error_summary,
+                                        'error_type': 'unknown',  # Can't determine from pattern
+                                        'details': {},
+                                        'recoverable': True,  # Assume recoverable for pattern-detected errors
+                                        'full_output': output_str,
+                                        'detection_method': 'pattern'  # Track how we detected it
+                                    })
+                                    logger.warning(f"⚠️  Pattern-based error detected in tool {tool_name}: {error_summary}")
+                                    logger.info(f"   (Consider updating this tool to use standardized JSON error format)")
 
                 
                 # Find corresponding tool_call entry and update with output

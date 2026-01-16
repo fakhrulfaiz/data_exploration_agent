@@ -149,6 +149,43 @@ export class ApiClient {
             method: 'DELETE',
         });
     }
+
+    /**
+     * Download blob request
+     */
+    async download(endpoint: string, body?: unknown): Promise<Blob> {
+        const url = `${this.baseUrl}${endpoint}`;
+        const authHeaders = await this.getAuthHeaders();
+
+        const config: RequestInit = {
+            method: 'POST',
+            body: body ? JSON.stringify(body) : undefined,
+            credentials: 'include',
+            headers: {
+                'Content-Type': 'application/json',
+                ...authHeaders,
+            },
+        };
+
+        const response = await fetch(url, config);
+
+        if (!response.ok) {
+             try {
+                const data = await response.json();
+                 const error: ApiError = {
+                    status: data.status || 'error',
+                    message: data.detail || data.message || `HTTP ${response.status}: ${response.statusText}`,
+                    errors: data.errors,
+                };
+                throw error;
+             } catch(e) {
+                 if ((e as ApiError).status) throw e;
+                 throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+             }
+        }
+
+        return response.blob();
+    }
 }
 
 // Export singleton instance

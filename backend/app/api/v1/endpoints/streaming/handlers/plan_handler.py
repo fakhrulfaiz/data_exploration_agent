@@ -100,6 +100,7 @@ class PlanContentHandler(ContentHandler):
         state = self.agent.graph.get_state(self.context.config)
         values = getattr(state, 'values', {}) or {}
         response_type = values.get("response_type")
+        use_planning = values.get("use_planning", True)  # Get use_planning from state
         
         if response_type == "answer":
             return [{
@@ -109,11 +110,12 @@ class PlanContentHandler(ContentHandler):
                 "data": {"text": self.plan_content}
             }]
         else:
+            # Use use_planning from state instead of needs_approval parameter
             return [{
                 "id": f"plan_{self.context.assistant_message_id}",
                 "type": "plan",
                 "sequence": 0,  # Plan is always first
-                "needsApproval": needs_approval,
+                "needsApproval": use_planning,  # Only show approval if use_planning is true
                 "data": {"plan": self.plan_content}
             }]
 

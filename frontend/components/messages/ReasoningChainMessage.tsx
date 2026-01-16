@@ -16,7 +16,7 @@ interface ReasoningChainMessageProps {
 }
 
 export const ReasoningChainMessage: React.FC<ReasoningChainMessageProps> = ({ data }) => {
-    const [isExpanded, setIsExpanded] = useState(true);
+    const [isExpanded, setIsExpanded] = useState(false);
 
     return (
         <div className="reasoning-chain-message bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/10 dark:to-indigo-900/10 border border-blue-200 dark:border-blue-800 rounded-lg p-4 my-3">
