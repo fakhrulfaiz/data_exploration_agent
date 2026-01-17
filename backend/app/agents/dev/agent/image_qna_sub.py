@@ -37,6 +37,20 @@ from langgraph.prebuilt import ToolNode
 
 
 # ============================================================================
+# PATH CONFIGURATION (works in Docker and local)
+# ============================================================================
+
+_CURRENT_DIR = Path(__file__).resolve().parent  # image_qna_sub.py location
+_BACKEND_ROOT = _CURRENT_DIR.parent.parent.parent.parent  # Go up to backend/
+_RESOURCE_PATH = _BACKEND_ROOT / "app" / "resource"
+
+print(f"🖼️ image_qna_sub.py paths:")
+print(f"   _CURRENT_DIR: {_CURRENT_DIR}")
+print(f"   _BACKEND_ROOT: {_BACKEND_ROOT}")
+print(f"   _RESOURCE_PATH: {_RESOURCE_PATH}")
+
+
+# ============================================================================
 # DEVICE AND GPU UTILITIES
 # ============================================================================
 
@@ -163,8 +177,8 @@ class ImageAnalysisOutput(BaseModel):
 
 def _load_image(img_url: str) -> Image.Image:
     """Load an image from various sources with proper error handling."""
-    # Static development path - adjust as needed
-    base_path = "/home/afiq/fyp/fafa-repo/backend/app/resource/"
+    # Use relative path that works in Docker and locally
+    base_path = str(_RESOURCE_PATH) + "/"
     
     # If not an absolute path or URL, prepend base path
     if not img_url.startswith(('http://', 'https://', 'file://', '/')):
@@ -218,7 +232,7 @@ def build_image_qna_tool(use_gpu: Optional[bool] = None):
     Args:
         use_gpu: Explicitly set GPU usage. If None, auto-detect.
                  If False, force CPU even if GPU available.
-                 If True, require GPU (fail if unavailable).
+                 If True, prefer GPU but fallback to CPU if unavailable.
     
     Returns:
         The image_qna_tool function.
@@ -226,11 +240,13 @@ def build_image_qna_tool(use_gpu: Optional[bool] = None):
     # Determine device
     device, device_info = get_device()
     
-    # Handle explicit GPU requirements
+    # Handle explicit GPU preference (graceful fallback, no failure)
     if use_gpu is True and device == "cpu":
-        raise RuntimeError("GPU requested but not available")
+        print("⚠️  GPU requested but not available - falling back to CPU")
+        # No exception - just continue with CPU
     if use_gpu is False:
         device = "cpu"
+        device_info = "CPU (forced by configuration)"
     
     print(f"🔧 Image QnA Tool initialized on: {device_info}")
     
@@ -241,13 +257,31 @@ def build_image_qna_tool(use_gpu: Optional[bool] = None):
             print(f"   GPU Memory: {mem_info['total_gb']}GB total, "
                   f"{mem_info['allocated_gb']}GB allocated")
     
-    # Initialize BLIP model on the selected device
-    processor = BlipProcessor.from_pretrained("Salesforce/blip-vqa-base")
-    model = BlipForQuestionAnswering.from_pretrained("Salesforce/blip-vqa-base")
-    model = model.to(device)
-    
-    # Set eval mode for inference
-    model.eval()
+    # Initialize BLIP model with graceful device handling
+    try:
+        processor = BlipProcessor.from_pretrained("Salesforce/blip-vqa-base")
+        model = BlipForQuestionAnswering.from_pretrained("Salesforce/blip-vqa-base")
+        
+        # Try to move to selected device, fallback to CPU on CUDA errors
+        try:
+            model = model.to(device)
+        except (RuntimeError, torch.cuda.OutOfMemoryError) as cuda_error:
+            print(f"⚠️  CUDA error: {cuda_error}")
+            print("   Falling back to CPU...")
+            device = "cpu"
+            model = model.to("cpu")
+            torch.cuda.empty_cache()  # Clear CUDA memory
+        
+        # Set eval mode for inference
+        model.eval()
+        
+    except Exception as e:
+        print(f"❌ Error loading BLIP model: {e}")
+        print("   Attempting fallback initialization on CPU...")
+        device = "cpu"
+        processor = BlipProcessor.from_pretrained("Salesforce/blip-vqa-base")
+        model = BlipForQuestionAnswering.from_pretrained("Salesforce/blip-vqa-base")
+        model.eval()
     
     @tool("image_qna_tool")
     def image_qna_tool(img_url: str, query: str) -> str:
@@ -564,7 +598,7 @@ Please improvise and complete the remaining analyses accurately.""")
             return {"messages": [feedback_msg]}
         
         # Task complete - prepare for workspace update
-        workspace_dir = "/home/afiq/fyp/fafa-repo/backend/app/agents/dev/workspace/outputs"
+        workspace_dir = str(_CURRENT_DIR.parent / "workspace" / "outputs")
         
         # Build comprehensive storage prompt
         analysis_data = json.dumps(eval_context["analysis_summary"], indent=2)
@@ -603,15 +637,24 @@ Create Python code to:
 # WORKSPACE UPDATE NODE
 # ============================================================================
 
-def create_update_workspace_node(llm):
-    """Create workspace update node for CSV saving."""
+# Default workspace paths - can be overridden (using relative path)
+DEFAULT_WORKSPACE_PATH = _CURRENT_DIR.parent / "workspace"  # backend/app/agents/dev/workspace
+DEFAULT_OUTPUT_PATH = DEFAULT_WORKSPACE_PATH / "outputs"
+
+
+def create_update_workspace_node(llm, output_path: Path = None):
+    """Create workspace update node for CSV saving.
+    
+    Args:
+        llm: Language model for code generation
+        output_path: Path to save CSV outputs. Uses DEFAULT_OUTPUT_PATH if not provided.
+    """
     
     # Import here to avoid circular imports
     from .data_plotting_tool import PythonREPL, CodeGeneratorOutput
     
-    # Define workspace paths
-    WORKSPACE_PATH = Path("/home/afiq/fyp/fafa-repo/backend/app/agents/dev/workspace")
-    OUTPUT_PATH = WORKSPACE_PATH / "outputs"
+    # Use provided output_path or fall back to default
+    csv_output_path = output_path or DEFAULT_OUTPUT_PATH
     
     def update_workspace(state: ImageAnalysisState):
         """Save analysis results to CSV file."""
@@ -640,12 +683,12 @@ Save the following image analysis results to a CSV file.
 ## Instructions
 1. Generate Python code to save this data to a CSV file
 2. Use pandas to create a DataFrame with columns: image_url, query, answer
-3. Save to: {OUTPUT_PATH}/image_analysis_results.csv
-4. Use the ABSOLUTE path: {OUTPUT_PATH}/image_analysis_results.csv
+3. Save to: {csv_output_path}/image_analysis_results.csv
+4. Use the ABSOLUTE path: {csv_output_path}/image_analysis_results.csv
 5. Print the full absolute path after saving
 
 ## Output Path (MUST USE THIS EXACT PATH)
-{OUTPUT_PATH}/image_analysis_results.csv
+{csv_output_path}/image_analysis_results.csv
 """
         
         workspace_helper = llm.with_structured_output(CodeGeneratorOutput)
@@ -670,7 +713,7 @@ Save the following image analysis results to a CSV file.
             )
         
         # Ensure output directory exists
-        OUTPUT_PATH.mkdir(parents=True, exist_ok=True)
+        csv_output_path.mkdir(parents=True, exist_ok=True)
         
         # Execute the code
         result = python_repl.run(workspace_details.code)
@@ -692,7 +735,7 @@ Save the following image analysis results to a CSV file.
         file_name = workspace_details.file_name
         if not os.path.isabs(file_name):
             # Convert to absolute path in outputs directory
-            file_name = str(OUTPUT_PATH / os.path.basename(file_name))
+            file_name = str(csv_output_path / os.path.basename(file_name))
         
         output_message = AIMessage(
             content=f"✅ Analysis complete. Data saved to: {file_name}\\n\\nExecution result: {result}"
@@ -738,7 +781,7 @@ def route_after_evaluator(state: ImageAnalysisState) -> Literal["agent", "update
 # BUILD THE GRAPH - WITH CONFIGURABLE LLM
 # ============================================================================
 
-def build_image_qna_agent(model_name: str = "gpt-4o", use_gpu: Optional[bool] = None):
+def build_image_qna_agent(model_name: str = "gpt-4o", use_gpu: Optional[bool] = None, output_path: Path = None):
     """
     Build the complete image QnA agent graph with configurable LLM and GPU support.
     
@@ -747,14 +790,12 @@ def build_image_qna_agent(model_name: str = "gpt-4o", use_gpu: Optional[bool] = 
                    "claude-opus", "gemini-2.0-flash", etc. Defaults to "gpt-4o".
         use_gpu: GPU usage for image analysis tool.
                 - None: Auto-detect and use GPU if available (default)
-                - True: Require GPU, fail if unavailable
+                - True: Prefer GPU, gracefully fallback to CPU if unavailable
                 - False: Force CPU even if GPU available
+        output_path: Path to save CSV outputs. Uses DEFAULT_OUTPUT_PATH if not provided.
     
     Returns:
         Compiled LangGraph StateGraph for the image analysis agent.
-        
-    Raises:
-        RuntimeError: If use_gpu=True but GPU is unavailable.
     """
     
     import os
@@ -767,6 +808,10 @@ def build_image_qna_agent(model_name: str = "gpt-4o", use_gpu: Optional[bool] = 
     print(f"🤖 Initializing LLM: {model_name}")
     llm = init_chat_model(model_name)
     
+    # Set output path for CSV exports
+    csv_output_path = Path(output_path) if output_path else DEFAULT_OUTPUT_PATH
+    print(f"   Output path: {csv_output_path}")
+    
     # Build tools with GPU configuration
     print(f"🖼️  Building image analysis tool (GPU: {'auto-detect' if use_gpu is None else use_gpu})...")
     image_qna_tool = build_image_qna_tool(use_gpu=use_gpu)
@@ -775,7 +820,7 @@ def build_image_qna_agent(model_name: str = "gpt-4o", use_gpu: Optional[bool] = 
     # Build nodes
     agent_node = create_agent_node(llm, tools)
     evaluator_node = create_evaluator_node(llm)
-    update_workspace_node = create_update_workspace_node(llm)
+    update_workspace_node = create_update_workspace_node(llm, output_path=csv_output_path)
     
     # Create custom tool node that also processes results
     tool_node = ToolNode(tools)

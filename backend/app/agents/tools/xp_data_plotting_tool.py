@@ -15,8 +15,12 @@ from langchain_core.messages import HumanMessage, AIMessage
 
 logger = logging.getLogger(__name__)
 
-# Workspace configuration - keep using dev workspace
-WORKSPACE_PATH = Path("/home/afiq/fyp/fafa-repo/backend/app/agents/dev/workspace")
+# Calculate paths relative to this file's location for Docker compatibility
+_CURRENT_DIR = Path(__file__).resolve().parent
+_AGENTS_DIR = _CURRENT_DIR.parent
+
+# Workspace configuration - use agents/workspace to match xp_agent_v2.py
+WORKSPACE_PATH = _AGENTS_DIR / "workspace"
 PLOT_PATH = WORKSPACE_PATH / "plot"
 OUTPUT_PATH = WORKSPACE_PATH / "outputs"
 
@@ -59,9 +63,18 @@ class XpDataPlottingTool(BaseTool):
         self._initialize_agent()
     
     def _initialize_agent(self):
-        """Lazy initialize the subagent."""
+        """Lazy initialize the subagent with correct workspace configuration."""
         try:
-            from app.agents.dev.agent.data_plotting_sub import build_plotting_agent
+            # Set the workspace to match where CSV files are saved
+            from app.agents.dev.agent.data_plotting_sub import build_plotting_agent, set_plotting_workspace
+            
+            # Configure workspace to use the same outputs directory as data exploration
+            set_plotting_workspace(
+                workspace_dir=str(WORKSPACE_PATH),
+                plot_output_dir=str(PLOT_PATH)
+            )
+            logger.info(f"Set plotting workspace to: {WORKSPACE_PATH}")
+            
             self._agent = build_plotting_agent(
                 model_name=self.model_name
             )

@@ -11,6 +11,7 @@ from .reasoning_chain_handler import ReasoningChainContentHandler
 from .error_explanation_handler import ErrorExplanationHandler
 from .finalizer_actions_handler import FinalizerActionsContentHandler
 from .xp_approval_handler import XpApprovalHandler, XpStepHandler, XpErrorHandler
+from .xp_output_handler import XpOutputHandler
 
 __all__ = [
     "ContentHandler",
@@ -26,4 +27,5 @@ __all__ = [
     "XpApprovalHandler",
     "XpStepHandler",
     "XpErrorHandler",
+    "XpOutputHandler",
 ]

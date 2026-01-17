@@ -25,7 +25,8 @@ from app.api.v1.endpoints.streaming.handlers import (
     PlanContentHandler,
     ExplanationContentHandler,
     ReasoningChainContentHandler,
-    FinalizerActionsContentHandler
+    FinalizerActionsContentHandler,
+    XpOutputHandler
     # ErrorExplanationHandler removed - now handled directly in streaming loop
 )
 from app.api.v1.endpoints.streaming.streaming_persistence import StreamingMessagePersistence
@@ -392,6 +393,7 @@ async def stream_graph(
         reasoning_chain_handler = ReasoningChainContentHandler(context)
         finalizer_actions_handler = FinalizerActionsContentHandler(context)
         tool_call_handler = ToolCallHandler(context)
+        xp_output_handler = XpOutputHandler(context, agent)  # XpAgentV2 output handler
         # error_explanation_handler removed - now handled directly in streaming loop
         persistence = StreamingMessagePersistence(message_service)
 
@@ -535,6 +537,20 @@ async def stream_graph(
                             logger.info(f"Streamed error explanation immediately after error_explainer: {block_id}")
                     except Exception as e:
                         logger.error(f"Failed to stream error explanation: {e}", exc_info=True)
+                
+                # Handle XpAgentV2 aggregator/finalizer output (state updates, not messages)
+                if mode == "updates" and context.node_name in ('aggregator', 'finalizer'):
+                    try:
+                        state = agent.graph.get_state(config)
+                        values = getattr(state, 'values', {}) or {}
+                        
+                        # Check if this is XpAgentV2 and handler can process it
+                        if await xp_output_handler.can_handle_state_update(context.node_name, values):
+                            async for event in xp_output_handler.handle_state_update(context.node_name, values):
+                                yield event
+                            logger.info(f"✅ XpAgentV2 output handled from {context.node_name}")
+                    except Exception as e:
+                        logger.error(f"Failed to handle XpAgentV2 output: {e}", exc_info=True)
                 
                 # Only process content handlers if we have a message
                 if not msg:

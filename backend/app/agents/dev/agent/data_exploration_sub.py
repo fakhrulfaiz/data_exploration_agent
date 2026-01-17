@@ -51,8 +51,12 @@ from .state.data_exploration_state_v2 import (
 # DATABASE SETUP
 # ============================================================================
 
+# Use relative paths that work in both Docker and local environments
+_CURRENT_DIR = Path(__file__).resolve().parent  # data_exploration_sub.py location
+_BACKEND_ROOT = _CURRENT_DIR.parent.parent.parent.parent  # Go up to backend/
+
 # Default database path - can be overridden
-DEFAULT_DB_PATH = "/home/afiq/fyp/fafa-repo/backend/app/resource/art.db"
+DEFAULT_DB_PATH = str(_BACKEND_ROOT / "app" / "resource" / "art.db")
 
 
 def setup_database(db_path: str = None):
@@ -101,8 +105,16 @@ def get_database_info(db_path: str = None) -> dict:
 # WORKSPACE CONFIGURATION
 # ============================================================================
 
-WORKSPACE_PATH = Path("/home/afiq/fyp/fafa-repo/backend/app/agents/dev/workspace")
-OUTPUT_PATH = WORKSPACE_PATH / "outputs"
+# Default workspace paths - can be overridden via build_data_exploration_agent
+# Uses relative path from current file location
+DEFAULT_WORKSPACE_PATH = _CURRENT_DIR.parent / "workspace"  # backend/app/agents/dev/workspace
+DEFAULT_OUTPUT_PATH = DEFAULT_WORKSPACE_PATH / "outputs"
+
+print(f"📁 data_exploration_sub.py paths:")
+print(f"   _CURRENT_DIR: {_CURRENT_DIR}")
+print(f"   DEFAULT_DB_PATH: {DEFAULT_DB_PATH}")
+print(f"   DEFAULT_WORKSPACE_PATH: {DEFAULT_WORKSPACE_PATH}")
+print(f"   DEFAULT_OUTPUT_PATH: {DEFAULT_OUTPUT_PATH}")
 
 
 # ============================================================================
@@ -488,96 +500,140 @@ Please provide a final synthesized response with the data in tabular format.""")
 # NODE: UPDATE WORKSPACE (CSV Export)
 # ============================================================================
 
-def create_update_workspace_node(llm):
-    """Create workspace update node for CSV saving."""
+def create_update_workspace_node(llm, output_path: Path = None):
+    """Create workspace update node for CSV saving.
+    
+    Args:
+        llm: Language model for processing
+        output_path: Path to save CSV outputs. Uses DEFAULT_OUTPUT_PATH if not provided.
+    """
+    # Use provided output_path or fall back to default
+    csv_output_path = output_path or DEFAULT_OUTPUT_PATH
+    print(f"📁 CSV output path configured: {csv_output_path}")
     
     def update_workspace(state: DataExplorationState):
         """Extract data from agent response and save to CSV."""
+        import pandas as pd
+        import io
         
-        # Find the agent's final response with data
-        final_data = None
+        print(f"📝 update_workspace node called")
+        print(f"   Output path: {csv_output_path}")
+        
+        # Get columns from evaluator output
+        final_columns = state.get("final_columns", [])
         csv_filename = "query_result.csv"
-        columns = state.get("final_columns", [])
+        print(f"   Final columns from evaluator: {final_columns}")
         
-        # Look for FINAL_CSV_DATA block or structured data in messages
+        # Look for export instructions in messages
         for msg in reversed(state["messages"]):
             if isinstance(msg, AIMessage):
                 content = msg.content
-                
-                # Try to parse export instruction message
                 try:
                     export_info = json.loads(content)
                     if export_info.get("status") == "ready_for_export":
                         csv_filename = export_info.get("filename", csv_filename)
-                        columns = export_info.get("columns", columns)
-                        continue
-                except json.JSONDecodeError:
+                        if export_info.get("columns"):
+                            final_columns = export_info.get("columns")
+                        break
+                except (json.JSONDecodeError, TypeError):
+                    print(f"   ⚠️ Failed to parse export info: {content}")
                     pass
-                
-                # Look for FINAL_CSV_DATA block
-                if "### FINAL_CSV_DATA ###" in content:
-                    # Extract data between markers
-                    start = content.find("### FINAL_CSV_DATA ###")
-                    # Find code block after marker
-                    code_start = content.find("```", start)
-                    if code_start != -1:
-                        code_end = content.find("```", code_start + 3)
-                        if code_end != -1:
-                            raw_data = content[code_start + 3:code_end].strip()
-                            # Remove language identifier if present
-                            if raw_data.startswith("csv"):
-                                raw_data = raw_data[3:].strip()
-                            final_data = raw_data
-                            break
-                
-                # Look for markdown tables
-                if "|" in content and "---" in content:
-                    # Try to extract table data
-                    lines = content.split("\n")
-                    table_lines = [l for l in lines if "|" in l]
-                    if len(table_lines) >= 2:  # Header + separator + data
-                        # Extract headers
-                        header_line = table_lines[0]
-                        if not columns:
-                            columns = [c.strip() for c in header_line.split("|") if c.strip()]
-                        
-                        # Extract data rows (skip separator line)
-                        data_lines = [l for l in table_lines[2:] if "---" not in l]
-                        rows = []
-                        for line in data_lines:
-                            cells = [c.strip() for c in line.split("|") if c.strip()]
-                            if cells:
-                                rows.append(cells)
-                        
-                        if rows:
-                            # Convert to CSV format
-                            csv_lines = [",".join(columns)]
-                            for row in rows:
-                                csv_lines.append(",".join(str(c) for c in row))
-                            final_data = "\n".join(csv_lines)
-                            break
         
-        if not final_data:
-            # Try to get from last query result
-            query_history = state.get("query_history", [])
-            if query_history:
-                last_query = query_history[-1]
-                if isinstance(last_query, QueryRecord) and last_query.success:
+        # Primary approach: Get data from query_history (most reliable)
+        df = None
+        query_history = state.get("query_history", [])
+        print(f"   Query history entries: {len(query_history)}")
+        
+        if query_history:
+            # Find the last successful query with data
+            for query_record in reversed(query_history):
+                if isinstance(query_record, QueryRecord) and query_record.success:
+                    print(f"   Found successful query: {query_record.query[:80]}...")
+                    print(f"   Query result (first 200 chars): {str(query_record.result)[:200]}")
+                    print(f"   Query columns: {query_record.columns}")
                     try:
-                        parsed = ast.literal_eval(last_query.result)
+                        # Parse the result (it's a string representation of list of tuples)
+                        parsed = ast.literal_eval(query_record.result)
+                        print(f"   Parsed {len(parsed)} rows from result")
                         if isinstance(parsed, list) and parsed:
-                            columns = last_query.columns or [f"col_{i}" for i in range(len(parsed[0]))]
-                            csv_lines = [",".join(columns)]
-                            for row in parsed:
-                                if isinstance(row, (list, tuple)):
-                                    csv_lines.append(",".join(str(c) for c in row))
-                            final_data = "\n".join(csv_lines)
-                    except:
-                        pass
+                            first_row = parsed[0] if parsed else []
+                            num_cols = len(first_row) if isinstance(first_row, (list, tuple)) else 1
+                            
+                            # Use columns from query record if available, else from evaluator, else generate
+                            columns = query_record.columns if query_record.columns else final_columns
+                            
+                            # Adjust column count to match data
+                            if not columns or len(columns) != num_cols:
+                                if columns and len(columns) > num_cols:
+                                    # Trim columns to match data
+                                    columns = columns[:num_cols]
+                                elif columns and len(columns) < num_cols:
+                                    # Pad columns with generated names
+                                    columns = list(columns) + [f"column_{i+1}" for i in range(len(columns), num_cols)]
+                                else:
+                                    # Generate all column names
+                                    columns = [f"column_{i+1}" for i in range(num_cols)]
+                            
+                            print(f"   Using columns ({len(columns)}): {columns}")
+                            
+                            # Create DataFrame
+                            df = pd.DataFrame(parsed, columns=columns)
+                            print(f"   Created DataFrame with shape: {df.shape}")
+                            break
+                    except (SyntaxError, ValueError) as e:
+                        # Try alternate parsing - result might be in different format
+                        print(f"   ⚠️ Failed to parse query result: {e}")
+                        continue
         
-        if not final_data:
+        # Fallback: Try to extract from markdown tables in messages
+        if df is None:
+            print("   ⚠️ No DataFrame from query_history, trying markdown tables...")
+            for msg in reversed(state["messages"]):
+                if isinstance(msg, AIMessage) and isinstance(msg.content, str):
+                    content = msg.content
+                    
+                    # Look for FINAL_CSV_DATA block
+                    if "### FINAL_CSV_DATA ###" in content:
+                        start = content.find("### FINAL_CSV_DATA ###")
+                        code_start = content.find("```", start)
+                        if code_start != -1:
+                            code_end = content.find("```", code_start + 3)
+                            if code_end != -1:
+                                raw_data = content[code_start + 3:code_end].strip()
+                                if raw_data.startswith("csv"):
+                                    raw_data = raw_data[3:].strip()
+                                try:
+                                    df = pd.read_csv(io.StringIO(raw_data))
+                                    break
+                                except:
+                                    pass
+                    
+                    # Look for markdown tables
+                    if "|" in content and "---" in content:
+                        lines = content.split("\n")
+                        table_lines = [l.strip() for l in lines if "|" in l and l.strip()]
+                        if len(table_lines) >= 3:  # Header + separator + at least one data row
+                            try:
+                                # Parse header
+                                header_cells = [c.strip() for c in table_lines[0].split("|") if c.strip()]
+                                # Skip separator (table_lines[1])
+                                # Parse data rows
+                                rows = []
+                                for line in table_lines[2:]:
+                                    if "---" not in line:
+                                        cells = [c.strip() for c in line.split("|") if c.strip()]
+                                        if cells:
+                                            rows.append(cells)
+                                if rows:
+                                    df = pd.DataFrame(rows, columns=header_cells[:len(rows[0])])
+                                    break
+                            except:
+                                pass
+        
+        if df is None or df.empty:
+            print("❌ DataFrame is None or empty - cannot save CSV")
             output_message = AIMessage(
-                content="Failed to extract data for CSV export. No structured data found in agent response."
+                content="Failed to extract data for CSV export. No structured data found in query results."
             )
             return Command(
                 goto=END,
@@ -589,24 +645,75 @@ def create_update_workspace_node(llm):
             )
         
         # Ensure output directory exists
-        OUTPUT_PATH.mkdir(parents=True, exist_ok=True)
+        print(f"📂 Checking output directory: {csv_output_path}")
+        print(f"   Type of csv_output_path: {type(csv_output_path)}")
+        print(f"   csv_output_path exists before mkdir: {csv_output_path.exists() if hasattr(csv_output_path, 'exists') else 'N/A'}")
+        
+        try:
+            csv_output_path.mkdir(parents=True, exist_ok=True)
+            print(f"   ✅ mkdir completed")
+        except Exception as mkdir_err:
+            print(f"   ❌ mkdir failed: {mkdir_err}")
+        
+        print(f"   csv_output_path exists after mkdir: {csv_output_path.exists() if hasattr(csv_output_path, 'exists') else 'N/A'}")
+        print(f"   csv_output_path is_dir: {csv_output_path.is_dir() if hasattr(csv_output_path, 'is_dir') else 'N/A'}")
         
         # Generate unique filename if needed
         if not csv_filename.endswith(".csv"):
             csv_filename += ".csv"
         
-        csv_path = OUTPUT_PATH / csv_filename
+        csv_path = csv_output_path / csv_filename
+        print(f"   Initial csv_path: {csv_path}")
+        print(f"   csv_path type: {type(csv_path)}")
         
         # Handle duplicate filenames
         if csv_path.exists():
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             csv_filename = f"{csv_path.stem}_{timestamp}.csv"
-            csv_path = OUTPUT_PATH / csv_filename
+            csv_path = csv_output_path / csv_filename
+            print(f"   File exists, using timestamped name: {csv_path}")
         
         try:
-            # Write CSV file
-            with open(csv_path, "w", newline="", encoding="utf-8") as f:
-                f.write(final_data)
+            # Write CSV file using pandas
+            print(f"💾 ATTEMPTING TO SAVE CSV")
+            print(f"   Full path: {csv_path}")
+            print(f"   Absolute path: {csv_path.absolute() if hasattr(csv_path, 'absolute') else csv_path}")
+            print(f"   DataFrame shape: {df.shape}")
+            print(f"   DataFrame columns: {list(df.columns)}")
+            print(f"   DataFrame head:\n{df.head()}")
+            
+            # Actually save
+            df.to_csv(csv_path, index=False, encoding="utf-8")
+            
+            # IMMEDIATE verification using os.path.exists with string path
+            import os
+            csv_path_str = str(csv_path)
+            print(f"   IMMEDIATE CHECK after to_csv():")
+            print(f"   os.path.exists('{csv_path_str}'): {os.path.exists(csv_path_str)}")
+            print(f"   csv_path.exists(): {csv_path.exists()}")
+            
+            # Flush to disk explicitly
+            import subprocess
+            subprocess.run(['sync'], check=False)
+            print(f"   After sync command:")
+            print(f"   os.path.exists('{csv_path_str}'): {os.path.exists(csv_path_str)}")
+            
+            # List directory
+            print(f"   Directory listing of {csv_output_path}:")
+            for item in os.listdir(csv_output_path):
+                full_item_path = os.path.join(str(csv_output_path), item)
+                print(f"      - {item} (size: {os.path.getsize(full_item_path)} bytes)")
+            
+            if os.path.exists(csv_path_str):
+                file_size = os.path.getsize(csv_path_str)
+                print(f"   ✅ FILE VERIFIED - Size: {file_size} bytes")
+                
+                # Read back to double-check
+                with open(csv_path_str, 'r') as f:
+                    first_100_chars = f.read(100)
+                print(f"   First 100 chars of file: {first_100_chars}")
+            else:
+                print(f"   ❌ FILE NOT FOUND AFTER SAVE - Something went wrong!")
             
             # Build result summary with file path info
             result_summary = state.get("result_summary", "")
@@ -614,7 +721,7 @@ def create_update_workspace_node(llm):
                 result_summary += f"\n\n**Output File**: {csv_path}"
             
             output_message = AIMessage(
-                content=f"✅ Data exploration complete. Results saved to: {csv_path}\n\nColumns: {columns}"
+                content=f"✅ Data exploration complete. Results saved to: {csv_path}\n\nColumns: {list(df.columns)}\nRows: {len(df)}"
             )
             
             return Command(
@@ -626,6 +733,11 @@ def create_update_workspace_node(llm):
             )
             
         except Exception as e:
+            import traceback
+            print(f"❌ EXCEPTION during CSV save:")
+            print(f"   Error type: {type(e).__name__}")
+            print(f"   Error message: {e}")
+            print(f"   Traceback:\n{traceback.format_exc()}")
             output_message = AIMessage(
                 content=f"Failed to save CSV: {str(e)}"
             )
@@ -672,7 +784,7 @@ def route_after_evaluator(state: DataExplorationState) -> Literal["generate_quer
 # BUILD THE GRAPH - WITH CONFIGURABLE LLM
 # ============================================================================
 
-def build_data_exploration_agent(model_name: str = "gpt-4o", db_path: str = None):
+def build_data_exploration_agent(model_name: str = "gpt-4o", db_path: str = None, output_path: Path = None):
     """
     Build the complete data exploration agent graph with configurable LLM.
     
@@ -680,6 +792,7 @@ def build_data_exploration_agent(model_name: str = "gpt-4o", db_path: str = None
         model_name: LLM model to use with init_chat_model. Examples: "gpt-4o", "claude-3-5-sonnet",
                    "gemini-2.0-flash", etc. Defaults to "gpt-4o".
         db_path: Path to the SQLite database. Uses default if not provided.
+        output_path: Path to save CSV outputs. Uses DEFAULT_OUTPUT_PATH if not provided.
     
     Returns:
         Compiled LangGraph StateGraph for the data exploration agent.
@@ -693,6 +806,10 @@ def build_data_exploration_agent(model_name: str = "gpt-4o", db_path: str = None
     
     print(f"   Database dialect: {db.dialect}")
     print(f"   Tables available: {db.get_usable_table_names()}")
+    
+    # Set output path for CSV exports
+    csv_output_path = Path(output_path) if output_path else DEFAULT_OUTPUT_PATH
+    print(f"   Output path: {csv_output_path}")
     
     # Get specific tools
     get_schema_tool = next(t for t in tools if t.name == "sql_db_schema")
@@ -715,7 +832,7 @@ def build_data_exploration_agent(model_name: str = "gpt-4o", db_path: str = None
     generate_query = create_generate_query_node(llm, query_tool, db)
     process_results = create_process_results_node()
     evaluator = create_evaluator_node(llm)
-    update_workspace = create_update_workspace_node(llm)
+    update_workspace = create_update_workspace_node(llm, output_path=csv_output_path)
     
     # Combined node: process schema after get_schema tool
     def process_schema(state):

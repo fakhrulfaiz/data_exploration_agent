@@ -42,16 +42,52 @@ from .state.data_plotting_state import (
     FileInfo,
     PlottingEvaluatorOutput,
 )
+from pathlib import Path
 
 # Load environment
 load_dotenv()
 
-# Workspace directory
-WORKSPACE_DIR = "/home/afiq/fyp/fafa-repo/backend/app/agents/dev/workspace"
-PLOT_OUTPUT_DIR = os.path.join(WORKSPACE_DIR, "plot")
+# Use relative paths that work in both Docker and local environments
+_CURRENT_DIR = Path(__file__).resolve().parent  # data_plotting_sub.py location
 
-# Ensure plot directory exists
-os.makedirs(PLOT_OUTPUT_DIR, exist_ok=True)
+# Default workspace directory (can be overridden via set_plotting_workspace)
+DEFAULT_WORKSPACE_DIR = str(_CURRENT_DIR.parent / "workspace")  # backend/app/agents/dev/workspace
+DEFAULT_PLOT_OUTPUT_DIR = os.path.join(DEFAULT_WORKSPACE_DIR, "plot")
+
+print(f"📊 data_plotting_sub.py paths:")
+print(f"   _CURRENT_DIR: {_CURRENT_DIR}")
+print(f"   DEFAULT_WORKSPACE_DIR: {DEFAULT_WORKSPACE_DIR}")
+print(f"   DEFAULT_PLOT_OUTPUT_DIR: {DEFAULT_PLOT_OUTPUT_DIR}")
+DEFAULT_PLOT_OUTPUT_DIR = os.path.join(DEFAULT_WORKSPACE_DIR, "plot")
+
+# Runtime workspace paths (set via set_plotting_workspace)
+_workspace_dir = DEFAULT_WORKSPACE_DIR
+_plot_output_dir = DEFAULT_PLOT_OUTPUT_DIR
+
+
+def set_plotting_workspace(workspace_dir: str, plot_output_dir: str = None):
+    """
+    Set the workspace directories for plotting.
+    
+    Args:
+        workspace_dir: Path to the workspace directory
+        plot_output_dir: Path to plot output directory (defaults to workspace_dir/plot)
+    """
+    global _workspace_dir, _plot_output_dir
+    _workspace_dir = workspace_dir
+    _plot_output_dir = plot_output_dir or os.path.join(workspace_dir, "plot")
+    # Ensure directories exist
+    os.makedirs(_workspace_dir, exist_ok=True)
+    os.makedirs(_plot_output_dir, exist_ok=True)
+
+
+def get_plotting_workspace() -> tuple[str, str]:
+    """Get current workspace and plot output directories."""
+    return _workspace_dir, _plot_output_dir
+
+
+# Ensure default plot directory exists
+os.makedirs(DEFAULT_PLOT_OUTPUT_DIR, exist_ok=True)
 
 
 # ============================================================================
@@ -257,16 +293,18 @@ def read_csv_file(file_path: str) -> str:
     Returns:
         String with file info: columns, row count, and first few rows
     """
+    workspace_dir, _ = get_plotting_workspace()
+    
     # Handle relative paths
     if not os.path.isabs(file_path):
         # Try workspace/data first
-        full_path = os.path.join(WORKSPACE_DIR, "data", file_path)
+        full_path = os.path.join(workspace_dir, "data", file_path)
         if not os.path.exists(full_path):
             # Try workspace directly
-            full_path = os.path.join(WORKSPACE_DIR, file_path)
+            full_path = os.path.join(workspace_dir, file_path)
         if not os.path.exists(full_path):
             # Try workspace/outputs
-            full_path = os.path.join(WORKSPACE_DIR, "outputs", file_path)
+            full_path = os.path.join(workspace_dir, "outputs", file_path)
         if not os.path.exists(full_path):
             # Use as-is
             full_path = file_path
@@ -318,13 +356,15 @@ def generate_plot(
     if _plotting_llm is None:
         return "Error: LLM not initialized. Call set_plotting_llm() first."
     
+    workspace_dir, plot_output_dir = get_plotting_workspace()
+    
     # Resolve file path
     if not os.path.isabs(file_path):
-        full_path = os.path.join(WORKSPACE_DIR, "data", file_path)
+        full_path = os.path.join(workspace_dir, "data", file_path)
         if not os.path.exists(full_path):
-            full_path = os.path.join(WORKSPACE_DIR, file_path)
+            full_path = os.path.join(workspace_dir, file_path)
         if not os.path.exists(full_path):
-            full_path = os.path.join(WORKSPACE_DIR, "outputs", file_path)
+            full_path = os.path.join(workspace_dir, "outputs", file_path)
         if not os.path.exists(full_path):
             full_path = file_path
     else:
@@ -360,7 +400,7 @@ def generate_plot(
     if not output_filename.endswith('.png'):
         output_filename += '.png'
     
-    output_path = os.path.join(PLOT_OUTPUT_DIR, output_filename)
+    output_path = os.path.join(plot_output_dir, output_filename)
     
     # Generate and execute plot code using LLM
     success, result_message, reasoning = generate_plot_with_llm(
@@ -743,13 +783,15 @@ def initialize_file_info_node(state: DataPlottingState):
     # Get the first file to plot
     file_path = files_to_plot[0]
     
+    workspace_dir, _ = get_plotting_workspace()
+    
     # Resolve file path
     if not os.path.isabs(file_path):
-        full_path = os.path.join(WORKSPACE_DIR, "data", file_path)
+        full_path = os.path.join(workspace_dir, "data", file_path)
         if not os.path.exists(full_path):
-            full_path = os.path.join(WORKSPACE_DIR, file_path)
+            full_path = os.path.join(workspace_dir, file_path)
         if not os.path.exists(full_path):
-            full_path = os.path.join(WORKSPACE_DIR, "outputs", file_path)
+            full_path = os.path.join(workspace_dir, "outputs", file_path)
         if not os.path.exists(full_path):
             full_path = file_path
     else:
@@ -781,17 +823,27 @@ def initialize_file_info_node(state: DataPlottingState):
 # BUILD GRAPH - WITH CONFIGURABLE LLM
 # ============================================================================
 
-def build_plotting_agent(model_name: str = "gpt-4o"):
+def build_plotting_agent(
+    model_name: str = "gpt-4o",
+    workspace_dir: str = None,
+    plot_output_dir: str = None
+):
     """
-    Build the plotting subagent graph with configurable LLM.
+    Build the plotting subagent graph with configurable LLM and workspace.
     
     Args:
         model_name: LLM model to use with init_chat_model. Examples: "gpt-4o", "claude-3-5-sonnet",
                    "gemini-2.0-flash", etc. Defaults to "gpt-4o".
+        workspace_dir: Path to workspace directory (defaults to DEFAULT_WORKSPACE_DIR)
+        plot_output_dir: Path to plot output directory (defaults to workspace_dir/plot)
     
     Returns:
         Compiled LangGraph StateGraph for the plotting agent.
     """
+    # Set workspace paths if provided
+    if workspace_dir:
+        set_plotting_workspace(workspace_dir, plot_output_dir)
+    
     print(f"🤖 Initializing LLM: {model_name}")
     llm = init_chat_model(model_name)
     
@@ -842,9 +894,17 @@ def build_plotting_agent(model_name: str = "gpt-4o"):
 # HELPER FUNCTIONS FOR INTEGRATION
 # ============================================================================
 
-def get_plotting_agent(model_name: str = "gpt-4o"):
-    """Get or create the plotting agent with specified model."""
-    return build_plotting_agent(model_name=model_name)
+def get_plotting_agent(
+    model_name: str = "gpt-4o",
+    workspace_dir: str = None,
+    plot_output_dir: str = None
+):
+    """Get or create the plotting agent with specified model and workspace."""
+    return build_plotting_agent(
+        model_name=model_name,
+        workspace_dir=workspace_dir,
+        plot_output_dir=plot_output_dir
+    )
 
 
 def execute_plotting_task(task: str, file_path: str, model_name: str = "gpt-4o") -> tuple[dict, str]:

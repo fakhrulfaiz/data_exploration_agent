@@ -19,8 +19,12 @@ from app.schemas.chat import DataContext
 
 logger = logging.getLogger(__name__)
 
-# Workspace configuration - keep using dev workspace
-WORKSPACE_PATH = Path("/home/afiq/fyp/fafa-repo/backend/app/agents/dev/workspace")
+# Calculate paths relative to this file's location for Docker compatibility
+_CURRENT_DIR = Path(__file__).resolve().parent
+_AGENTS_DIR = _CURRENT_DIR.parent
+
+# Workspace configuration - use agents/workspace to match xp_agent_v2.py
+WORKSPACE_PATH = _AGENTS_DIR / "workspace"
 OUTPUT_PATH = WORKSPACE_PATH / "outputs"
 
 
@@ -60,14 +64,29 @@ class XpImageQnATool(BaseTool):
         self._initialize_agent()
     
     def _initialize_agent(self):
-        """Lazy initialize the subagent."""
+        """Lazy initialize the subagent with graceful GPU fallback."""
         try:
             from app.agents.dev.agent.image_qna_sub import build_image_qna_agent
             self._agent = build_image_qna_agent(
                 model_name=self.model_name,
-                use_gpu=self.use_gpu
+                use_gpu=self.use_gpu,
+                output_path=OUTPUT_PATH  # Use the same outputs directory as data exploration
             )
-            logger.info(f"XpImageQnATool initialized with model {self.model_name}")
+            logger.info(f"XpImageQnATool initialized with model {self.model_name}, output_path={OUTPUT_PATH}")
+        except RuntimeError as gpu_error:
+            # GPU-related error - try again with CPU
+            logger.warning(f"GPU initialization failed: {gpu_error}. Retrying with CPU...")
+            try:
+                from app.agents.dev.agent.image_qna_sub import build_image_qna_agent
+                self._agent = build_image_qna_agent(
+                    model_name=self.model_name,
+                    use_gpu=False,  # Force CPU
+                    output_path=OUTPUT_PATH
+                )
+                logger.info(f"XpImageQnATool initialized with model {self.model_name} (CPU fallback)")
+            except Exception as e:
+                logger.error(f"Failed to initialize image QnA agent even with CPU fallback: {e}")
+                raise
         except Exception as e:
             logger.error(f"Failed to initialize image QnA agent: {e}")
             raise

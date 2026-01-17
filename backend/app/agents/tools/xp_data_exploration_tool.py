@@ -19,8 +19,12 @@ from app.schemas.chat import DataContext
 
 logger = logging.getLogger(__name__)
 
-# Workspace configuration - keep using dev workspace
-WORKSPACE_PATH = Path("/home/afiq/fyp/fafa-repo/backend/app/agents/dev/workspace")
+# Use relative paths that work in both Docker and local environments
+_CURRENT_DIR = Path(__file__).resolve().parent  # tools/ directory
+_AGENTS_DIR = _CURRENT_DIR.parent  # agents/ directory
+
+# Workspace configuration - use agents/workspace to match xp_agent_v2.py
+WORKSPACE_PATH = _AGENTS_DIR / "workspace"
 OUTPUT_PATH = WORKSPACE_PATH / "outputs"
 
 
@@ -46,16 +50,16 @@ class XpDataExplorationTool(BaseTool):
     """
     
     model_name: str = Field(default="gpt-4o-mini", description="LLM model to use")
-    db_path: str = Field(default="/home/afiq/fyp/fafa-repo/backend/app/resource/art.db", description="Path to SQLite database")
+    db_path: str = Field(default=str(_AGENTS_DIR.parent / "resource" / "art.db"), description="Path to SQLite database")
     _agent: Any = None
     
     class Config:
         arbitrary_types_allowed = True
     
     def __init__(self, model_name: str = "gpt-4o-mini", db_path: Optional[str] = None, **kwargs):
-        # Set defaults
+        # Set defaults - use relative path
         if db_path is None:
-            db_path = "/home/afiq/fyp/fafa-repo/backend/app/resource/art.db"
+            db_path = str(_AGENTS_DIR.parent / "resource" / "art.db")
         
         super().__init__(model_name=model_name, db_path=db_path, **kwargs)
         self._initialize_agent()

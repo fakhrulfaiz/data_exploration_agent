@@ -6,18 +6,19 @@ but using the same integration pattern as MainAgent for streaming compatibility.
 
 Key design principles:
 - Uses ExplainableAgentState for streaming compatibility
-- Starts with no tools (will be added incrementally)
 - Has its own workspace: backend/app/agents/workspace
 - Used in experiment_mode
 
-v2.1 Changes:
-- Added planning node to generate execution plans
-- Added human_feedback node with simple boolean approval (matches XpAgent pattern)
-- Graph flow: START -> planner -> human_feedback -> responder -> finalizer -> END
-- Uses "xp_plan_approval" interrupt type for frontend compatibility
+v2.2 Changes:
+- Added SubagentFactory for tool management (matches dev blueprint)
+- Added executor node for step execution
+- Added StepResult model for tracking execution results
+- Graph flow: START -> planner -> executor -> finalizer -> END
+- Tools: data_exploration_agent (Phase 1)
 """
 
 import os
+import re
 import json
 import logging
 from typing import Any, Dict, List, Optional, Literal
@@ -120,20 +121,650 @@ TOOL_CAPABILITIES = {
 
 
 # ============================================================================
-# CONFIGURATION
+# CONFIGURATION (must be before SubagentFactory)
 # ============================================================================
 
 DEFAULT_MODEL = "gpt-4o-mini"
-DEFAULT_DB_PATH = "/home/afiq/fyp/fafa-repo/backend/app/resource/art.db"
 
-# XpAgentV2 has its own workspace
-WORKSPACE_PATH = Path("/home/afiq/fyp/fafa-repo/backend/app/agents/workspace")
+# Use relative paths that work in both Docker and local environments
+# __file__ is the path to this script, so we go up to find the backend root
+_CURRENT_DIR = Path(__file__).resolve().parent  # /app/app/agents in Docker, or local path
+_BACKEND_ROOT = _CURRENT_DIR.parent.parent  # /app in Docker, or backend/ locally
+
+DEFAULT_DB_PATH = str(_BACKEND_ROOT / "app" / "resource" / "art.db")
+
+# XpAgentV2 has its own workspace (relative to agents directory)
+WORKSPACE_PATH = _CURRENT_DIR / "workspace"
 OUTPUT_PATH = WORKSPACE_PATH / "outputs"
 PLOT_PATH = WORKSPACE_PATH / "plot"
+
+# Debug: Print resolved paths
+print(f"🔧 XpAgentV2 Path Configuration:")
+print(f"   _CURRENT_DIR: {_CURRENT_DIR}")
+print(f"   _BACKEND_ROOT: {_BACKEND_ROOT}")
+print(f"   WORKSPACE_PATH: {WORKSPACE_PATH}")
+print(f"   OUTPUT_PATH: {OUTPUT_PATH}")
+print(f"   DEFAULT_DB_PATH: {DEFAULT_DB_PATH}")
 
 # Ensure workspace directories exist
 os.makedirs(OUTPUT_PATH, exist_ok=True)
 os.makedirs(PLOT_PATH, exist_ok=True)
+
+
+# ============================================================================
+# STEP RESULT MODEL (from dev blueprint)
+# ============================================================================
+
+class StepResult(BaseModel):
+    """Result from executing a step - matches dev blueprint."""
+    step_number: int = Field(..., description="Which step this result is for")
+    success: bool = Field(..., description="Whether the step succeeded")
+    result_content: str = Field(default="", description="The actual result content")
+    output_file: Optional[str] = Field(default=None, description="Output file path if any")
+    error_message: str = Field(default="", description="Error message if failed")
+
+
+# ============================================================================
+# SUBAGENT FACTORY (from dev blueprint)
+# ============================================================================
+
+class SubagentFactory:
+    """
+    Factory for creating and caching subagents with consistent configuration.
+    Follows the dev blueprint pattern for lazy initialization.
+    """
+    
+    def __init__(self, model_name: str = DEFAULT_MODEL, db_path: Optional[str] = None):
+        """
+        Initialize the factory with configuration.
+        
+        Args:
+            model_name: LLM model to use for all subagents
+            db_path: Path to the database for data exploration
+        """
+        self.model_name = model_name
+        self.db_path = db_path or DEFAULT_DB_PATH
+        self.output_path = OUTPUT_PATH  # Use XpAgentV2's workspace path
+        
+        # Cached agents (compiled LangGraph subagents)
+        self._data_exploration_graph = None
+        self._image_qna_agent = None
+        self._plotting_agent = None
+    
+    def get_data_exploration_graph(self):
+        """
+        Get or create the data exploration subagent graph.
+        
+        Uses the dev blueprint pattern: builds a LangGraph subagent that executes
+        SQL queries with full context tracking (list tables -> get schema -> 
+        generate query -> run query -> evaluate -> export).
+        """
+        if self._data_exploration_graph is None:
+            logger.info(f"📊 Building data exploration graph with model: {self.model_name}")
+            logger.info(f"   Output path: {self.output_path}")
+            # Import from dev blueprint
+            from app.agents.dev.agent.data_exploration_sub import build_data_exploration_agent
+            
+            self._data_exploration_graph = build_data_exploration_agent(
+                model_name=self.model_name,
+                db_path=self.db_path,
+                output_path=self.output_path  # Pass XpAgentV2's output path
+            )
+            logger.info(f"✅ Data exploration graph built successfully")
+        return self._data_exploration_graph
+    
+    def get_image_qna_agent(self):
+        """
+        Get or create the image QnA agent.
+        
+        Uses the dev blueprint pattern: builds a LangGraph subagent that analyzes
+        images using BLIP model for visual question answering.
+        """
+        if self._image_qna_agent is None:
+            logger.info(f"🖼️ Building image QnA agent with model: {self.model_name}")
+            logger.info(f"   Output path: {self.output_path}")
+            # Import from dev blueprint
+            from app.agents.dev.agent.image_qna_sub import build_image_qna_agent
+            
+            self._image_qna_agent = build_image_qna_agent(
+                model_name=self.model_name,
+                use_gpu=True,
+                output_path=self.output_path  # Pass XpAgentV2's output path
+            )
+            logger.info(f"✅ Image QnA agent built successfully")
+        return self._image_qna_agent
+    
+    def get_plotting_agent(self):
+        """
+        Get or create the plotting agent.
+        
+        Uses the dev blueprint pattern: builds a LangGraph subagent that creates
+        visualizations from CSV data using LLM-based code generation.
+        """
+        if self._plotting_agent is None:
+            logger.info(f"📈 Building plotting agent with model: {self.model_name}")
+            logger.info(f"   Workspace path: {WORKSPACE_PATH}")
+            logger.info(f"   Plot path: {PLOT_PATH}")
+            # Import from dev blueprint
+            from app.agents.dev.agent.data_plotting_sub import build_plotting_agent
+            
+            self._plotting_agent = build_plotting_agent(
+                model_name=self.model_name,
+                workspace_dir=str(WORKSPACE_PATH),
+                plot_output_dir=str(PLOT_PATH)
+            )
+            logger.info(f"✅ Plotting agent built successfully")
+        return self._plotting_agent
+    
+    def reset(self):
+        """Reset all cached agents (useful for testing)."""
+        self._data_exploration_graph = None
+        self._image_qna_agent = None
+        self._plotting_agent = None
+
+
+# ============================================================================
+# TOOL EXECUTION FUNCTIONS (from dev blueprint)
+# ============================================================================
+
+def _extract_csv_paths_from_content(content: str) -> List[str]:
+    """Extract CSV file paths from result content."""
+    csv_paths = []
+    
+    # Pattern 1: "saved to: /path/to/file.csv"
+    saved_matches = re.findall(r'saved to:?\s*([\S]+\.csv)', content, re.IGNORECASE)
+    csv_paths.extend(saved_matches)
+    
+    # Pattern 2: Full absolute paths
+    abs_matches = re.findall(r'(/[\w/.-]+\.csv)', content)
+    csv_paths.extend(abs_matches)
+    
+    # Pattern 3: df_id patterns
+    df_id_matches = re.findall(r'df:[\w]+', content)
+    csv_paths.extend(df_id_matches)
+    
+    return list(set(csv_paths))
+
+
+def _extract_img_paths_from_context(context: str) -> List[str]:
+    """Extract image paths from tool context (previous step results)."""
+    import re
+    
+    img_paths = []
+    
+    # Pattern 1: "img_path": "images/img_X.jpg" (from JSON-like content)
+    json_matches = re.findall(r'"img_path"\s*:\s*"([^"]+)"', context)
+    img_paths.extend(json_matches)
+    
+    # Pattern 2: images/img_X.jpg pattern (common artwork path format)
+    direct_matches = re.findall(r'images/img_\d+\.jpg', context)
+    img_paths.extend(direct_matches)
+    
+    # Pattern 3: img_path column in table format (e.g., "| images/img_0.jpg |")
+    table_matches = re.findall(r'\|\s*(images/img_\d+\.jpg)\s*\|', context)
+    img_paths.extend(table_matches)
+    
+    # Pattern 4: "Images to analyze: [...]" format
+    json_array_match = re.search(r'Images to analyze:\s*(\[.*?\])', context, re.DOTALL)
+    if json_array_match:
+        try:
+            import json
+            parsed = json.loads(json_array_match.group(1))
+            if isinstance(parsed, list):
+                img_paths.extend([p for p in parsed if isinstance(p, str)])
+        except json.JSONDecodeError:
+            pass
+    
+    return list(set(img_paths))
+
+
+def _extract_img_paths_from_csv(csv_path: str) -> List[str]:
+    """Extract image paths from a CSV file's img_path column."""
+    import pandas as pd
+    import os
+    
+    if not os.path.exists(csv_path):
+        return []
+    
+    try:
+        df = pd.read_csv(csv_path)
+        
+        # Check for img_path column (case-insensitive)
+        img_col = None
+        for col in df.columns:
+            if col.lower() in ['img_path', 'image_path', 'img_url', 'image_url', 'path']:
+                img_col = col
+                break
+        
+        if img_col and img_col in df.columns:
+            # Get unique non-null values
+            paths = df[img_col].dropna().unique().tolist()
+            return [str(p) for p in paths if p]
+        
+        return []
+    except Exception as e:
+        logger.warning(f"Failed to extract img_paths from CSV {csv_path}: {e}")
+        return []
+
+
+def execute_data_exploration(query: str, factory: SubagentFactory) -> tuple:
+    """
+    Execute data exploration using the LangGraph subagent.
+    
+    This follows the dev blueprint pattern: the subagent handles
+    list tables -> get schema -> generate query -> run query -> evaluate -> CSV export.
+    
+    Args:
+        query: Natural language query for data exploration
+        factory: SubagentFactory with cached graph
+        
+    Returns:
+        Tuple of (StepResult, context_string)
+    """
+    from langchain_core.messages import HumanMessage
+    
+    try:
+        logger.info(f"🔍 Executing data exploration: {query[:100]}...")
+        
+        # Get the compiled graph from factory
+        graph = factory.get_data_exploration_graph()
+        
+        # Initialize state following blueprint pattern
+        initial_state = {
+            "messages": [HumanMessage(content=query)],
+            "original_task": query,
+            "query_history": [],
+            "tables_queried": [],
+            "exploration_complete": False,
+            "ready_for_export": False
+        }
+        
+        # Run the graph
+        result = graph.invoke(initial_state)
+        
+        # DEBUG: Check if files exist after subagent completes
+        import os as os_module
+        print(f"🔍 DEBUG: After graph.invoke() in execute_data_exploration")
+        print(f"   Checking workspace outputs directory:")
+        outputs_dir = str(WORKSPACE_PATH / "outputs")
+        if os_module.path.exists(outputs_dir):
+            files = os_module.listdir(outputs_dir)
+            print(f"   Files in {outputs_dir}: {files}")
+            for f in files:
+                fpath = os_module.path.join(outputs_dir, f)
+                print(f"      - {f}: {os_module.path.getsize(fpath)} bytes")
+        else:
+            print(f"   Directory does not exist: {outputs_dir}")
+        
+        # Extract results from state
+        messages = result.get("messages", [])
+        result_summary = result.get("result_summary", "")
+        query_history = result.get("query_history", [])
+        
+        # Get the final message content
+        final_content = ""
+        output_file = None
+        
+        if messages:
+            last_msg = messages[-1]
+            final_content = last_msg.content if hasattr(last_msg, 'content') else str(last_msg)
+            
+            # Extract CSV path if present
+            csv_paths = _extract_csv_paths_from_content(final_content)
+            if csv_paths:
+                output_file = csv_paths[0]
+        
+        # Build context string for downstream tools
+        context = f"## Database Query Result\n\n"
+        context += f"**Query**: {query}\n\n"
+        
+        if result_summary:
+            context += f"**Summary**:\n{result_summary}\n\n"
+        
+        if query_history:
+            context += f"**Queries Executed**: {len(query_history)}\n"
+            # Show last query details
+            last_query = query_history[-1]
+            if hasattr(last_query, 'query'):
+                context += f"**Last SQL**: `{last_query.query}`\n"
+                context += f"**Row Count**: {last_query.row_count}\n"
+        
+        if output_file:
+            context += f"\n**Output File**: `{output_file}`\n"
+        
+        # Check if exploration was successful
+        success = result.get("exploration_complete", False) or "✅" in final_content or output_file is not None
+        
+        step_result = StepResult(
+            step_number=0,
+            success=success,
+            result_content=final_content,
+            output_file=output_file
+        )
+        
+        logger.info(f"✅ Data exploration completed. Success: {success}, Output: {output_file}")
+        return step_result, context
+        
+    except Exception as e:
+        logger.error(f"Data exploration error: {e}")
+        return StepResult(
+            step_number=0,
+            success=False,
+            result_content="",
+            error_message=str(e)
+        ), f"Error in data exploration: {str(e)}"
+
+
+def execute_image_qna(
+    task: str,
+    image_urls: List[str],
+    factory: SubagentFactory
+) -> tuple:
+    """
+    Execute image QnA analysis using the LangGraph subagent.
+    
+    This follows the dev blueprint pattern: the subagent handles
+    image loading -> BLIP analysis -> LLM synthesis -> CSV export.
+    
+    Args:
+        task: Natural language task for image analysis
+        image_urls: List of image URLs/paths to analyze
+        factory: SubagentFactory with cached graph
+        
+    Returns:
+        Tuple of (StepResult, context_string)
+    """
+    from langchain_core.messages import HumanMessage
+    
+    try:
+        logger.info(f"🖼️ Executing image QnA: {task[:100]}...")
+        logger.info(f"   Images: {len(image_urls)} images to process")
+        
+        # Validate image paths
+        if not image_urls:
+            return StepResult(
+                step_number=0,
+                success=False,
+                result_content="",
+                error_message="No image paths available for analysis. Please run a database query first to get images with img_path column."
+            ), "Error: No image paths provided for image QnA. Please ensure a data exploration step runs first that retrieves img_path values."
+        
+        # Get the compiled graph from factory
+        graph = factory.get_image_qna_agent()
+        
+        # Build message with images included for agent to extract
+        message_content = f"{task}\n\nImages to analyze: {json.dumps(image_urls)}"
+        
+        # Initialize state following blueprint pattern
+        initial_state = {
+            "messages": [HumanMessage(content=message_content)],
+            "original_task": task,
+            "images_to_process": image_urls,
+            "images_processed": [],
+            "analysis_records": [],
+            "tools_complete": False
+        }
+        
+        logger.info(f"   Initial state images_to_process: {image_urls}")
+        
+        # Run the graph
+        result = graph.invoke(initial_state)
+        
+        # Extract results from state
+        messages = result.get("messages", [])
+        result_summary = result.get("result_summary", "")
+        analysis_records = result.get("analysis_records", [])
+        
+        # Get the final message content
+        final_content = ""
+        output_file = None
+        
+        if messages:
+            last_msg = messages[-1]
+            final_content = last_msg.content if hasattr(last_msg, 'content') else str(last_msg)
+            
+            # Extract CSV path if present
+            csv_paths = _extract_csv_paths_from_content(final_content)
+            if csv_paths:
+                output_file = csv_paths[0]
+        
+        # Build context string for downstream tools
+        context = f"## Image Analysis Result\n\n"
+        context += f"**Task**: {task}\n\n"
+        context += f"**Images Analyzed**: {len(analysis_records)}\n\n"
+        
+        if result_summary:
+            context += f"**Summary**:\n{result_summary}\n\n"
+        
+        if output_file:
+            context += f"\n**Output File**: `{output_file}`\n"
+        
+        # Check if analysis was successful
+        success = result.get("tools_complete", False) or "✅" in final_content or output_file is not None
+        
+        step_result = StepResult(
+            step_number=0,
+            success=success,
+            result_content=final_content,
+            output_file=output_file
+        )
+        
+        logger.info(f"✅ Image QnA completed. Success: {success}, Output: {output_file}")
+        return step_result, context
+        
+    except Exception as e:
+        logger.error(f"Image QnA error: {e}")
+        return StepResult(
+            step_number=0,
+            success=False,
+            result_content="",
+            error_message=str(e)
+        ), f"Error in image QnA: {str(e)}"
+
+
+def execute_plotting(
+    task: str,
+    file_path: str,
+    factory: SubagentFactory
+) -> tuple:
+    """
+    Execute data plotting using the LangGraph subagent.
+    
+    This follows the dev blueprint pattern: the subagent handles
+    CSV reading -> LLM code generation -> matplotlib execution -> save plot.
+    
+    Args:
+        task: Natural language task for plotting
+        file_path: Path to the CSV file to visualize
+        factory: SubagentFactory with cached graph
+        
+    Returns:
+        Tuple of (StepResult, context_string)
+    """
+    from langchain_core.messages import HumanMessage
+    
+    try:
+        logger.info(f"📈 Executing plotting: {task[:100]}...")
+        logger.info(f"   File: {file_path}")
+        
+        # Validate file path
+        if not file_path:
+            return StepResult(
+                step_number=0,
+                success=False,
+                result_content="",
+                error_message="No CSV file available for plotting. Please run a database query first to generate data."
+            ), "Error: No CSV file provided for plotting. Please ensure a data exploration step runs first."
+        
+        # Get the compiled graph from factory
+        graph = factory.get_plotting_agent()
+        
+        # Initialize state following blueprint pattern
+        initial_state = {
+            "messages": [HumanMessage(content=f"Create plots for: {task}\nData file: {file_path}")],
+            "original_task": task,
+            "files_to_plot": [file_path],
+            "plot_records": [],
+            "plots_generated": [],
+            "tools_complete": False,
+            "result_summary": ""
+        }
+        
+        # Run the graph
+        result = graph.invoke(initial_state)
+        
+        # Extract results from state
+        messages = result.get("messages", [])
+        result_summary = result.get("result_summary", "")
+        plots_generated = result.get("plots_generated", [])
+        
+        # Get the final message content
+        final_content = ""
+        output_files = []
+        
+        if messages:
+            last_msg = messages[-1]
+            final_content = last_msg.content if hasattr(last_msg, 'content') else str(last_msg)
+        
+        # Add generated plots to output files
+        if plots_generated:
+            output_files.extend(plots_generated)
+        
+        # Build context string for downstream tools
+        context = f"## Plotting Result\n\n"
+        context += f"**Task**: {task}\n\n"
+        context += f"**Input File**: `{file_path}`\n\n"
+        
+        if result_summary:
+            context += f"**Summary**:\n{result_summary}\n\n"
+        
+        if plots_generated:
+            context += f"**Generated Plots**:\n"
+            for plot_path in plots_generated:
+                context += f"- `{plot_path}`\n"
+        
+        # Check if plotting was successful
+        success = result.get("tools_complete", False) or len(plots_generated) > 0 or "✅" in final_content
+        
+        step_result = StepResult(
+            step_number=0,
+            success=success,
+            result_content=final_content,
+            output_file=plots_generated[0] if plots_generated else None
+        )
+        
+        logger.info(f"✅ Plotting completed. Success: {success}, Plots: {len(plots_generated)}")
+        return step_result, context
+        
+    except Exception as e:
+        logger.error(f"Plotting error: {e}")
+        return StepResult(
+            step_number=0,
+            success=False,
+            result_content="",
+            error_message=str(e)
+        ), f"Error in plotting: {str(e)}"
+
+
+def _execute_tool(
+    tool_name: str,
+    args: Dict[str, Any],
+    tool_context: str,
+    factory: SubagentFactory,
+    generated_files: Optional[List[str]] = None,
+    step_results: Optional[List[StepResult]] = None
+) -> tuple:
+    """
+    Execute a tool and return the result with context string.
+    Follows dev blueprint pattern.
+    """
+    generated_files = generated_files or []
+    step_results = step_results or []
+    
+    if tool_name == "database_exploration_agent":
+        query = args.get("query", "")
+        return execute_data_exploration(query, factory)
+    
+    elif tool_name == "image_qna_agent":
+        task = args.get("task", args.get("query", ""))
+        image_urls = args.get("image_urls", args.get("images", []))
+        
+        # If no image_urls provided, try to find them from previous steps
+        if not image_urls:
+            # First, try to extract from tool_context (contains previous step results)
+            image_urls = _extract_img_paths_from_context(tool_context)
+            if image_urls:
+                logger.info(f"🖼️ Auto-detected {len(image_urls)} images from tool_context")
+            
+            # If still no images, check step_results for CSV files with img_path column
+            if not image_urls and step_results:
+                for step in reversed(step_results):
+                    if step.output_file and step.output_file.endswith('.csv'):
+                        extracted = _extract_img_paths_from_csv(step.output_file)
+                        if extracted:
+                            image_urls = extracted
+                            logger.info(f"🖼️ Auto-detected {len(image_urls)} images from CSV: {step.output_file}")
+                            break
+            
+            # Last resort: check generated_files for CSVs
+            if not image_urls:
+                csv_files = [f for f in generated_files if f.endswith('.csv')]
+                for csv_file in reversed(csv_files):
+                    extracted = _extract_img_paths_from_csv(csv_file)
+                    if extracted:
+                        image_urls = extracted
+                        logger.info(f"🖼️ Auto-detected {len(image_urls)} images from generated CSV: {csv_file}")
+                        break
+        
+        if not image_urls:
+            logger.warning("⚠️ No image paths found for image QnA. Agent will attempt to proceed without images.")
+        
+        return execute_image_qna(task, image_urls, factory)
+    
+    elif tool_name == "data_plotting_agent":
+        task = args.get("task", args.get("query", ""))
+        file_path = args.get("file_path", args.get("csv_path", ""))
+        
+        # If no file_path provided, try to find one from previous steps
+        if not file_path:
+            # First, check generated_files for CSV files (most recent first)
+            csv_files = [f for f in reversed(generated_files) if f.endswith('.csv')]
+            if csv_files:
+                file_path = csv_files[0]
+                logger.info(f"📈 Auto-detected CSV from generated_files: {file_path}")
+            
+            # If still no file, check step_results for output files
+            if not file_path and step_results:
+                for step in reversed(step_results):
+                    if step.output_file and step.output_file.endswith('.csv'):
+                        file_path = step.output_file
+                        logger.info(f"📈 Auto-detected CSV from step_results: {file_path}")
+                        break
+            
+            # Last resort: find the most recent CSV in the outputs directory
+            if not file_path:
+                try:
+                    csv_candidates = list(OUTPUT_PATH.glob("*.csv"))
+                    if csv_candidates:
+                        # Sort by modification time, newest first
+                        csv_candidates.sort(key=lambda x: x.stat().st_mtime, reverse=True)
+                        file_path = str(csv_candidates[0])
+                        logger.info(f"📈 Auto-detected latest CSV from outputs: {file_path}")
+                except Exception as e:
+                    logger.warning(f"Failed to scan outputs directory: {e}")
+        
+        if not file_path:
+            logger.warning("⚠️ No CSV file found for plotting. Agent will attempt to proceed without data.")
+        
+        return execute_plotting(task, file_path, factory)
+    
+    else:
+        return StepResult(
+            step_number=0,
+            success=False,
+            result_content="",
+            error_message=f"Unknown tool: {tool_name}"
+        ), f"Error: Unknown tool {tool_name}"
 
 
 # ============================================================================
@@ -166,8 +797,8 @@ class XpAgentV2:
         else:
             self.llm = init_chat_model(model_name)
         
-        # No tools for now - will be added incrementally
-        self.tools = []
+        # Initialize SubagentFactory for tool execution (from dev blueprint)
+        self.factory = SubagentFactory(model_name=model_name, db_path=self.db_path)
         
         # Setup logs directory
         if logs_dir is None:
@@ -458,6 +1089,160 @@ Create a minimal, efficient plan to answer the user's query.
                 "final_answer": f"Plan was rejected by user. {rejection_reason}".strip()
             }
     
+    def _executor_node(self, state: ExplainableAgentState) -> Dict[str, Any]:
+        """
+        Executor node that executes the current step in the plan.
+        Follows the dev blueprint pattern.
+        
+        This node:
+        1. Gets the current step from plan_steps
+        2. Executes the appropriate tool via factory
+        3. Updates state with results
+        4. Increments step counter
+        """
+        current_idx = state.get("current_step_index", 0)
+        plan_steps = state.get("plan_steps") or []
+        tool_context = state.get("tool_context", "") or ""
+        
+        if current_idx >= len(plan_steps):
+            # No more steps - execution complete
+            logger.info("XpAgentV2 executor: No more steps, execution complete")
+            return {
+                "execution_complete": True
+            }
+        
+        # Get current step (it's a dict, not a PlanStep object)
+        current_step = plan_steps[current_idx]
+        step_number = current_step.get("step_number", current_idx + 1)
+        description = current_step.get("description", "")
+        tool_name = current_step.get("tool_name", "")
+        tool_args_json = current_step.get("tool_args_json", "{}")
+        
+        logger.info(f"XpAgentV2 executor: Step {step_number}: {description}")
+        logger.info(f"  Tool: {tool_name}")
+        
+        # Parse tool arguments
+        try:
+            tool_args = json.loads(tool_args_json) if tool_args_json else {}
+        except json.JSONDecodeError:
+            tool_args = {}
+        
+        # For database_exploration_agent, use description as query if no query arg
+        if tool_name == "database_exploration_agent" and not tool_args.get("query"):
+            tool_args["query"] = description
+        
+        # Get previous results and generated files for context
+        step_results_raw = state.get("step_results") or []
+        step_results = [StepResult(**r) if isinstance(r, dict) else r for r in step_results_raw]
+        generated_files = state.get("generated_files") or []
+        
+        # Execute the tool
+        step_result, new_context = _execute_tool(
+            tool_name=tool_name,
+            args=tool_args,
+            tool_context=tool_context,
+            factory=self.factory,
+            generated_files=generated_files,
+            step_results=step_results
+        )
+        step_result.step_number = step_number
+        
+        # Update step status in plan_steps
+        plan_steps[current_idx]["status"] = "completed" if step_result.success else "failed"
+        if step_result.success:
+            plan_steps[current_idx]["result_summary"] = step_result.result_content[:500]
+        else:
+            plan_steps[current_idx]["result_summary"] = step_result.error_message
+        
+        if step_result.output_file:
+            plan_steps[current_idx]["output_file"] = step_result.output_file
+        
+        # Build state updates
+        updates: Dict[str, Any] = {
+            "current_step_index": current_idx + 1,
+            "step_results": [step_result.model_dump()],  # Will be appended via reducer
+            "tool_context": tool_context + "\n\n" + new_context if tool_context else new_context,
+            "plan_steps": plan_steps,
+            "completed_steps": state.get("completed_steps", 0) + (1 if step_result.success else 0)
+        }
+        
+        # Update generated files
+        if step_result.output_file:
+            current_files = list(generated_files)
+            if step_result.output_file not in current_files:
+                current_files.append(step_result.output_file)
+                updates["generated_files"] = current_files
+        
+        # Check if we're done
+        if current_idx + 1 >= len(plan_steps):
+            updates["execution_complete"] = True
+            logger.info("XpAgentV2 executor: All steps completed")
+        
+        # Handle errors
+        if not step_result.success:
+            updates["feedback"] = f"Step {step_number} failed: {step_result.error_message}"
+            updates["pending_interrupt"] = True
+            logger.warning(f"XpAgentV2 executor: Step {step_number} failed: {step_result.error_message}")
+        
+        return updates
+    
+    def _aggregator_node(self, state: ExplainableAgentState) -> Dict[str, Any]:
+        """
+        Aggregator node that synthesizes results from all executed steps.
+        Creates the final answer from tool outputs.
+        """
+        original_query = state.get("original_query") or state.get("query", "")
+        step_results = state.get("step_results") or []
+        tool_context = state.get("tool_context", "") or ""
+        generated_files = state.get("generated_files") or []
+        messages = state.get("messages", [])
+        
+        logger.info("XpAgentV2 aggregator: Synthesizing final answer...")
+        
+        # Build aggregation prompt
+        system_prompt = """You are a helpful assistant that synthesizes information to answer user queries.
+
+Based on the execution results provided, create a clear, comprehensive answer.
+
+Rules:
+1. Answer the user's original question directly
+2. Include relevant data and findings from the results
+3. Mention any generated files or visualizations
+4. Be concise but complete
+5. If there were errors, acknowledge limitations
+6. Format data nicely (use tables, lists, etc. as appropriate)"""
+
+        # Build context for LLM
+        user_content = f"**Original Question**: {original_query}\n\n"
+        user_content += "**Execution Results**:\n"
+        user_content += tool_context if tool_context else "No tool results available."
+        
+        if generated_files:
+            user_content += f"\n\n**Generated Files**: {generated_files}"
+        
+        try:
+            response = self.llm.invoke([
+                SystemMessage(content=system_prompt),
+                HumanMessage(content=user_content)
+            ])
+            final_answer = response.content
+        except Exception as e:
+            logger.error(f"XpAgentV2 aggregator error: {e}")
+            final_answer = f"I found some results but had trouble summarizing them. Here's what I know:\n\n{tool_context[:1000]}"
+        
+        # Build response message
+        response_message = AIMessage(content=final_answer)
+        new_messages = list(messages) + [response_message]
+        
+        return {
+            "messages": new_messages,
+            "assistant_response": final_answer,
+            "final_answer": final_answer,
+            "execution_complete": True,
+            "status": "approved",
+            "response_type": "answer"
+        }
+    
     def _responder_node(self, state: ExplainableAgentState) -> Dict[str, Any]:
         """
         Simple responder node that processes user query and generates a response.
@@ -554,21 +1339,23 @@ Be concise and helpful."""
     # ROUTING FUNCTIONS
     # ========================================================================
     
-    def _route_after_approval(self, state: ExplainableAgentState) -> Literal["responder", "finalizer"]:
+    def _route_after_executor(self, state: ExplainableAgentState) -> Literal["executor", "aggregator"]:
         """
-        Route based on the approval status after interrupt.
+        Route after executor: continue executing steps or aggregate results.
         
-        If approved -> proceed to responder
-        If cancelled -> skip to finalizer (with rejection message)
+        If execution_complete or all steps done -> go to aggregator
+        Otherwise -> loop back to executor for next step
         """
-        status = state.get("status", "approved")
+        execution_complete = state.get("execution_complete", False)
+        current_idx = state.get("current_step_index", 0)
+        plan_steps = state.get("plan_steps") or []
         
-        if status == "cancelled":
-            logger.info("XpAgentV2 routing: Plan cancelled, going to finalizer")
-            return "finalizer"
+        if execution_complete or current_idx >= len(plan_steps):
+            logger.info("XpAgentV2 routing: Execution complete, going to aggregator")
+            return "aggregator"
         else:
-            logger.info("XpAgentV2 routing: Plan approved, going to responder")
-            return "responder"
+            logger.info(f"XpAgentV2 routing: Step {current_idx + 1}/{len(plan_steps)}, continuing execution")
+            return "executor"
     
     # ========================================================================
     # GRAPH CONSTRUCTION
@@ -576,49 +1363,43 @@ Be concise and helpful."""
     
     def _create_graph(self):
         """
-        Create the XpAgentV2 graph with planning and approval flow.
+        Create the XpAgentV2 graph with planning and execution flow.
         
-        Flow (v2.1):
-            START -> planner -> human_feedback -> [conditional]
-                                                       |
-                                 approved -> responder -> finalizer -> END
-                                 cancelled -> finalizer -> END
+        Flow (v2.2 - with executor):
+            START -> planner -> executor -> [loop until complete] -> aggregator -> finalizer -> END
         
-        Note: The node is named 'human_feedback' to match the streaming layer's
-        detection logic in streaming_graph.py which checks for 'human_feedback' in state.next
+        Note: Interrupt is disabled for initial testing of executor flow.
         """
         graph = StateGraph(ExplainableAgentState)
         
         # Add nodes
-        # Note: "human_feedback" name is important - streaming layer checks for this
         graph.add_node("planner", self._planner_node)
-        graph.add_node("human_feedback", self._interrupt_for_approval_node)
-        graph.add_node("responder", self._responder_node)
+        graph.add_node("executor", self._executor_node)
+        graph.add_node("aggregator", self._aggregator_node)
         graph.add_node("finalizer", self._finalizer_node)
         
         # Set entry point
         graph.set_entry_point("planner")
         
-        # Flow: planner -> human_feedback (approval interrupt)
-        graph.add_edge("planner", "human_feedback")
+        # Flow: planner -> executor (skip interrupt for testing)
+        graph.add_edge("planner", "executor")
         
-        # Conditional edge after approval: route based on status
+        # Conditional edge after executor: loop or proceed to aggregator
         graph.add_conditional_edges(
-            "human_feedback",
-            self._route_after_approval,
+            "executor",
+            self._route_after_executor,
             {
-                "responder": "responder",
-                "finalizer": "finalizer"
+                "executor": "executor",
+                "aggregator": "aggregator"
             }
         )
         
-        # Flow: responder -> finalizer -> END
-        graph.add_edge("responder", "finalizer")
+        # Flow: aggregator -> finalizer -> END
+        graph.add_edge("aggregator", "finalizer")
         graph.add_edge("finalizer", END)
         
-        # Compile with checkpointer (required for interrupt to work)
+        # Compile with checkpointer
         if self.checkpointer:
             return graph.compile(checkpointer=self.checkpointer)
         else:
-            # interrupt() requires a checkpointer, so always use one
             return graph.compile(checkpointer=MemorySaver())

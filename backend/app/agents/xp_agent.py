@@ -49,11 +49,15 @@ from app.agents.dev.agent.state.main_agent_state_v2 import (
 # CONFIGURATION
 # ============================================================================
 
-DEFAULT_MODEL = "gpt-4o-mini"
-DEFAULT_DB_PATH = "/home/afiq/fyp/fafa-repo/backend/app/resource/art.db"
+# Calculate paths relative to this file's location for Docker compatibility
+_CURRENT_DIR = Path(__file__).resolve().parent
+_BACKEND_ROOT = _CURRENT_DIR.parent.parent  # Goes from agents -> app -> backend
 
-# Keep using dev workspace
-WORKSPACE_PATH = Path("/home/afiq/fyp/fafa-repo/backend/app/agents/dev/workspace")
+DEFAULT_MODEL = "gpt-4o-mini"
+DEFAULT_DB_PATH = str(_BACKEND_ROOT / "app" / "resource" / "art.db")
+
+# Workspace configuration
+WORKSPACE_PATH = _CURRENT_DIR / "workspace"
 OUTPUT_PATH = WORKSPACE_PATH / "outputs"
 PLOT_PATH = WORKSPACE_PATH / "plot"
 
