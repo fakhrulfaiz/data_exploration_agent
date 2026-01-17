@@ -259,7 +259,7 @@ export interface HandlerResponse {
 
 
 export interface ChatComponentProps {
-  onSendMessage: (message: string, messageHistory: Message[], options?: { usePlanning?: boolean; useExplainer?: boolean; attachedFiles?: File[] }) => Promise<HandlerResponse>;
+  onSendMessage: (message: string, messageHistory: Message[], options?: { usePlanning?: boolean; useExplainer?: boolean; experimentMode?: boolean; attachedFiles?: File[] }) => Promise<HandlerResponse>;
   onApprove?: (messageId: string | undefined, content: string, message: Message) => Promise<HandlerResponse | void> | HandlerResponse | void;
   onFeedback?: (messageId: string | undefined, content: string, message: Message) => Promise<HandlerResponse | void> | HandlerResponse | void;
   onCancel?: (messageId: string | undefined, content: string, message: Message) => Promise<string> | string;
@@ -300,6 +300,7 @@ export interface StartRequest {
   thread_id?: string; // Optional thread ID for existing conversations
   use_planning?: boolean; // Whether to use planning in agent execution
   use_explainer?: boolean; // Whether to use explainer node for step explanations
+  experiment_mode?: boolean; // Whether to use experimental XpAgent mode
   agent_type?: string; // Type of agent to use
 }
 

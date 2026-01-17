@@ -1,30 +1,49 @@
-'use client';
+"use client";
 
-import React, { useState, useRef, useEffect } from 'react';
-import { Message, HandlerResponse } from '@/types/chat';
-import { ConversationService, GraphService, ExplorerService, VisualizationService, DataService } from '@/services';
-import type { DataFramePreviewData, MessageStatus, GraphResponse, DataContext } from '@/types';
-import { ApprovalStatus } from '@/types';
-import ChatComponent from '@/components/chat/ChatComponent';
-import Sidebar from '@/components/sidebar/Sidebar';
-import ExecutionHistory from '@/components/ExecutionHistory';
-import ExplorerPanel from '@/components/panels/ExplorerPanel';
-import VisualizationPanel from '@/components/panels/VisualizationPanel';
-import DataFramePanel from '@/components/panels/DataFramePanel';
-import GraphFlowPanel from '@/components/graph-flow/GraphFlowPanel';
-import { GraphStructure } from '@/types/graph';
-import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from '@/components/ui/resizable';
+import React, { useState, useRef, useEffect } from "react";
+import { Message, HandlerResponse } from "@/types/chat";
+import {
+  ConversationService,
+  GraphService,
+  ExplorerService,
+  VisualizationService,
+  DataService,
+} from "@/services";
+import type {
+  DataFramePreviewData,
+  MessageStatus,
+  GraphResponse,
+  DataContext,
+} from "@/types";
+import { ApprovalStatus } from "@/types";
+import ChatComponent from "@/components/chat/ChatComponent";
+import Sidebar from "@/components/sidebar/Sidebar";
+import ExecutionHistory from "@/components/ExecutionHistory";
+import ExplorerPanel from "@/components/panels/ExplorerPanel";
+import VisualizationPanel from "@/components/panels/VisualizationPanel";
+import DataFramePanel from "@/components/panels/DataFramePanel";
+import GraphFlowPanel from "@/components/graph-flow/GraphFlowPanel";
+import { GraphStructure } from "@/types/graph";
+import {
+  ResizablePanelGroup,
+  ResizablePanel,
+  ResizableHandle,
+} from "@/components/ui/resizable";
 
 const ChatWithApproval: React.FC = () => {
   // Local state management (replacing UIStateContext)
   const [currentThreadId, setCurrentThreadId] = useState<string | null>(null);
-  const [executionStatus, setExecutionStatus] = useState<'running' | 'user_feedback' | 'finished' | 'error'>('finished');
+  const [executionStatus, setExecutionStatus] = useState<
+    "running" | "user_feedback" | "finished" | "error"
+  >("finished");
   const [loading, setLoading] = useState(false);
   const [useStreaming] = useState(true); // Default to streaming
 
-  const [selectedChatThreadId, setSelectedChatThreadId] = useState<string | null>(null);
+  const [selectedChatThreadId, setSelectedChatThreadId] = useState<
+    string | null
+  >(null);
   const [restoredMessages, setRestoredMessages] = useState<Message[]>([]);
-  const [currentThreadTitle, setCurrentThreadTitle] = useState<string>('');
+  const [currentThreadTitle, setCurrentThreadTitle] = useState<string>("");
   const [sidebarExpanded, setSidebarExpanded] = useState(false);
   const [chatKey, setChatKey] = useState(0);
   const [showExecutionHistory, setShowExecutionHistory] = useState(false);
@@ -36,10 +55,14 @@ const ChatWithApproval: React.FC = () => {
   const [visualizationOpen, setVisualizationOpen] = useState(false);
   const [visualizationCharts, setVisualizationCharts] = useState<any>(null);
   const [dataFrameOpen, setDataFrameOpen] = useState(false);
-  const [dataFrameData, setDataFrameData] = useState<DataFramePreviewData | null>(null);
+  const [dataFrameData, setDataFrameData] =
+    useState<DataFramePreviewData | null>(null);
   const [graphPanelOpen, setGraphPanelOpen] = useState(false);
-  const [graphStructure, setGraphStructure] = useState<GraphStructure | null>(null);
-  const [currentDataContext, setCurrentDataContext] = useState<DataContext | null>(null);
+  const [graphStructure, setGraphStructure] = useState<GraphStructure | null>(
+    null
+  );
+  const [currentDataContext, setCurrentDataContext] =
+    useState<DataContext | null>(null);
 
   const eventSourceRef = useRef<EventSource | null>(null);
   const currentThreadIdRef = useRef<string | null>(null);
@@ -53,7 +76,7 @@ const ChatWithApproval: React.FC = () => {
   useEffect(() => {
     const loadGraphStructure = async () => {
       try {
-        const response = await fetch('/api/v1/graph/structure');
+        const response = await fetch("/api/v1/graph/structure");
         if (response.ok) {
           const result = await response.json();
           if (result.success && result.data) {
@@ -61,7 +84,7 @@ const ChatWithApproval: React.FC = () => {
           }
         }
       } catch (error) {
-        console.error('Failed to preload graph structure:', error);
+        console.error("Failed to preload graph structure:", error);
       }
     };
     loadGraphStructure();
@@ -73,9 +96,12 @@ const ChatWithApproval: React.FC = () => {
       let content: any[] = [];
       const normalizeBlock = (block: any, blockIndex: number) => ({
         ...block,
-        id: block.id || block.block_id || `block_${msg.message_id || index}_${blockIndex}`,
+        id:
+          block.id ||
+          block.block_id ||
+          `block_${msg.message_id || index}_${blockIndex}`,
         needsApproval: block.needsApproval ?? block.needs_approval ?? false,
-        messageStatus: block.messageStatus ?? block.message_status
+        messageStatus: block.messageStatus ?? block.message_status,
       });
 
       if (Array.isArray(msg.content)) {
@@ -83,30 +109,35 @@ const ChatWithApproval: React.FC = () => {
       } else if (msg.content_blocks && Array.isArray(msg.content_blocks)) {
         // Backward compatibility: if content_blocks exists, use it
         content = msg.content_blocks.map(normalizeBlock);
-      } else if (typeof msg.content === 'string' && msg.content.trim().length > 0) {
+      } else if (
+        typeof msg.content === "string" &&
+        msg.content.trim().length > 0
+      ) {
         // Legacy: convert string content to text block
-        content = [{
-          id: `text_${(typeof msg.message_id === 'number' ? msg.message_id : Date.now())}`,
-          type: 'text',
-          needsApproval: false,
-          data: { text: msg.content }
-        }];
+        content = [
+          {
+            id: `text_${
+              typeof msg.message_id === "number" ? msg.message_id : Date.now()
+            }`,
+            type: "text",
+            needsApproval: false,
+            data: { text: msg.content },
+          },
+        ];
       }
 
       return {
         message_id: msg.message_id || String(msg.id || Date.now() + index),
-        sender: (msg.sender === 'assistant' ? 'assistant' : 'user'),
+        sender: msg.sender === "assistant" ? "assistant" : "user",
         content,
         timestamp: new Date(msg.timestamp),
         threadId: msg.thread_id || selectedChatThreadId || undefined,
-        checkpointId: msg.checkpoint_id
+        checkpointId: msg.checkpoint_id,
       } as Message;
     });
   };
 
-
   // restoreDataIfNeeded function removed - was not being used anywhere
-
 
   const handleOpenExplorer = async (data: any) => {
     if (data) {
@@ -120,28 +151,40 @@ const ChatWithApproval: React.FC = () => {
       let explorerData = data.data;
 
       // Determine checkpointId - could be in data.checkpointId or data.data.checkpointId
-      const checkpointId = data.checkpointId || (data.data && data.data.checkpointId);
+      const checkpointId =
+        data.checkpointId || (data.data && data.data.checkpointId);
 
       // Check if explorerData is valid (has steps or checkpoint_id, indicating it's full explorer data)
-      const hasValidExplorerData = explorerData &&
-        typeof explorerData === 'object' &&
-        (explorerData.steps || explorerData.checkpoint_id || explorerData.overall_confidence !== undefined);
+      const hasValidExplorerData =
+        explorerData &&
+        typeof explorerData === "object" &&
+        (explorerData.steps ||
+          explorerData.checkpoint_id ||
+          explorerData.overall_confidence !== undefined);
 
       // If explorerData is not valid or missing, fetch it from API
       if (!hasValidExplorerData && checkpointId) {
         // Get threadId from context (same pattern as handleMessageUpdated)
-        const threadId = currentThreadIdRef.current || currentThreadId || selectedChatThreadId;
+        const threadId =
+          currentThreadIdRef.current || currentThreadId || selectedChatThreadId;
         if (threadId) {
           try {
             // Fetch explorer data using the same pattern as handleCheckpointClick
-            const explorerResponse = await ExplorerService.getExplorerData(threadId, checkpointId);
+            const explorerResponse = await ExplorerService.getExplorerData(
+              threadId,
+              checkpointId
+            );
             explorerData = explorerResponse?.data;
           } catch (error) {
-            console.error('Error fetching explorer data for checkpoint:', checkpointId, error);
+            console.error(
+              "Error fetching explorer data for checkpoint:",
+              checkpointId,
+              error
+            );
             explorerData = explorerData || null;
           }
         } else {
-          console.warn('No threadId available to fetch explorer data');
+          console.warn("No threadId available to fetch explorer data");
           explorerData = explorerData || null;
         }
       } else if (!hasValidExplorerData) {
@@ -156,26 +199,31 @@ const ChatWithApproval: React.FC = () => {
 
   const handleDataFrameDetected = async (dfId: string) => {
     try {
-      console.log('Fetching DataFrame preview for:', dfId);
+      console.log("Fetching DataFrame preview for:", dfId);
       const previewResponse = await DataService.getDataFramePreview(dfId);
       setDataFrameData(previewResponse.data || null);
-      
+
       // Update currentDataContext to enable refresh button
       if (previewResponse.data?.metadata) {
-          setCurrentDataContext(previewResponse.data.metadata as unknown as DataContext);
+        setCurrentDataContext(
+          previewResponse.data.metadata as unknown as DataContext
+        );
       }
 
-      console.log('DataFrame preview loaded successfully');
+      console.log("DataFrame preview loaded successfully");
     } catch (err: any) {
-      console.error('Failed to load DataFrame preview:', err);
-
+      console.error("Failed to load DataFrame preview:", err);
     }
   };
 
   const handleMessageUpdated = async (msg: Message) => {
-    const threadId = currentThreadIdRef.current || currentThreadId || selectedChatThreadId || msg.threadId;
+    const threadId =
+      currentThreadIdRef.current ||
+      currentThreadId ||
+      selectedChatThreadId ||
+      msg.threadId;
     if (!threadId) {
-      console.error('No thread ID available for message update');
+      console.error("No thread ID available for message update");
       return;
     }
 
@@ -184,12 +232,15 @@ const ChatWithApproval: React.FC = () => {
       if (Array.isArray(msg.content)) {
         // Update each block that has status changes
         for (const block of msg.content) {
-          if (block.type === 'explanation' || block.type === 'text') {
+          if (block.type === "explanation" || block.type === "text") {
             continue;
           }
 
           // Only update blocks that have status-related fields
-          if (block.needsApproval !== undefined || block.messageStatus !== undefined) {
+          if (
+            block.needsApproval !== undefined ||
+            block.messageStatus !== undefined
+          ) {
             const blockUpdates: {
               needsApproval?: boolean;
               messageStatus?: MessageStatus;
@@ -205,7 +256,7 @@ const ChatWithApproval: React.FC = () => {
         }
       }
     } catch (error) {
-      console.error('Failed to update message flags in database:', error);
+      console.error("Failed to update message flags in database:", error);
     }
   };
 
@@ -213,7 +264,7 @@ const ChatWithApproval: React.FC = () => {
     (window as any).openExplorer = handleOpenExplorer;
     (window as any).openVisualization = async (data: any) => {
       // Handle both direct charts array and wrapped data structure
-      let charts = Array.isArray(data) ? data : (data?.charts || []);
+      let charts = Array.isArray(data) ? data : data?.charts || [];
 
       // If charts array is empty or missing, fetch it from API
       if (!charts || charts.length === 0) {
@@ -221,23 +272,34 @@ const ChatWithApproval: React.FC = () => {
 
         if (checkpointId) {
           // Get threadId from context
-          const threadId = currentThreadIdRef.current || currentThreadId || selectedChatThreadId;
+          const threadId =
+            currentThreadIdRef.current ||
+            currentThreadId ||
+            selectedChatThreadId;
 
           if (threadId) {
             try {
               // Fetch visualization data from API
-              const visualizationResponse = await VisualizationService.getVisualizationData(threadId, checkpointId);
+              const visualizationResponse =
+                await VisualizationService.getVisualizationData(
+                  threadId,
+                  checkpointId
+                );
 
               // Fix: visualizations are at response.data.visualizations, not response.data.data
               if (visualizationResponse?.data?.visualizations) {
                 charts = visualizationResponse.data.visualizations;
               }
             } catch (error) {
-              console.error('Error fetching visualization data for checkpoint:', checkpointId, error);
+              console.error(
+                "Error fetching visualization data for checkpoint:",
+                checkpointId,
+                error
+              );
               // Continue with empty charts array
             }
           } else {
-            console.warn('No threadId available to fetch visualization data');
+            console.warn("No threadId available to fetch visualization data");
           }
         }
       }
@@ -267,15 +329,17 @@ const ChatWithApproval: React.FC = () => {
     };
   }, []);
 
-  const createNewChatThread = async (initialMessage?: string): Promise<string> => {
+  const createNewChatThread = async (
+    initialMessage?: string
+  ): Promise<string> => {
     try {
       const thread = await ConversationService.createConversation({
-        title: initialMessage || 'New Chat',
-        initial_message: initialMessage
+        title: initialMessage || "New Chat",
+        initial_message: initialMessage,
       });
-      return thread.data?.thread_id || '';
+      return thread.data?.thread_id || "";
     } catch (error) {
-      console.error('Error creating chat thread:', error);
+      console.error("Error creating chat thread:", error);
       throw error;
     }
   };
@@ -286,115 +350,142 @@ const ChatWithApproval: React.FC = () => {
     streamingMessageId: string,
     chatThreadId: string,
     updateContentCallback: (id: string, contentBlocks: any[]) => void,
-    onStatus?: (status: 'user_feedback' | 'finished' | 'running' | 'error' | 'tool_call' | 'tool_result' | 'completed_payload' | 'visualizations_ready' | 'content_block', eventData?: string, responseType?: 'answer' | 'replan' | 'cancel') => void,
+    onStatus?: (
+      status:
+        | "user_feedback"
+        | "finished"
+        | "running"
+        | "error"
+        | "tool_call"
+        | "tool_result"
+        | "completed_payload"
+        | "visualizations_ready"
+        | "content_block",
+      eventData?: string,
+      responseType?: "answer" | "replan" | "cancel"
+    ) => void,
     usePlanning: boolean = true,
     useExplainer: boolean = true,
     preStartResponse?: GraphResponse
   ): Promise<void> => {
     try {
-      const startResponse = preStartResponse ?? await GraphService.startStreamingGraph({
-        human_request: messageContent,
-        thread_id: chatThreadId,
-        use_planning: usePlanning,
-        use_explainer: useExplainer
-      });
+      const startResponse =
+        preStartResponse ??
+        (await GraphService.startStreamingGraph({
+          human_request: messageContent,
+          thread_id: chatThreadId,
+          use_planning: usePlanning,
+          use_explainer: useExplainer,
+        }));
 
-      setCurrentThreadId(startResponse.data?.thread_id || '');
+      setCurrentThreadId(startResponse.data?.thread_id || "");
       eventSourceRef.current = GraphService.streamResponse(
-        startResponse.data?.thread_id || '',
+        startResponse.data?.thread_id || "",
         {
           onMessage: (data) => {
             if (data.content) {
               // Convert string content to content blocks for compatibility (legacy support)
-              const contentBlocks = [{
-                id: `text_${Date.now()}`,
-                type: 'text',
-                needsApproval: false,
-                data: { text: data.content }
-              }];
+              const contentBlocks = [
+                {
+                  id: `text_${Date.now()}`,
+                  type: "text",
+                  needsApproval: false,
+                  data: { text: data.content },
+                },
+              ];
               updateContentCallback(streamingMessageId, contentBlocks);
-            } else if (data.status === 'content_block') {
+            } else if (data.status === "content_block") {
               // Handle new structured content blocks
               if (onStatus) {
-                onStatus('content_block', data.eventData);
+                onStatus("content_block", data.eventData);
               }
             } else if (data.status) {
-              if (data.status === 'completed_payload') {
+              if (data.status === "completed_payload") {
                 // Handle explorer data from completed payload
                 const graphData = data.graph;
-                if (graphData && graphData.steps && graphData.steps.length > 0) {
-                  const explorerMessageId = Date.now() + Math.floor(Math.random() * 1000);
+                if (
+                  graphData &&
+                  graphData.steps &&
+                  graphData.steps.length > 0
+                ) {
+                  const explorerMessageId =
+                    Date.now() + Math.floor(Math.random() * 1000);
                   const explorerMessage = {
                     id: explorerMessageId,
-                    role: 'assistant',
-                    content: 'Explorer data available',
+                    role: "assistant",
+                    content: "Explorer data available",
                     timestamp: new Date(),
-                    messageType: 'explorer',
+                    messageType: "explorer",
                     checkpointId: graphData.checkpoint_id,
                     metadata: { explorerData: graphData },
-                    threadId: chatThreadId
+                    threadId: chatThreadId,
                   };
                   if (updateContentCallback) {
-                    const contentBlocks = [{
-                      id: `text_${Date.now()}`,
-                      type: 'text',
-                      needsApproval: false,
-                      data: { text: JSON.stringify(explorerMessage) }
-                    }];
-                    updateContentCallback(String(explorerMessageId), contentBlocks);
+                    const contentBlocks = [
+                      {
+                        id: `text_${Date.now()}`,
+                        type: "text",
+                        needsApproval: false,
+                        data: { text: JSON.stringify(explorerMessage) },
+                      },
+                    ];
+                    updateContentCallback(
+                      String(explorerMessageId),
+                      contentBlocks
+                    );
                   }
                 }
-              } else if (data.status === 'visualizations_ready') {
+              } else if (data.status === "visualizations_ready") {
                 // Handle visualization data
                 const visualizations = data.visualizations || [];
                 if (visualizations.length > 0) {
                   // Create a new message with its own ID for visualization data
-                  const vizMessageId = Date.now() + Math.floor(Math.random() * 1000) + 10000;
+                  const vizMessageId =
+                    Date.now() + Math.floor(Math.random() * 1000) + 10000;
                   const vizMessage = {
                     id: vizMessageId,
-                    role: 'assistant',
-                    content: 'Visualizations available',
+                    role: "assistant",
+                    content: "Visualizations available",
                     timestamp: new Date(),
-                    messageType: 'visualization',
+                    messageType: "visualization",
                     checkpointId: data.checkpoint_id,
                     metadata: { visualizations: visualizations },
-                    threadId: chatThreadId
+                    threadId: chatThreadId,
                   };
 
                   if (updateContentCallback) {
-                    const contentBlocks = [{
-                      id: `text_${Date.now()}`,
-                      type: 'text',
-                      needsApproval: false,
-                      data: { text: JSON.stringify(vizMessage) }
-                    }];
+                    const contentBlocks = [
+                      {
+                        id: `text_${Date.now()}`,
+                        type: "text",
+                        needsApproval: false,
+                        data: { text: JSON.stringify(vizMessage) },
+                      },
+                    ];
                     updateContentCallback(String(vizMessageId), contentBlocks);
                   }
                 }
-
-              }
-              else {
+              } else {
                 setExecutionStatus(data.status);
               }
 
               if (onStatus) {
-                onStatus(data.status, data.eventData, data.response_type);  // Pass eventData and response_type
+                onStatus(data.status, data.eventData, data.response_type); // Pass eventData and response_type
               }
             }
           },
           onError: (error) => {
-            console.error('Streaming error:', error);
+            console.error("Streaming error:", error);
             setLoading(false);
             throw error;
           },
           onComplete: () => {
             setLoading(false);
-          }
+          },
         }
       );
-
     } catch (error) {
-      console.error('Failed to start streaming:', error);
+      console.error("Failed to start streaming:", error);
       setLoading(false);
       throw error;
     }
@@ -406,16 +497,30 @@ const ChatWithApproval: React.FC = () => {
     humanComment?: string,
     streamingMessageId?: string,
     updateContentCallback?: (id: string, contentBlocks: any[]) => void,
-    onStatus?: (status: 'user_feedback' | 'finished' | 'running' | 'error' | 'tool_call' | 'tool_result' | 'completed_payload' | 'visualizations_ready' | 'content_block', eventData?: string, responseType?: 'answer' | 'replan' | 'cancel') => void,
+    onStatus?: (
+      status:
+        | "user_feedback"
+        | "finished"
+        | "running"
+        | "error"
+        | "tool_call"
+        | "tool_result"
+        | "completed_payload"
+        | "visualizations_ready"
+        | "content_block",
+      eventData?: string,
+      responseType?: "answer" | "replan" | "cancel"
+    ) => void,
     preResumeResponse?: GraphResponse
   ): Promise<void> => {
     try {
-      const resumeResponse = preResumeResponse ?? await GraphService.resumeStreamingGraph({
-        thread_id: threadId,
-        review_action: reviewAction,
-        human_comment: humanComment,
-      });
-
+      const resumeResponse =
+        preResumeResponse ??
+        (await GraphService.resumeStreamingGraph({
+          thread_id: threadId,
+          review_action: reviewAction,
+          human_comment: humanComment,
+        }));
 
       eventSourceRef.current = GraphService.streamResponse(
         resumeResponse.data?.thread_id || threadId,
@@ -423,72 +528,86 @@ const ChatWithApproval: React.FC = () => {
           onMessage: (data) => {
             if (data.content && streamingMessageId && updateContentCallback) {
               // Convert string content to content blocks for compatibility (legacy support)
-              const contentBlocks = [{
-                id: `text_${Date.now()}`,
-                type: 'text',
-                needsApproval: false,
-                data: { text: data.content }
-              }];
+              const contentBlocks = [
+                {
+                  id: `text_${Date.now()}`,
+                  type: "text",
+                  needsApproval: false,
+                  data: { text: data.content },
+                },
+              ];
               updateContentCallback(streamingMessageId, contentBlocks);
-            } else if (data.status === 'content_block') {
+            } else if (data.status === "content_block") {
               // Handle new structured content blocks
               if (onStatus) {
-                onStatus('content_block', data.eventData);
+                onStatus("content_block", data.eventData);
               }
             } else if (data.status) {
-              if (data.status === 'completed_payload') {
+              if (data.status === "completed_payload") {
                 // Handle explorer data from completed payload
                 const graphData = data.data;
-                if (graphData && graphData.steps && graphData.steps.length > 0) {
+                if (
+                  graphData &&
+                  graphData.steps &&
+                  graphData.steps.length > 0
+                ) {
                   // Create a new message with its own ID for explorer data
-                  const explorerMessageId = String(Date.now() + Math.floor(Math.random() * 1000));
+                  const explorerMessageId = String(
+                    Date.now() + Math.floor(Math.random() * 1000)
+                  );
                   const explorerMessage = {
                     message_id: explorerMessageId,
-                    role: 'assistant',
-                    content: 'Explorer data available',
+                    role: "assistant",
+                    content: "Explorer data available",
                     timestamp: new Date(),
-                    messageType: 'explorer',
+                    messageType: "explorer",
                     checkpointId: graphData.checkpoint_id,
                     metadata: { explorerData: graphData },
-                    threadId: threadId
+                    threadId: threadId,
                   };
 
                   // Add the explorer message to the chat using updateContentCallback with the new ID
                   if (updateContentCallback) {
-                    const contentBlocks = [{
-                      id: `text_${Date.now()}`,
-                      type: 'text',
-                      needsApproval: false,
-                      data: { text: JSON.stringify(explorerMessage) }
-                    }];
+                    const contentBlocks = [
+                      {
+                        id: `text_${Date.now()}`,
+                        type: "text",
+                        needsApproval: false,
+                        data: { text: JSON.stringify(explorerMessage) },
+                      },
+                    ];
                     updateContentCallback(explorerMessageId, contentBlocks);
                   }
                 }
-              } else if (data.status === 'visualizations_ready') {
+              } else if (data.status === "visualizations_ready") {
                 // Handle visualization data
                 const visualizations = data.visualizations || [];
                 if (visualizations.length > 0) {
                   // Create a new message with its own ID for visualization data
-                  const vizMessageId = String(Date.now() + Math.floor(Math.random() * 1000) + 10000);
+                  const vizMessageId = String(
+                    Date.now() + Math.floor(Math.random() * 1000) + 10000
+                  );
                   const vizMessage = {
                     message_id: vizMessageId,
-                    role: 'assistant',
-                    content: 'Visualizations available',
+                    role: "assistant",
+                    content: "Visualizations available",
                     timestamp: new Date(),
-                    messageType: 'visualization',
+                    messageType: "visualization",
                     checkpointId: data.checkpoint_id,
                     metadata: { visualizations: visualizations },
-                    threadId: threadId
+                    threadId: threadId,
                   };
 
                   // Add the visualization message to the chat using updateContentCallback with the new ID
                   if (updateContentCallback) {
-                    const contentBlocks = [{
-                      id: `text_${Date.now()}`,
-                      type: 'text',
-                      needsApproval: false,
-                      data: { text: JSON.stringify(vizMessage) }
-                    }];
+                    const contentBlocks = [
+                      {
+                        id: `text_${Date.now()}`,
+                        type: "text",
+                        needsApproval: false,
+                        data: { text: JSON.stringify(vizMessage) },
+                      },
+                    ];
                     updateContentCallback(vizMessageId, contentBlocks);
                   }
 
@@ -500,29 +619,37 @@ const ChatWithApproval: React.FC = () => {
               }
               setExecutionStatus(data.status);
               if (onStatus) {
-                onStatus(data.status, data.eventData, data.response_type);  // Pass response_type
+                onStatus(data.status, data.eventData, data.response_type); // Pass response_type
               }
             }
           },
           onError: (error) => {
-            console.error('Resume streaming error:', error);
+            console.error("Resume streaming error:", error);
             setLoading(false);
             throw error;
           },
           onComplete: () => {
             setLoading(false);
-          }
+          },
         }
       );
-
     } catch (error) {
-      console.error('Failed to resume streaming:', error);
+      console.error("Failed to resume streaming:", error);
       setLoading(false);
       throw error;
     }
   };
 
-  const handleSendMessage = async (message: string, _messageHistory: Message[], options?: { usePlanning?: boolean; useExplainer?: boolean; attachedFiles?: File[] }): Promise<HandlerResponse> => {
+  const handleSendMessage = async (
+    message: string,
+    _messageHistory: Message[],
+    options?: {
+      usePlanning?: boolean;
+      useExplainer?: boolean;
+      experimentMode?: boolean;
+      attachedFiles?: File[];
+    }
+  ): Promise<HandlerResponse> => {
     // Close any open panels at start
     setExplorerData(null);
     setExplorerOpen(false);
@@ -531,14 +658,14 @@ const ChatWithApproval: React.FC = () => {
     setDataFrameOpen(false);
     setDataFrameData(null);
     setLoading(true);
-    setExecutionStatus('running');
+    setExecutionStatus("running");
 
     // Extract planning and explainer preferences from options (defaults to true)
     const usePlanning = options?.usePlanning ?? true;
     const useExplainer = options?.useExplainer ?? true;
+    const experimentMode = options?.experimentMode ?? false;
 
     try {
-
       let chatThreadId = selectedChatThreadId;
       if (!chatThreadId) {
         chatThreadId = await createNewChatThread(message);
@@ -557,27 +684,32 @@ const ChatWithApproval: React.FC = () => {
           human_request: message,
           thread_id: chatThreadId,
           use_planning: usePlanning,
-          use_explainer: useExplainer
+          use_explainer: useExplainer,
+          experiment_mode: experimentMode,
         });
         // @ts-ignore - Non-streaming response type
-        if (response.data?.run_status === 'user_feedback') {
-          setExecutionStatus('user_feedback');
+        if (response.data?.run_status === "user_feedback") {
+          setExecutionStatus("user_feedback");
           setLoading(false);
 
-          const plan = response.data?.plan || response.data?.assistant_response || 'Plan generated - awaiting approval';
+          const plan =
+            response.data?.plan ||
+            response.data?.assistant_response ||
+            "Plan generated - awaiting approval";
           const assistantResponse = `**Plan for your request:**\n\n${plan}\n\n**This plan requires your approval before execution.**`;
 
           return {
             message: assistantResponse,
             needsApproval: true,
-            backendMessageId: response.data?.assistant_message_id // Pass backend message ID
+            backendMessageId: response.data?.assistant_message_id, // Pass backend message ID
           };
           // @ts-ignore - Non-streaming response type
-        } else if (response.data?.run_status === 'finished') {
-          setExecutionStatus('finished');
+        } else if (response.data?.run_status === "finished") {
+          setExecutionStatus("finished");
           setLoading(false);
 
-          const assistantResponse = response.data?.assistant_response || 'Task completed successfully.'
+          const assistantResponse =
+            response.data?.assistant_response || "Task completed successfully.";
           // Do not auto-open panels; allow clicking message card to open
 
           return {
@@ -585,19 +717,28 @@ const ChatWithApproval: React.FC = () => {
             backendMessageId: response.data?.assistant_message_id,
             needsApproval: false,
             checkpoint_id: response.data?.checkpoint_id, // Add checkpoint ID for both explorer and visualization messages
-            ...(response.data?.steps && response.data.steps.length > 0 ? { explorerData: response.data } : {}),
-            ...(response.data?.visualizations && response.data.visualizations.length > 0 ? { visualizations: response.data.visualizations } : {})
+            ...(response.data?.steps && response.data.steps.length > 0
+              ? { explorerData: response.data }
+              : {}),
+            ...(response.data?.visualizations &&
+            response.data.visualizations.length > 0
+              ? { visualizations: response.data.visualizations }
+              : {}),
           };
-        } else if (response.data?.run_status === 'error') {
-          throw new Error(response.data?.error || 'An error occurred while processing your request.');
+        } else if (response.data?.run_status === "error") {
+          throw new Error(
+            response.data?.error ||
+              "An error occurred while processing your request."
+          );
         }
 
-        const assistantResponse = response.data?.assistant_response || 'Processing...';
+        const assistantResponse =
+          response.data?.assistant_response || "Processing...";
         // Message will be stored automatically by ChatComponent via onMessageCreated
         return {
           message: assistantResponse,
           needsApproval: false,
-          backendMessageId: response.data?.assistant_message_id // Pass backend message ID
+          backendMessageId: response.data?.assistant_message_id, // Pass backend message ID
         };
       } else {
         // Streaming API call - return a promise that will be handled by the streaming logic
@@ -605,61 +746,97 @@ const ChatWithApproval: React.FC = () => {
           human_request: message,
           thread_id: chatThreadId,
           use_planning: usePlanning,
-          use_explainer: useExplainer
+          use_explainer: useExplainer,
+          experiment_mode: experimentMode,
         });
-        setCurrentThreadId(startResponse.data?.thread_id || '');
+        setCurrentThreadId(startResponse.data?.thread_id || "");
 
         return {
-          message: '', // This will be filled by streaming
+          message: "", // This will be filled by streaming
           needsApproval: false, // This will be determined by streaming status
           isStreaming: true,
           backendMessageId: startResponse.data?.assistant_message_id as string,
           streamingHandler: async (
             streamingMessageId: string,
             updateContentCallback: (id: string, contentBlocks: any[]) => void,
-            onStatus?: (status: 'user_feedback' | 'finished' | 'running' | 'error' | 'tool_call' | 'tool_result' | 'completed_payload' | 'visualizations_ready' | 'content_block', eventData?: string, responseType?: 'answer' | 'replan' | 'cancel') => void
+            onStatus?: (
+              status:
+                | "user_feedback"
+                | "finished"
+                | "running"
+                | "error"
+                | "tool_call"
+                | "tool_result"
+                | "completed_payload"
+                | "visualizations_ready"
+                | "content_block",
+              eventData?: string,
+              responseType?: "answer" | "replan" | "cancel"
+            ) => void
           ) => {
-            await startStreamingForMessage(message, streamingMessageId, chatThreadId, updateContentCallback, onStatus, usePlanning, useExplainer, startResponse);
-          }
+            await startStreamingForMessage(
+              message,
+              streamingMessageId,
+              chatThreadId,
+              updateContentCallback,
+              onStatus,
+              usePlanning,
+              useExplainer,
+              startResponse
+            );
+          },
         };
       }
     } catch (error) {
-      console.error('Error in handleSendMessage:', error);
+      console.error("Error in handleSendMessage:", error);
       setLoading(false);
       throw error;
     }
   };
 
-  const handleApprove = async (messageId: string | undefined, _content: string, message: Message): Promise<HandlerResponse> => {
-    const threadId = currentThreadIdRef.current || currentThreadId || selectedChatThreadId || message.threadId;
+  const handleApprove = async (
+    messageId: string | undefined,
+    _content: string,
+    message: Message
+  ): Promise<HandlerResponse> => {
+    const threadId =
+      currentThreadIdRef.current ||
+      currentThreadId ||
+      selectedChatThreadId ||
+      message.threadId;
 
     if (!threadId) {
-      throw new Error('No active thread to approve');
+      throw new Error("No active thread to approve");
     }
 
-    const approvalType = message.approvalType || 'plan';
-    const isToolApproval = approvalType === 'tool';
+    const approvalType = message.approvalType || "plan";
+    const isToolApproval = approvalType === "tool";
 
     try {
       setLoading(true);
-      setExecutionStatus('running');
+      setExecutionStatus("running");
 
       if (!useStreaming) {
         // Original blocking approach
         const response = await GraphService.approveAndContinue(threadId);
 
-        if (response.data?.run_status === 'finished') {
-          const finalResponse = response.data?.assistant_response || 'Task completed successfully.';
+        if (response.data?.run_status === "finished") {
+          const finalResponse =
+            response.data?.assistant_response || "Task completed successfully.";
 
           let detailedResponse = finalResponse;
           if (response.data?.steps && response.data.steps.length > 0) {
             detailedResponse += `\n\n**Execution Summary:**\n`;
             detailedResponse += `- Steps executed: ${response.data.steps.length}\n`;
             if (response.data.overall_confidence) {
-              detailedResponse += `- Overall confidence: ${(response.data.overall_confidence * 100).toFixed(1)}%\n`;
+              detailedResponse += `- Overall confidence: ${(
+                response.data.overall_confidence * 100
+              ).toFixed(1)}%\n`;
             }
             if (response.data.total_time) {
-              detailedResponse += `- Total time: ${response.data.total_time.toFixed(2)}s\n`;
+              detailedResponse += `- Total time: ${response.data.total_time.toFixed(
+                2
+              )}s\n`;
             }
           }
 
@@ -670,98 +847,144 @@ const ChatWithApproval: React.FC = () => {
             backendMessageId: response.data?.assistant_message_id,
             needsApproval: false,
             checkpoint_id: response.data?.checkpoint_id, // Add checkpoint ID for both explorer and visualization messages
-            ...(response.data?.steps && response.data.steps.length > 0 ? { explorerData: response.data } : {}),
-            ...(response.data?.visualizations && response.data.visualizations.length > 0 ? { visualizations: response.data.visualizations } : {})
+            ...(response.data?.steps && response.data.steps.length > 0
+              ? { explorerData: response.data }
+              : {}),
+            ...(response.data?.visualizations &&
+            response.data.visualizations.length > 0
+              ? { visualizations: response.data.visualizations }
+              : {}),
           };
-
-        } else if (response.data?.run_status === 'error') {
-          throw new Error(response.data?.error || 'An error occurred during execution');
+        } else if (response.data?.run_status === "error") {
+          throw new Error(
+            response.data?.error || "An error occurred during execution"
+          );
         } else {
-          const assistantResponse = response.data?.assistant_response || 'Execution in progress...';
+          const assistantResponse =
+            response.data?.assistant_response || "Execution in progress...";
           // Message will be stored automatically by ChatComponent via onMessageCreated
           return {
             message: assistantResponse,
-            needsApproval: false
+            needsApproval: false,
           };
         }
       } else {
         // Streaming approach - differentiate between tool and plan approvals
         const resumeRequest = isToolApproval
           ? {
-            thread_id: threadId,
-            message_id: messageId,
-            tool_response: { type: 'accept' as const }  // Tool approval
-          }
+              thread_id: threadId,
+              message_id: messageId,
+              tool_response: { type: "accept" as const }, // Tool approval
+            }
           : {
-            thread_id: threadId,
-            message_id: messageId,
-            review_action: ApprovalStatus.APPROVED,  // Plan approval (including replans)
-            human_comment: undefined
-          };
+              thread_id: threadId,
+              message_id: messageId,
+              review_action: ApprovalStatus.APPROVED, // Plan approval (including replans)
+              human_comment: undefined,
+            };
 
-        const resumeResponse = await GraphService.resumeStreamingGraph(resumeRequest);
-        setCurrentThreadId(resumeResponse.data?.thread_id || '');
+        const resumeResponse = await GraphService.resumeStreamingGraph(
+          resumeRequest
+        );
+        setCurrentThreadId(resumeResponse.data?.thread_id || "");
 
         return {
-          message: '', // This will be filled by streaming
+          message: "", // This will be filled by streaming
           needsApproval: false, // This will be determined by streaming status
           isStreaming: true,
-          backendMessageId: resumeResponse.data?.assistant_message_id as string | undefined,
+          backendMessageId: resumeResponse.data?.assistant_message_id as
+            | string
+            | undefined,
           streamingHandler: async (
             streamingMessageId: string,
             updateContentCallback: (id: string, contentBlocks: any[]) => void,
-            onStatus?: (status: 'user_feedback' | 'finished' | 'running' | 'error' | 'tool_call' | 'tool_result' | 'completed_payload' | 'visualizations_ready' | 'content_block', eventData?: string, responseType?: 'answer' | 'replan' | 'cancel') => void
+            onStatus?: (
+              status:
+                | "user_feedback"
+                | "finished"
+                | "running"
+                | "error"
+                | "tool_call"
+                | "tool_result"
+                | "completed_payload"
+                | "visualizations_ready"
+                | "content_block",
+              eventData?: string,
+              responseType?: "answer" | "replan" | "cancel"
+            ) => void
           ) => {
-            await resumeStreamingForMessage(threadId, ApprovalStatus.APPROVED, undefined, streamingMessageId, updateContentCallback, onStatus, resumeResponse);
-          }
+            await resumeStreamingForMessage(
+              threadId,
+              ApprovalStatus.APPROVED,
+              undefined,
+              streamingMessageId,
+              updateContentCallback,
+              onStatus,
+              resumeResponse
+            );
+          },
         };
       }
-
     } catch (error) {
-      console.error('Error approving:', error);
+      console.error("Error approving:", error);
       setLoading(false);
       throw error;
     }
   };
 
-  const handleFeedback = async (messageId: string | undefined, content: string, _message: Message): Promise<HandlerResponse> => {
-
-    const threadId = currentThreadIdRef.current || currentThreadId || selectedChatThreadId;
+  const handleFeedback = async (
+    messageId: string | undefined,
+    content: string,
+    _message: Message
+  ): Promise<HandlerResponse> => {
+    const threadId =
+      currentThreadIdRef.current || currentThreadId || selectedChatThreadId;
 
     if (!threadId) {
-      throw new Error('No active thread to provide feedback for');
+      throw new Error("No active thread to provide feedback for");
     }
 
     try {
-
       if (!useStreaming) {
         // Original blocking approach
-        const response = await GraphService.provideFeedbackAndContinue(threadId, content);
+        const response = await GraphService.provideFeedbackAndContinue(
+          threadId,
+          content
+        );
 
-        if (response.data?.run_status === 'user_feedback') {
-          const responseMessage = response.data?.assistant_response || response.data?.plan || 'Response generated';
-          const needsApproval = response.data?.response_type === 'replan';
-
+        if (response.data?.run_status === "user_feedback") {
+          const responseMessage =
+            response.data?.assistant_response ||
+            response.data?.plan ||
+            "Response generated";
+          const needsApproval = response.data?.response_type === "replan";
 
           return {
             message: responseMessage,
             needsApproval: needsApproval,
             response_type: response.data?.response_type,
-            backendMessageId: response.data?.assistant_message_id as string | undefined // Include backend message ID for replan
+            backendMessageId: response.data?.assistant_message_id as
+              | string
+              | undefined, // Include backend message ID for replan
           };
-
-        } else if (response.data?.run_status === 'finished') {
-          const finalResponse = response.data?.assistant_response || 'Task completed successfully after feedback.';
+        } else if (response.data?.run_status === "finished") {
+          const finalResponse =
+            response.data?.assistant_response ||
+            "Task completed successfully after feedback.";
 
           let detailedResponse = finalResponse;
           if (response.data?.steps && response.data.steps.length > 0) {
             detailedResponse += `\n\n**Execution Summary:**\n`;
             detailedResponse += `- Steps executed: ${response.data.steps.length}\n`;
             if (response.data?.overall_confidence) {
-              detailedResponse += `- Overall confidence: ${(response.data?.overall_confidence * 100).toFixed(1)}%\n`;
+              detailedResponse += `- Overall confidence: ${(
+                response.data?.overall_confidence * 100
+              ).toFixed(1)}%\n`;
             }
             if (response.data?.total_time) {
-              detailedResponse += `- Total time: ${response.data?.total_time.toFixed(2)}s\n`;
+              detailedResponse += `- Total time: ${response.data?.total_time.toFixed(
+                2
+              )}s\n`;
             }
           }
 
@@ -771,45 +994,73 @@ const ChatWithApproval: React.FC = () => {
             message: detailedResponse,
             needsApproval: false,
             checkpoint_id: response.data?.checkpoint_id, // Add checkpoint ID for both explorer and visualization messages
-            ...(response.data?.steps && response.data.steps.length > 0 ? { explorerData: response.data } : {}),
-            ...(response.data?.visualizations && response.data.visualizations.length > 0 ? { visualizations: response.data.visualizations } : {})
+            ...(response.data?.steps && response.data.steps.length > 0
+              ? { explorerData: response.data }
+              : {}),
+            ...(response.data?.visualizations &&
+            response.data.visualizations.length > 0
+              ? { visualizations: response.data.visualizations }
+              : {}),
           };
-
-        } else if (response.data?.run_status === 'error') {
-          throw new Error(response.data?.error || 'An error occurred during execution');
+        } else if (response.data?.run_status === "error") {
+          throw new Error(
+            response.data?.error || "An error occurred during execution"
+          );
         } else {
-          const assistantResponse = response.data?.assistant_response || 'Processing feedback...';
+          const assistantResponse =
+            response.data?.assistant_response || "Processing feedback...";
           return {
             message: assistantResponse,
-            needsApproval: false
+            needsApproval: false,
           };
         }
       } else {
-
         const resumeResponse = await GraphService.resumeStreamingGraph({
           thread_id: threadId,
           review_action: ApprovalStatus.FEEDBACK,
-          human_comment: content
+          human_comment: content,
         });
-        setCurrentThreadId(resumeResponse.data?.thread_id || '');
+        setCurrentThreadId(resumeResponse.data?.thread_id || "");
 
         return {
-          message: '', // This will be filled by streaming
+          message: "", // This will be filled by streaming
           needsApproval: false, // This will be determined by streaming status
           isStreaming: true,
-          backendMessageId: resumeResponse.data?.assistant_message_id as string | undefined,
+          backendMessageId: resumeResponse.data?.assistant_message_id as
+            | string
+            | undefined,
           streamingHandler: async (
             streamingMessageId: string,
             updateContentCallback: (id: string, contentBlocks: any[]) => void,
-            onStatus?: (status: 'user_feedback' | 'finished' | 'running' | 'error' | 'tool_call' | 'tool_result' | 'completed_payload' | 'visualizations_ready' | 'content_block', eventData?: string, responseType?: 'answer' | 'replan' | 'cancel') => void
+            onStatus?: (
+              status:
+                | "user_feedback"
+                | "finished"
+                | "running"
+                | "error"
+                | "tool_call"
+                | "tool_result"
+                | "completed_payload"
+                | "visualizations_ready"
+                | "content_block",
+              eventData?: string,
+              responseType?: "answer" | "replan" | "cancel"
+            ) => void
           ) => {
-            await resumeStreamingForMessage(threadId, ApprovalStatus.FEEDBACK, content, streamingMessageId, updateContentCallback, onStatus, resumeResponse);
-          }
+            await resumeStreamingForMessage(
+              threadId,
+              ApprovalStatus.FEEDBACK,
+              content,
+              streamingMessageId,
+              updateContentCallback,
+              onStatus,
+              resumeResponse
+            );
+          },
         };
       }
-
     } catch (error) {
-      console.error('Error providing feedback:', error);
+      console.error("Error providing feedback:", error);
       throw error;
     }
   };
@@ -820,159 +1071,249 @@ const ChatWithApproval: React.FC = () => {
       if (eventSourceRef.current) {
         eventSourceRef.current.close();
         eventSourceRef.current = null;
-        console.log('EventSource connection closed');
+        console.log("EventSource connection closed");
       }
 
       // Call backend cancel endpoint if we have a thread ID
-      const threadId = currentThreadIdRef.current || currentThreadId || selectedChatThreadId;
+      const threadId =
+        currentThreadIdRef.current || currentThreadId || selectedChatThreadId;
       if (threadId) {
         try {
           await GraphService.cancelStream(threadId);
-          console.log('Stream cancelled on backend for thread:', threadId);
+          console.log("Stream cancelled on backend for thread:", threadId);
         } catch (error) {
-          console.error('Failed to cancel stream on backend:', error);
+          console.error("Failed to cancel stream on backend:", error);
           // Don't throw - EventSource is already closed, which is the important part
         }
       }
 
       // Reset states
       setLoading(false);
-      setExecutionStatus('finished');
+      setExecutionStatus("finished");
     } catch (error) {
-      console.error('Error cancelling stream:', error);
+      console.error("Error cancelling stream:", error);
     }
   };
 
   // Error interrupt handlers
-  const handleRetryError = async (message: Message): Promise<HandlerResponse> => {
-    const threadId = currentThreadIdRef.current || currentThreadId || selectedChatThreadId || message.threadId;
+  const handleRetryError = async (
+    message: Message
+  ): Promise<HandlerResponse> => {
+    const threadId =
+      currentThreadIdRef.current ||
+      currentThreadId ||
+      selectedChatThreadId ||
+      message.threadId;
 
     if (!threadId) {
-      throw new Error('No active thread to retry');
+      throw new Error("No active thread to retry");
     }
 
     try {
       setLoading(true);
-      setExecutionStatus('running');
+      setExecutionStatus("running");
 
       const resumeResponse = await GraphService.resumeStreamingGraph({
         thread_id: threadId,
         message_id: message.message_id,
-        tool_response: { action: 'retry' }
+        tool_response: { action: "retry" },
       });
 
-      setCurrentThreadId(resumeResponse.data?.thread_id || '');
+      setCurrentThreadId(resumeResponse.data?.thread_id || "");
 
       return {
-        message: '',
+        message: "",
         needsApproval: false,
         isStreaming: true,
-        backendMessageId: resumeResponse.data?.assistant_message_id as string | undefined,
+        backendMessageId: resumeResponse.data?.assistant_message_id as
+          | string
+          | undefined,
         streamingHandler: async (
           streamingMessageId: string,
           updateContentCallback: (id: string, contentBlocks: any[]) => void,
-          onStatus?: (status: 'user_feedback' | 'finished' | 'running' | 'error' | 'tool_call' | 'tool_result' | 'completed_payload' | 'visualizations_ready' | 'content_block', eventData?: string, responseType?: 'answer' | 'replan' | 'cancel') => void
+          onStatus?: (
+            status:
+              | "user_feedback"
+              | "finished"
+              | "running"
+              | "error"
+              | "tool_call"
+              | "tool_result"
+              | "completed_payload"
+              | "visualizations_ready"
+              | "content_block",
+            eventData?: string,
+            responseType?: "answer" | "replan" | "cancel"
+          ) => void
         ) => {
-          await resumeStreamingForMessage(threadId, ApprovalStatus.APPROVED, undefined, streamingMessageId, updateContentCallback, onStatus, resumeResponse);
-        }
+          await resumeStreamingForMessage(
+            threadId,
+            ApprovalStatus.APPROVED,
+            undefined,
+            streamingMessageId,
+            updateContentCallback,
+            onStatus,
+            resumeResponse
+          );
+        },
       };
     } catch (error) {
-      console.error('Error retrying:', error);
+      console.error("Error retrying:", error);
       setLoading(false);
       throw error;
     }
   };
 
-  const handleReplanError = async (message: Message): Promise<HandlerResponse> => {
-    const threadId = currentThreadIdRef.current || currentThreadId || selectedChatThreadId || message.threadId;
+  const handleReplanError = async (
+    message: Message
+  ): Promise<HandlerResponse> => {
+    const threadId =
+      currentThreadIdRef.current ||
+      currentThreadId ||
+      selectedChatThreadId ||
+      message.threadId;
 
     if (!threadId) {
-      throw new Error('No active thread to replan');
+      throw new Error("No active thread to replan");
     }
 
     try {
       setLoading(true);
-      setExecutionStatus('running');
+      setExecutionStatus("running");
 
       const resumeResponse = await GraphService.resumeStreamingGraph({
         thread_id: threadId,
         message_id: message.message_id,
-        tool_response: { action: 'replan' }
+        tool_response: { action: "replan" },
       });
 
-      setCurrentThreadId(resumeResponse.data?.thread_id || '');
+      setCurrentThreadId(resumeResponse.data?.thread_id || "");
 
       return {
-        message: '',
+        message: "",
         needsApproval: false,
         isStreaming: true,
-        backendMessageId: resumeResponse.data?.assistant_message_id as string | undefined,
+        backendMessageId: resumeResponse.data?.assistant_message_id as
+          | string
+          | undefined,
         streamingHandler: async (
           streamingMessageId: string,
           updateContentCallback: (id: string, contentBlocks: any[]) => void,
-          onStatus?: (status: 'user_feedback' | 'finished' | 'running' | 'error' | 'tool_call' | 'tool_result' | 'completed_payload' | 'visualizations_ready' | 'content_block', eventData?: string, responseType?: 'answer' | 'replan' | 'cancel') => void
+          onStatus?: (
+            status:
+              | "user_feedback"
+              | "finished"
+              | "running"
+              | "error"
+              | "tool_call"
+              | "tool_result"
+              | "completed_payload"
+              | "visualizations_ready"
+              | "content_block",
+            eventData?: string,
+            responseType?: "answer" | "replan" | "cancel"
+          ) => void
         ) => {
-          await resumeStreamingForMessage(threadId, ApprovalStatus.FEEDBACK, undefined, streamingMessageId, updateContentCallback, onStatus, resumeResponse);
-        }
+          await resumeStreamingForMessage(
+            threadId,
+            ApprovalStatus.FEEDBACK,
+            undefined,
+            streamingMessageId,
+            updateContentCallback,
+            onStatus,
+            resumeResponse
+          );
+        },
       };
     } catch (error) {
-      console.error('Error replanning:', error);
+      console.error("Error replanning:", error);
       setLoading(false);
       throw error;
     }
   };
 
-  const handleCancelError = async (message: Message): Promise<HandlerResponse> => {
-    const threadId = currentThreadIdRef.current || currentThreadId || selectedChatThreadId || message.threadId;
+  const handleCancelError = async (
+    message: Message
+  ): Promise<HandlerResponse> => {
+    const threadId =
+      currentThreadIdRef.current ||
+      currentThreadId ||
+      selectedChatThreadId ||
+      message.threadId;
 
     if (!threadId) {
-      throw new Error('No active thread to cancel');
+      throw new Error("No active thread to cancel");
     }
 
     try {
       setLoading(true);
-      setExecutionStatus('running');
+      setExecutionStatus("running");
 
       const resumeResponse = await GraphService.resumeStreamingGraph({
         thread_id: threadId,
         message_id: message.message_id,
-        tool_response: { action: 'cancel' }
+        tool_response: { action: "cancel" },
       });
 
-      setCurrentThreadId(resumeResponse.data?.thread_id || '');
+      setCurrentThreadId(resumeResponse.data?.thread_id || "");
 
       return {
-        message: '',
+        message: "",
         needsApproval: false,
         isStreaming: true,
-        backendMessageId: resumeResponse.data?.assistant_message_id as string | undefined,
+        backendMessageId: resumeResponse.data?.assistant_message_id as
+          | string
+          | undefined,
         streamingHandler: async (
           streamingMessageId: string,
           updateContentCallback: (id: string, contentBlocks: any[]) => void,
-          onStatus?: (status: 'user_feedback' | 'finished' | 'running' | 'error' | 'tool_call' | 'tool_result' | 'completed_payload' | 'visualizations_ready' | 'content_block', eventData?: string, responseType?: 'answer' | 'replan' | 'cancel') => void
+          onStatus?: (
+            status:
+              | "user_feedback"
+              | "finished"
+              | "running"
+              | "error"
+              | "tool_call"
+              | "tool_result"
+              | "completed_payload"
+              | "visualizations_ready"
+              | "content_block",
+            eventData?: string,
+            responseType?: "answer" | "replan" | "cancel"
+          ) => void
         ) => {
-          await resumeStreamingForMessage(threadId, ApprovalStatus.APPROVED, undefined, streamingMessageId, updateContentCallback, onStatus, resumeResponse);
-        }
+          await resumeStreamingForMessage(
+            threadId,
+            ApprovalStatus.APPROVED,
+            undefined,
+            streamingMessageId,
+            updateContentCallback,
+            onStatus,
+            resumeResponse
+          );
+        },
       };
     } catch (error) {
-      console.error('Error cancelling execution:', error);
+      console.error("Error cancelling execution:", error);
       setLoading(false);
       throw error;
     }
   };
-
-
 
   // Unified error recovery handler that routes to the appropriate action
-  const handleErrorRecovery = async (blockId: string, action: string, message: Message): Promise<HandlerResponse | void> => {
+  const handleErrorRecovery = async (
+    blockId: string,
+    action: string,
+    message: Message
+  ): Promise<HandlerResponse | void> => {
     console.log(`Error recovery requested: ${action} for block ${blockId}`);
 
     switch (action) {
-      case 'retry':
+      case "retry":
         return await handleRetryError(message);
-      case 'replan':
+      case "replan":
         return await handleReplanError(message);
-      case 'cancel':
+      case "cancel":
         return await handleCancelError(message);
       default:
         console.warn(`Unknown error recovery action: ${action}`);
@@ -987,14 +1328,16 @@ const ChatWithApproval: React.FC = () => {
     setLoadingThread(true);
     setDataFrameData(null);
     setDataFrameOpen(false);
-    
+
     try {
       setSelectedChatThreadId(threadId);
       currentThreadIdRef.current = threadId;
       setShowExecutionHistory(false); // Return to chat component when selecting a thread
 
       if (threadId) {
-        const response = await ConversationService.restoreConversation(threadId);
+        const response = await ConversationService.restoreConversation(
+          threadId
+        );
         const { thread_id, title, messages } = response.data || {};
         const data_context = response.data?.data_context;
         // Store data context for potential refresh operations
@@ -1004,7 +1347,7 @@ const ChatWithApproval: React.FC = () => {
         setRestoredMessages(convertedMessages);
 
         // Set the thread title
-        setCurrentThreadTitle(title || 'Untitled Thread');
+        setCurrentThreadTitle(title || "Untitled Thread");
 
         setCurrentThreadId(threadId);
         setExplorerData(null);
@@ -1017,24 +1360,24 @@ const ChatWithApproval: React.FC = () => {
         // Check for data context and unify loading (preview if exists, recreate if not)
         if (data_context && data_context.sql_query && threadId) {
           try {
-             // Pass df_id to allow backend to check existence first (Unified logic)
-             const response = await DataService.recreateDataFrame(
-                 threadId, 
-                 data_context.sql_query, 
-                 data_context.df_id
-             );
-             setDataFrameData(response.data || null);
+            // Pass df_id to allow backend to check existence first (Unified logic)
+            const response = await DataService.recreateDataFrame(
+              threadId,
+              data_context.sql_query,
+              data_context.df_id
+            );
+            setDataFrameData(response.data || null);
           } catch (err: any) {
-             console.error("Failed to load/refresh data context:", err);
-             setDataFrameData(null);
+            console.error("Failed to load/refresh data context:", err);
+            setDataFrameData(null);
           }
         }
       } else {
         // Handle null threadId (e.g., when thread is deleted)
         // Clear all chat state similar to handleNewThread
         setRestoredMessages([]);
-        setCurrentThreadTitle('');
-        setChatKey(prev => prev + 1); // Force remount of ChatComponent to clear internal state
+        setCurrentThreadTitle("");
+        setChatKey((prev) => prev + 1); // Force remount of ChatComponent to clear internal state
         setCurrentThreadId(null);
         setExplorerData(null);
         setExplorerOpen(false);
@@ -1044,8 +1387,8 @@ const ChatWithApproval: React.FC = () => {
         setDataFrameData(null);
       }
     } catch (error) {
-      console.error('Error selecting thread:', error);
-      alert('Failed to load chat thread');
+      console.error("Error selecting thread:", error);
+      alert("Failed to load chat thread");
     } finally {
       setLoadingThread(false);
     }
@@ -1059,16 +1402,26 @@ const ChatWithApproval: React.FC = () => {
     setShowExecutionHistory(false);
   };
 
-  const handleCheckpointClick = async (checkpointId: string, threadId: string) => {
+  const handleCheckpointClick = async (
+    checkpointId: string,
+    threadId: string
+  ) => {
     try {
       // Fetch explorer data for the selected checkpoint
-      const explorerResponse = await ExplorerService.getExplorerData(threadId, checkpointId);
+      const explorerResponse = await ExplorerService.getExplorerData(
+        threadId,
+        checkpointId
+      );
       setExplorerData(explorerResponse?.data);
       setExplorerOpen(true);
       setVisualizationOpen(false); // Ensure visualization panel is closed
       setDataFrameOpen(false);
     } catch (error) {
-      console.error('Error fetching explorer data for checkpoint:', checkpointId, error);
+      console.error(
+        "Error fetching explorer data for checkpoint:",
+        checkpointId,
+        error
+      );
       // Still open the panel even if fetch fails
       setExplorerOpen(true);
       setVisualizationOpen(false);
@@ -1079,8 +1432,8 @@ const ChatWithApproval: React.FC = () => {
     setSelectedChatThreadId(null);
     currentThreadIdRef.current = null;
     setRestoredMessages([]);
-    setCurrentThreadTitle(''); // Clear thread title for new thread
-    setChatKey(prev => prev + 1);
+    setCurrentThreadTitle(""); // Clear thread title for new thread
+    setChatKey((prev) => prev + 1);
     setCurrentThreadId(null);
     setExplorerData(null);
     setExplorerOpen(false);
@@ -1101,7 +1454,7 @@ const ChatWithApproval: React.FC = () => {
       // await ChatHistoryService.updateThreadTitle(selectedChatThreadId, newTitle);
       setCurrentThreadTitle(newTitle);
     } catch (error) {
-      console.error('Failed to update thread title:', error);
+      console.error("Failed to update thread title:", error);
       // You might want to show an error message to the user
     }
   };
@@ -1116,14 +1469,14 @@ const ChatWithApproval: React.FC = () => {
     try {
       // Recreate DataFrame using the stored SQL query (checks for existing first)
       const response = await DataService.recreateDataFrame(
-          threadId, 
-          currentDataContext.sql_query, 
-          currentDataContext.df_id
+        threadId,
+        currentDataContext.sql_query,
+        currentDataContext.df_id
       );
-      
+
       // Update the panel data
       setDataFrameData(response.data || null);
-      
+
       console.log("DataFrame refreshed successfully");
     } catch (error) {
       console.error("Failed to refresh DataFrame:", error);
@@ -1142,20 +1495,22 @@ const ChatWithApproval: React.FC = () => {
         onExecutionHistoryClick={handleExecutionHistoryClick}
       />
 
-
-      <div className={`h-full min-h-0 flex flex-col transition-[margin-left] duration-300 ease-in-out overflow-hidden ml-0 ${sidebarExpanded ? 'md:ml-82' : 'md:ml-14'}`}>
+      <div
+        className={`h-full min-h-0 flex flex-col transition-[margin-left] duration-300 ease-in-out overflow-hidden ml-0 ${
+          sidebarExpanded ? "md:ml-82" : "md:ml-14"
+        }`}
+      >
         <div className="w-full h-full flex flex-col min-h-0">
           <div className="flex items-center justify-between px-4 pt-2 pb-1 text-xs text-muted-foreground">
             <div>
-              {currentThreadId || selectedChatThreadId && (
-                <span className="mr-4">
-                  Graph Thread: {currentThreadId || selectedChatThreadId}
-                </span>
-              )}
+              {currentThreadId ||
+                (selectedChatThreadId && (
+                  <span className="mr-4">
+                    Graph Thread: {currentThreadId || selectedChatThreadId}
+                  </span>
+                ))}
               {loadingThread && (
-                <span className="text-primary">
-                  Loading thread...
-                </span>
+                <span className="text-primary">Loading thread...</span>
               )}
             </div>
           </div>
@@ -1209,7 +1564,9 @@ const ChatWithApproval: React.FC = () => {
           open={dataFrameOpen && !explorerOpen && !visualizationOpen}
           onClose={() => setDataFrameOpen(false)}
           data={dataFrameData}
-          onRefresh={currentDataContext?.sql_query ? handleRefreshDataFrame : undefined}
+          onRefresh={
+            currentDataContext?.sql_query ? handleRefreshDataFrame : undefined
+          }
         />
         {/* GraphFlowPanel now rendered inline in split view above */}
       </div>

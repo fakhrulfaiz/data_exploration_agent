@@ -39,6 +39,20 @@ class ExplainableAgentState(MessagesState):
     dynamic_plan: Optional[Any] = None  # DynamicPlan object from tool_selection schema
     current_step_index: int = 0  # Track which step is currently executing
     
+    # ===== XP AGENT V2 FIELDS (from dev blueprint MainAgentState) =====
+    # These fields are used by XpAgentV2 to match the dev blueprint exactly
+    plan_steps: Optional[List[Dict[str, Any]]] = None  # Structured plan steps (PlanStep objects as dicts)
+    step_results: Optional[List[Dict[str, Any]]] = None  # Results from completed steps (StepResult objects as dicts)
+    tool_context: Optional[str] = None  # Accumulated markdown context from tool executions
+    total_steps: int = 0  # Total number of steps in current plan
+    completed_steps: int = 0  # Number of successfully completed steps
+    original_query: Optional[str] = None  # Original user query (separate from 'query' which may change)
+    conversation_context: Optional[str] = None  # Accumulated conversation context for multi-turn memory
+    final_answer: Optional[str] = None  # The aggregated final answer to return to user
+    execution_complete: bool = False  # Whether execution is complete
+    generated_files: Optional[List[str]] = None  # List of files generated during execution
+    pending_interrupt: bool = False  # Whether there's a pending interrupt
+    
     # ===== ERROR HANDLING FIELDS =====
     error_info: Optional[Dict[str, Any]] = None  # Error details (error_message, error_type, tool_name, tool_input) - Used by error_explainer_node
     error_explanation: Optional[Dict[str, Any]] = None  # User-friendly error explanation - Used by error_explainer_node

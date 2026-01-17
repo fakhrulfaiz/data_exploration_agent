@@ -234,6 +234,96 @@ async def handle_plan_approval(
     })}
 
 
+async def handle_xp_approval(
+    interrupt_data: Any,
+    persistence: StreamingMessagePersistence,
+    context: StreamContext,
+    state: Any,
+    config: Dict
+) -> AsyncGenerator[Dict, None]:
+    """
+    Handle XpAgent's simple boolean approval flow.
+    
+    XpAgent uses a simplified approval system with only approve/reject options.
+    This handler processes the interrupt and yields the appropriate events.
+    """
+    logger.info(f"XpAgent approval interrupt - thread_id: {context.thread_id}")
+    
+    interrupt_dict = _serialize_interrupt(interrupt_data)
+    interrupt_type = interrupt_dict.get("type", "xp_approval")
+    
+    checkpoint_id = _extract_checkpoint_id(state)
+    
+    # Update checkpoint_id on the message
+    if checkpoint_id and context.message_service:
+        await context.message_service.update_message_checkpoint(
+            thread_id=context.thread_id,
+            message_id=context.assistant_message_id,
+            checkpoint_id=checkpoint_id
+        )
+        logger.info(f"Updated checkpoint_id to {checkpoint_id} for XpAgent approval")
+    
+    # Build approval block based on type
+    if interrupt_type == "xp_plan_approval":
+        # Use "plan_" prefix and "plan" type for frontend compatibility
+        # The frontend handleContentBlockEvent only handles type: "plan"
+        block_id = f"plan_{context.assistant_message_id}"
+        approval_block = {
+            "id": block_id,
+            "type": "plan",
+            "needsApproval": True,
+            "data": {
+                "plan": interrupt_dict.get("plan", ""),
+                "query": interrupt_dict.get("query", ""),
+                "steps": interrupt_dict.get("steps", []),
+                "checkpointId": checkpoint_id
+            }
+        }
+        await context.save_block(approval_block)
+        logger.info(f"✅ XpAgent plan approval block saved: {block_id}")
+        
+        # Yield content_block event BEFORE status event
+        # This ensures the frontend receives and renders the plan block
+        yield {
+            "event": "content_block",
+            "data": json.dumps({
+                "block_type": "plan",
+                "block_id": block_id,
+                "content": interrupt_dict.get("plan", ""),
+                "node": "human_feedback",
+                "message_id": context.assistant_message_id,
+                "needsApproval": True,
+                "action": "add_planner"
+            })
+        }
+        
+    elif interrupt_type == "xp_error":
+        block_id = f"xp_error_{context.assistant_message_id}"
+        approval_block = {
+            "id": block_id,
+            "type": "xp_error",
+            "needsApproval": True,
+            "data": {
+                "message": interrupt_dict.get("message", ""),
+                "error_details": interrupt_dict.get("error_details", {}),
+                "checkpointId": checkpoint_id
+            }
+        }
+        await context.save_block(approval_block)
+        logger.info(f"✅ XpAgent error approval block saved: {block_id}")
+    
+    # Yield status event for frontend
+    yield {
+        "event": "status",
+        "data": json.dumps({
+            "status": "user_feedback",
+            "approval_type": "xp_" + interrupt_type.replace("xp_", ""),  # xp_plan_approval, xp_error
+            "thread_id": context.thread_id,
+            "checkpoint_id": checkpoint_id,
+            "__interrupt__": [{"value": interrupt_dict}]
+        })
+    }
+
 
 async def handle_completion(
     tool_handler: ToolCallHandler,

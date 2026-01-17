@@ -36,6 +36,7 @@ class StartGraphRequest(BaseModel):
     thread_id: Optional[str] = Field(None, description="Thread ID (auto-generated if not provided)")
     use_planning: bool = Field(True, description="Enable planning phase")
     use_explainer: bool = Field(True, description="Enable explainer phase")
+    experiment_mode: bool = Field(False, description="Enable experimental XpAgent mode")
 
 
 class ResumeGraphRequest(BaseModel):

@@ -32,6 +32,7 @@ from app.api.v1.endpoints.streaming.streaming_persistence import StreamingMessag
 from app.api.v1.endpoints.streaming.streaming_utils import (
     handle_tool_interrupt,
     handle_plan_approval,
+    handle_xp_approval,
     handle_completion,
     handle_error,
     check_for_interrupts
@@ -87,7 +88,7 @@ async def create_graph_streaming(
     user_id = current_user.user_id
     
     logger.info(f"Streaming graph /start - thread_id: {thread_id}, user_id: {user_id}")
-    logger.info(f"Start request - human_request: '{request.human_request}', use_planning: {request.use_planning}, use_explainer: {request.use_explainer}")
+    logger.info(f"Start request - human_request: '{request.human_request}', use_planning: {request.use_planning}, use_explainer: {request.use_explainer}, experiment_mode: {request.experiment_mode}")
     
     assistant_message_id = str(uuid4())
     run_configs[thread_id] = {
@@ -95,6 +96,7 @@ async def create_graph_streaming(
         "human_request": request.human_request,
         "use_planning": request.use_planning,
         "use_explainer": request.use_explainer,
+        "experiment_mode": request.experiment_mode,
         "assistant_message_id": assistant_message_id,
         "user_id": user_id  # Store user_id for streaming
     }
@@ -264,8 +266,25 @@ async def stream_graph(
         assistant_message_id = str(uuid4())
         run_data["assistant_message_id"] = assistant_message_id
     
-    # Get agent instance - needed for both start and resume cases
-    agent = agent_service.get_agent()
+    # Get agent instance - select based on experiment_mode
+    # For resume/tool_resume, check the existing state's agent_type to pick the right agent
+    experiment_mode = run_data.get("experiment_mode", False)
+    
+    if run_data["type"] in ("resume", "tool_resume"):
+        # Try to detect agent_type from existing checkpoint state
+        # First get the default agent to read the state (both use same checkpointer)
+        temp_agent = agent_service.get_agent(experiment_mode=False)
+        try:
+            existing_state = temp_agent.graph.get_state(config)
+            existing_values = getattr(existing_state, 'values', {}) or {}
+            state_agent_type = existing_values.get("agent_type", "")
+            if state_agent_type in ("xp_agent", "xp_agent_v2"):
+                experiment_mode = True
+                logger.info(f"Detected experiment_mode=True from state agent_type: {state_agent_type}")
+        except Exception as e:
+            logger.warning(f"Could not read existing state to detect agent_type: {e}")
+    
+    agent = agent_service.get_agent(experiment_mode=experiment_mode)
     
     input_state = None
     if run_data["type"] == "start":
@@ -289,6 +308,7 @@ async def stream_graph(
         else:
             logger.warning(f"Skipping user message save - message_service: {message_service is not None}, human_request: '{run_data.get('human_request')}'")
         
+        # Create initial state - both MainAgent and XpAgent now use ExplainableAgentState
         initial_state = ExplainableAgentState(
             messages=[HumanMessage(content=run_data["human_request"])],
             query=run_data["human_request"],
@@ -298,11 +318,16 @@ async def stream_graph(
             status="approved",
             use_planning=use_planning_value,
             use_explainer=run_data.get("use_explainer", True),
-            agent_type="data_exploration_agent",
+            agent_type="xp_agent_v2" if experiment_mode else "data_exploration_agent",
             visualizations=[],
             user_id=user_id  # Add user_id for preference fetching
         )
         input_state = initial_state
+        
+        if experiment_mode:
+            logger.info("Using XpAgent with ExplainableAgentState (experiment mode)")
+        else:
+            logger.info("Using MainAgent with ExplainableAgentState")
     elif run_data["type"] == "tool_resume":
         event_type = "tool_resume"
         
@@ -557,16 +582,48 @@ async def stream_graph(
             values = getattr(state, 'values', {}) or {}
             interrupt_data = await check_for_interrupts(state)
             
+            # Determine if this is XpAgent based on agent_type in state
+            agent_type = values.get("agent_type", "data_exploration_agent")
+            is_xp_agent = agent_type in ("xp_agent", "xp_agent_v2")
+            
             if interrupt_data:
-                async for event in handle_tool_interrupt(
-                    interrupt_data, tool_call_handler, persistence, context, state, config
-                ):
-                    yield event
+                # Check if this is an XpAgent interrupt
+                interrupt_dict = interrupt_data.value if hasattr(interrupt_data, 'value') else interrupt_data
+                is_xp_interrupt = isinstance(interrupt_dict, dict) and interrupt_dict.get("type", "").startswith("xp_")
+                
+                if is_xp_agent or is_xp_interrupt:
+                    # Use XpAgent approval handler
+                    async for event in handle_xp_approval(
+                        interrupt_data, persistence, context, state, config
+                    ):
+                        yield event
+                else:
+                    # Use MainAgent tool interrupt handler
+                    async for event in handle_tool_interrupt(
+                        interrupt_data, tool_call_handler, persistence, context, state, config
+                    ):
+                        yield event
             elif state.next and 'human_feedback' in state.next:
-                async for event in handle_plan_approval(
-                    tool_call_handler, text_handler, plan_handler, persistence, context, state, config
-                ):
-                    yield event
+                if is_xp_agent:
+                    # XpAgent uses simple boolean approval
+                    # Get interrupt data from state for XpAgent
+                    xp_interrupt = {
+                        "type": "xp_plan_approval",
+                        "plan": values.get("plan", ""),
+                        "query": values.get("query", ""),
+                        "steps": values.get("steps", []),
+                        "message": "Plan ready for execution"
+                    }
+                    async for event in handle_xp_approval(
+                        xp_interrupt, persistence, context, state, config
+                    ):
+                        yield event
+                else:
+                    # MainAgent plan approval
+                    async for event in handle_plan_approval(
+                        tool_call_handler, text_handler, plan_handler, persistence, context, state, config
+                    ):
+                        yield event
             else:
                 # Finalize text handler to append all text blocks to context
                 async for event in text_handler.finalize():

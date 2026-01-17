@@ -22,7 +22,8 @@ logger = get_logger(__name__)
 
 class AgentService:  
     def __init__(self):
-        self._agent: Optional[Any] = None 
+        self._agent: Optional[Any] = None  # MainAgent (standard)
+        self._xp_agent: Optional[Any] = None  # XpAgent (experimental)
         self._llm: Optional[ChatOpenAI] = None
         
     def initialize_agent(
@@ -42,11 +43,53 @@ class AgentService:
                 use_postgres_checkpointer=use_postgres_checkpointer
             )
             logger.info("Agent service initialized successfully with MainAgent")
+            
+            # Initialize XpAgent (experimental mode)
+            self._initialize_xp_agent(db_path, use_postgres_checkpointer)
         except Exception as e:
             logger.error(f"Failed to initialize agent service: {e}")
             raise
+    
+    def _initialize_xp_agent(self, db_path: str, use_postgres_checkpointer: bool = True) -> None:
+        """Initialize the experimental XpAgentV2, sharing checkpointer with MainAgent."""
+        try:
+            # Import XpAgentV2 (new simplified version)
+            from ..agents.xp_agent_v2 import XpAgentV2
+            
+            # Share the same checkpointer from MainAgent (if available)
+            shared_checkpointer = None
+            if self._agent and hasattr(self._agent, 'checkpointer'):
+                shared_checkpointer = self._agent.checkpointer
+                logger.info("Sharing checkpointer from MainAgent with XpAgentV2")
+            
+            # Build XpAgentV2 with shared checkpointer
+            self._xp_agent = XpAgentV2(
+                db_path=db_path,
+                checkpointer=shared_checkpointer,
+                use_postgres_checkpointer=use_postgres_checkpointer if shared_checkpointer is None else False
+            )
+            logger.info("XpAgentV2 (experimental) initialized successfully")
+        except Exception as e:
+            logger.warning(f"Failed to initialize XpAgentV2: {e}. Experiment mode will be unavailable.")
+            self._xp_agent = None
      
-    def get_agent(self) -> Any:  # DataExplorationAgent - lazy import
+    def get_agent(self, experiment_mode: bool = False) -> Any:
+        """Get the appropriate agent based on mode.
+        
+        Args:
+            experiment_mode: If True, return XpAgent (experimental). 
+                           If False, return MainAgent (standard).
+        
+        Returns:
+            The selected agent instance.
+        """
+        if experiment_mode:
+            if self._xp_agent is None:
+                logger.warning("XpAgent not available, falling back to MainAgent")
+                return self._agent
+            logger.info("Using XpAgent (experimental mode)")
+            return self._xp_agent
+        
         if self._agent is None:
             raise RuntimeError("Agent service not initialized. Call initialize_agent() first.")
         return self._agent

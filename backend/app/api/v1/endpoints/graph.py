@@ -67,7 +67,7 @@ async def start_graph_execution(
             except Exception as e:
                 logger.error(f"Failed to save user message: {e}")
         
-        # Prepare initial state
+        # Prepare initial state - both MainAgent and XpAgent now use ExplainableAgentState
         from app.agents.state import ExplainableAgentState
         initial_state = ExplainableAgentState(
             messages=[HumanMessage(content=request.human_request)],
@@ -79,16 +79,21 @@ async def start_graph_execution(
             assistant_response="",
             use_planning=request.use_planning,
             use_explainer=request.use_explainer,
-            agent_type="data_exploration_agent",
-            routing_reason="Direct routing to data exploration agent",
+            agent_type="xp_agent" if request.experiment_mode else "data_exploration_agent",
+            routing_reason="Direct routing to agent",
             visualizations=[]
         )
+        
+        if request.experiment_mode:
+            logger.info("Using XpAgent with ExplainableAgentState (experiment mode)")
+        else:
+            logger.info("Using MainAgent with ExplainableAgentState")
         
         # Include user_id in config for proper isolation
         config = {"configurable": {"thread_id": thread_id, "user_id": user_id}}
         
-        # Execute graph
-        agent = agent_service.get_agent()
+        # Execute graph - select agent based on experiment_mode
+        agent = agent_service.get_agent(experiment_mode=request.experiment_mode)
         events = list(agent.graph.stream(initial_state, config, stream_mode="values"))
         
         # Get final state

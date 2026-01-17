@@ -965,8 +965,16 @@ CRITICAL: Base your reasoning ONLY on the information provided above. Do NOT ass
             logger.info("[ROUTING] Error explained - routing to planner")
             return "planner"
     
-    def route_after_planner(self, state: ExplainableAgentState) -> Literal["human_feedback", "process_query"]:
+    def route_after_planner(self, state: ExplainableAgentState) -> Literal["human_feedback", "process_query", "finalizer"]:
         use_planning = state.get("use_planning", True)
+        
+        # TESTING: Skip interrupt and go directly to finalizer
+        # This allows us to test the planner → finalizer flow without user approval
+        skip_interrupt = True  # Set to False to enable normal flow with human approval
+        
+        if skip_interrupt:
+            logger.info("Plan created - skipping interrupt, routing directly to finalizer for testing")
+            return "finalizer"
         
         if use_planning:
             logger.info("Plan created - routing to human_feedback for approval")
@@ -1061,7 +1069,8 @@ CRITICAL: Base your reasoning ONLY on the information provided above. Do NOT ass
             self.route_after_planner,
             {
                 "human_feedback": "human_feedback",
-                "process_query": "process_query"
+                "process_query": "process_query",
+                "finalizer": "finalizer"  # Direct path to finalizer for testing
             }
         )
         

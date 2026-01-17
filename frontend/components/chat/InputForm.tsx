@@ -1,32 +1,53 @@
-'use client'
+"use client";
 
-import React, { useState, useRef } from 'react';
-import { ArrowUp, Upload, X, Check, Brain, Zap, Layers, File, Image, FileText, FileCode, Plus, Loader2, Trash2, Database, Network } from 'lucide-react';
+import React, { useState, useRef } from "react";
+import {
+  ArrowUp,
+  Upload,
+  X,
+  Check,
+  Brain,
+  Zap,
+  Layers,
+  File,
+  Image,
+  FileText,
+  FileCode,
+  Plus,
+  Loader2,
+  Trash2,
+  Database,
+  Network,
+  FlaskConical,
+} from "lucide-react";
 import {
   InputGroup,
   InputGroupTextarea,
   InputGroupAddon,
   InputGroupButton,
   InputGroupText,
-} from '@/components/ui/input-group';
+} from "@/components/ui/input-group";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
   DropdownMenuSeparator,
-} from '@/components/ui/dropdown-menu';
-import { Separator } from '@/components/ui/separator';
+} from "@/components/ui/dropdown-menu";
+import { Separator } from "@/components/ui/separator";
 import {
   Carousel,
   CarouselContent,
   CarouselItem,
   CarouselNext,
   CarouselPrevious,
-} from '@/components/ui/carousel';
+} from "@/components/ui/carousel";
 // import LLMSelector from './LLMSelector';
-import { uploadAttachments, deleteAttachment } from '@/services/api/storage.service';
-import { UploadedAttachment } from '@/types/attachments';
+import {
+  uploadAttachments,
+  deleteAttachment,
+} from "@/services/api/storage.service";
+import { UploadedAttachment } from "@/types/attachments";
 
 interface InputFormProps {
   value: string;
@@ -39,9 +60,11 @@ interface InputFormProps {
   usePlanning?: boolean;
   useExplainer?: boolean;
   useStreaming?: boolean;
+  experimentMode?: boolean;
   onPlanningToggle?: (enabled: boolean) => void;
   onExplainerToggle?: (enabled: boolean) => void;
   onStreamingToggle?: (enabled: boolean) => void;
+  onExperimentModeToggle?: (enabled: boolean) => void;
   onFilesChange?: (files: File[]) => void;
   attachedFiles?: File[];
   onAttachmentsUploaded?: (files: UploadedAttachment[]) => void;
@@ -65,9 +88,11 @@ const InputForm: React.FC<InputFormProps> = ({
   usePlanning = false,
   useExplainer = false,
   useStreaming: useStreamingProp,
+  experimentMode = false,
   onPlanningToggle,
   onExplainerToggle,
   onStreamingToggle,
+  onExperimentModeToggle,
   onFilesChange,
   attachedFiles = [],
   onAttachmentsUploaded,
@@ -85,9 +110,12 @@ const InputForm: React.FC<InputFormProps> = ({
   const [isTextareaExpanded, setIsTextareaExpanded] = useState<boolean>(false);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadStatus, setUploadStatus] = useState<string | null>(null);
-  const [uploadedFileMap, setUploadedFileMap] = useState<Record<string, UploadedAttachment>>({});
+  const [uploadedFileMap, setUploadedFileMap] = useState<
+    Record<string, UploadedAttachment>
+  >({});
 
-  const getFileKey = (file: File) => `${file.name}-${file.size}-${file.lastModified}`;
+  const getFileKey = (file: File) =>
+    `${file.name}-${file.size}-${file.lastModified}`;
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>): void => {
     const files = Array.from(e.target.files || []);
@@ -103,7 +131,7 @@ const InputForm: React.FC<InputFormProps> = ({
     const uploadedAttachment = uploadedFileMap[key];
 
     if (uploadedAttachment) {
-      setUploadStatus('Deleting attachment...');
+      setUploadStatus("Deleting attachment...");
       try {
         await deleteAttachment(uploadedAttachment.path);
         setUploadedFileMap((prev) => {
@@ -112,9 +140,10 @@ const InputForm: React.FC<InputFormProps> = ({
           return next;
         });
         onAttachmentDeleted?.(uploadedAttachment);
-        setUploadStatus('Attachment deleted');
+        setUploadStatus("Attachment deleted");
       } catch (error) {
-        const message = error instanceof Error ? error.message : 'Delete failed';
+        const message =
+          error instanceof Error ? error.message : "Delete failed";
         setUploadStatus(message);
         onAttachmentUploadError?.(message);
       }
@@ -127,7 +156,7 @@ const InputForm: React.FC<InputFormProps> = ({
 
   const handleTextareaInput = (e: React.FormEvent<HTMLTextAreaElement>) => {
     const target = e.target as HTMLTextAreaElement;
-    target.style.height = 'auto';
+    target.style.height = "auto";
     target.style.height = `${target.scrollHeight}px`;
 
     // Check if content exceeds max height (max-h-64 = 16rem = 256px)
@@ -145,7 +174,7 @@ const InputForm: React.FC<InputFormProps> = ({
     );
 
     if (!filesToUpload.length) {
-      setUploadStatus('All files already uploaded');
+      setUploadStatus("All files already uploaded");
       return;
     }
 
@@ -159,12 +188,11 @@ const InputForm: React.FC<InputFormProps> = ({
       });
       setUploadedFileMap((prev) => ({ ...prev, ...mapUpdates }));
       setUploadStatus(
-        `${uploaded.length} file${uploaded.length > 1 ? 's' : ''} uploaded`
+        `${uploaded.length} file${uploaded.length > 1 ? "s" : ""} uploaded`
       );
       onAttachmentsUploaded?.(uploaded);
     } catch (error) {
-      const message =
-        error instanceof Error ? error.message : 'Upload failed';
+      const message = error instanceof Error ? error.message : "Upload failed";
       setUploadStatus(message);
       onAttachmentUploadError?.(message);
     } finally {
@@ -172,8 +200,10 @@ const InputForm: React.FC<InputFormProps> = ({
     }
   };
 
-  const handleTextareaKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
+  const handleTextareaKeyDown = (
+    e: React.KeyboardEvent<HTMLTextAreaElement>
+  ) => {
+    if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       onSend();
     } else {
@@ -207,18 +237,24 @@ const InputForm: React.FC<InputFormProps> = ({
 
   const getFileIcon = (file: File) => {
     const fileType = file.type;
-    if (fileType.startsWith('image/')) return <Image className="w-3 h-3" />;
-    if (fileType.includes('text/') || fileType.includes('document')) return <FileText className="w-3 h-3" />;
-    if (fileType.includes('code') || fileType.includes('javascript') || fileType.includes('json')) return <FileCode className="w-3 h-3" />;
+    if (fileType.startsWith("image/")) return <Image className="w-3 h-3" />;
+    if (fileType.includes("text/") || fileType.includes("document"))
+      return <FileText className="w-3 h-3" />;
+    if (
+      fileType.includes("code") ||
+      fileType.includes("javascript") ||
+      fileType.includes("json")
+    )
+      return <FileCode className="w-3 h-3" />;
     return <File className="w-3 h-3" />;
   };
 
   const formatFileSize = (bytes: number) => {
-    if (bytes === 0) return '0 Bytes';
+    if (bytes === 0) return "0 Bytes";
     const k = 1024;
-    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const sizes = ["Bytes", "KB", "MB", "GB"];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
   };
 
   const renderAttachmentChip = (file: File, index: number) => {
@@ -249,11 +285,15 @@ const InputForm: React.FC<InputFormProps> = ({
           onClick={() => removeFile(index)}
           className="text-accent-foreground hover:bg-accent p-0.5 rounded-full transition-colors"
         >
-          {isUploaded ? <Trash2 className="w-3 h-3" /> : <X className="w-3 h-3" />}
+          {isUploaded ? (
+            <Trash2 className="w-3 h-3" />
+          ) : (
+            <X className="w-3 h-3" />
+          )}
         </button>
       </div>
     );
-  }
+  };
 
   const useCarousel = attachedFiles.length > 3;
   const pendingUploadCount = attachedFiles.filter(
@@ -262,7 +302,6 @@ const InputForm: React.FC<InputFormProps> = ({
 
   return (
     <div className="w-full max-w-3xl mx-auto space-y-2">
-
       {/* Input Group */}
       <InputGroup className="rounded-3xl px-2 bg-muted">
         {/* Attached Files Display */}
@@ -271,7 +310,7 @@ const InputForm: React.FC<InputFormProps> = ({
             {useCarousel ? (
               <Carousel
                 className="relative w-full group max-w-full"
-                opts={{ align: 'start', loop: false }}
+                opts={{ align: "start", loop: false }}
               >
                 <CarouselContent className="-ml-3 pr-3">
                   {attachedFiles.map((file, index) => (
@@ -296,7 +335,9 @@ const InputForm: React.FC<InputFormProps> = ({
               </Carousel>
             ) : (
               <div className="flex flex-wrap gap-2 justify-start">
-                {attachedFiles.map((file, index) => renderAttachmentChip(file, index))}
+                {attachedFiles.map((file, index) =>
+                  renderAttachmentChip(file, index)
+                )}
               </div>
             )}
             <div className="flex flex-col gap-1 mt-3 sm:flex-row sm:items-center sm:justify-between">
@@ -312,13 +353,15 @@ const InputForm: React.FC<InputFormProps> = ({
                   <Upload className="w-3.5 h-3.5" />
                 )}
                 {isUploading
-                  ? 'Uploading...'
+                  ? "Uploading..."
                   : pendingUploadCount === 0
-                    ? 'All uploaded'
-                    : 'Upload to Supabase'}
+                  ? "All uploaded"
+                  : "Upload to Supabase"}
               </button>
               {uploadStatus && (
-                <span className="text-xs text-muted-foreground">{uploadStatus}</span>
+                <span className="text-xs text-muted-foreground">
+                  {uploadStatus}
+                </span>
               )}
             </div>
           </div>
@@ -326,8 +369,9 @@ const InputForm: React.FC<InputFormProps> = ({
 
         <InputGroupTextarea
           ref={textareaRef}
-          className={`rounded-3xl resize-none mt-1 max-h-64 min-h-[5rem] textarea-scroll bg-transparent text-foreground placeholder:text-muted-foreground ${isTextareaExpanded ? 'overflow-y-auto' : 'overflow-y-hidden'
-            }`}
+          className={`rounded-3xl resize-none mt-1 max-h-64 min-h-[5rem] textarea-scroll bg-transparent text-foreground placeholder:text-muted-foreground ${
+            isTextareaExpanded ? "overflow-y-auto" : "overflow-y-hidden"
+          }`}
           placeholder={placeholder}
           value={value}
           onChange={(e) => onChange(e.target.value)}
@@ -352,37 +396,82 @@ const InputForm: React.FC<InputFormProps> = ({
               side="top"
               align="start"
               className="[--radius:0.95rem] min-w-40"
-              onMouseDown={(e: React.MouseEvent<HTMLDivElement>) => e.preventDefault()}
+              onMouseDown={(e: React.MouseEvent<HTMLDivElement>) =>
+                e.preventDefault()
+              }
             >
-              <DropdownMenuItem onClick={(e: React.MouseEvent<HTMLDivElement>) => {
-                e.preventDefault();
-                onPlanningToggle?.(!usePlanning);
-              }}>
-                <Layers className={`w-4 h-4 mr-2 ${usePlanning ? 'text-blue-600' : ''}`} />
+              <DropdownMenuItem
+                onClick={(e: React.MouseEvent<HTMLDivElement>) => {
+                  e.preventDefault();
+                  onPlanningToggle?.(!usePlanning);
+                }}
+              >
+                <Layers
+                  className={`w-4 h-4 mr-2 ${
+                    usePlanning ? "text-blue-600" : ""
+                  }`}
+                />
                 Planning
-                {usePlanning && <Check className="w-4 h-4 ml-auto text-blue-600" />}
+                {usePlanning && (
+                  <Check className="w-4 h-4 ml-auto text-blue-600" />
+                )}
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={(e: React.MouseEvent<HTMLDivElement>) => {
-                e.preventDefault();
-                onExplainerToggle?.(!useExplainer);
-              }}>
-                <Brain className={`w-4 h-4 mr-2 ${useExplainer ? 'text-emerald-600' : ''}`} />
+              <DropdownMenuItem
+                onClick={(e: React.MouseEvent<HTMLDivElement>) => {
+                  e.preventDefault();
+                  onExplainerToggle?.(!useExplainer);
+                }}
+              >
+                <Brain
+                  className={`w-4 h-4 mr-2 ${
+                    useExplainer ? "text-emerald-600" : ""
+                  }`}
+                />
                 Explainer
-                {useExplainer && <Check className="w-4 h-4 ml-auto text-emerald-600" />}
+                {useExplainer && (
+                  <Check className="w-4 h-4 ml-auto text-emerald-600" />
+                )}
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={(e: React.MouseEvent<HTMLDivElement>) => {
-                e.preventDefault();
-                onStreamingToggle?.(!useStreaming);
-              }}>
-                <Zap className={`w-4 h-4 mr-2 ${useStreaming ? 'text-purple-600' : ''}`} />
+              <DropdownMenuItem
+                onClick={(e: React.MouseEvent<HTMLDivElement>) => {
+                  e.preventDefault();
+                  onStreamingToggle?.(!useStreaming);
+                }}
+              >
+                <Zap
+                  className={`w-4 h-4 mr-2 ${
+                    useStreaming ? "text-purple-600" : ""
+                  }`}
+                />
                 Streaming
-                {useStreaming && <Check className="w-4 h-4 ml-auto text-purple-600" />}
+                {useStreaming && (
+                  <Check className="w-4 h-4 ml-auto text-purple-600" />
+                )}
               </DropdownMenuItem>
               <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={(e: React.MouseEvent<HTMLDivElement>) => {
-                e.preventDefault();
-                fileInputRef.current?.click();
-              }}>
+              <DropdownMenuItem
+                onClick={(e: React.MouseEvent<HTMLDivElement>) => {
+                  e.preventDefault();
+                  onExperimentModeToggle?.(!experimentMode);
+                }}
+              >
+                <FlaskConical
+                  className={`w-4 h-4 mr-2 ${
+                    experimentMode ? "text-orange-500" : ""
+                  }`}
+                />
+                Experiment Mode
+                {experimentMode && (
+                  <Check className="w-4 h-4 ml-auto text-orange-500" />
+                )}
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onClick={(e: React.MouseEvent<HTMLDivElement>) => {
+                  e.preventDefault();
+                  fileInputRef.current?.click();
+                }}
+              >
                 <Upload className="w-4 h-4 mr-2" />
                 Upload File
               </DropdownMenuItem>
@@ -418,9 +507,13 @@ const InputForm: React.FC<InputFormProps> = ({
 
           {/* LLM Selector */}
           {/* <LLMSelector compact /> */}
-          <InputGroupText className="text-muted-foreground text-xs">GPT-4</InputGroupText>
+          <InputGroupText className="text-muted-foreground text-xs">
+            GPT-4
+          </InputGroupText>
 
-          <InputGroupText className="ml-auto text-muted-foreground">52% used</InputGroupText>
+          <InputGroupText className="ml-auto text-muted-foreground">
+            52% used
+          </InputGroupText>
 
           <Separator orientation="vertical" className="!h-4" />
 
