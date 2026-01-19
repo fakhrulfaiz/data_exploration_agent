@@ -8,6 +8,8 @@ from langchain_core.messages import HumanMessage
 
 from app.agents import MainAgent
 from app.services.agent_service import AgentService
+from app.models.supabase_user import SupabaseUser
+from app.core.auth import get_current_user
 from app.schemas.agent import (
     AgentRequest,
     AgentResponse,
@@ -103,14 +105,26 @@ async def delete_thread(
 @router.get("/threads/{thread_id}/state", response_model=StateResponse)
 async def get_current_state(
     thread_id: str,
+    current_user: SupabaseUser = Depends(get_current_user),  # Add authentication
     agent: MainAgent = Depends(get_agent)
 ) -> StateResponse:
     """Get the current state for a thread."""
     try:
-        config = {"configurable": {"thread_id": thread_id}}
+        user_id = current_user.user_id
+        
+        # Include user_id for proper checkpoint isolation
+        config = {"configurable": {"thread_id": thread_id, "user_id": user_id}}
         state = agent.graph.get_state(config)
         
         if state:
+            # Verify ownership: check if state belongs to current user
+            state_user_id = state.values.get("user_id")
+            if state_user_id and state_user_id != user_id:
+                raise HTTPException(
+                    status_code=403,
+                    detail="You do not have permission to access this thread"
+                )
+            
             state_data = {
                 "thread_id": thread_id,
                 "state": state.values,
@@ -130,6 +144,8 @@ async def get_current_state(
                 message=f"No state found for thread {thread_id}",
                 errors=[{"code": "STATE_NOT_FOUND", "message": f"No state exists for thread {thread_id}"}]
             )
+    except HTTPException:
+        raise
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 

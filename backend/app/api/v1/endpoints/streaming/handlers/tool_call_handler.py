@@ -8,6 +8,15 @@ logger = logging.getLogger(__name__)
 
 
 class ToolCallHandler(ContentHandler):
+    # Define critical tools that should be streamed to the frontend
+    CRITICAL_TOOLS = {
+        'data_exploration_tool',
+        'smart_transform_for_viz',
+        'smart_data_analysis',
+        'image_batch_qa_tool',
+        'large_plotting_tool'
+    }
+    
     def __init__(self, context: StreamContext):
         super().__init__(context)
         self.pending_tools: Dict[str, ToolCallState] = {}
@@ -45,7 +54,15 @@ class ToolCallHandler(ContentHandler):
         chunk_name = chunk_dict.get('name')
         chunk_args_str = chunk_dict.get('args', '')
         
+        # DEBUG: Log chunk details to understand provider differences
+        logger.debug(f"[TOOL_CHUNK] id={chunk_id}, name={chunk_name}, args_len={len(chunk_args_str) if chunk_args_str else 0}, active_tool={self.active_tool_id}")
+        
         if chunk_name == 'transfer_to_data_exploration':
+            return
+        
+        # Skip non-critical tools - they execute silently in the background
+        if chunk_name and chunk_name not in self.CRITICAL_TOOLS:
+            logger.debug(f"Skipping non-critical tool: {chunk_name}")
             return
         
         tool_key = chunk_id if chunk_id else f"index_{chunk_index}"
@@ -91,7 +108,7 @@ class ToolCallHandler(ContentHandler):
             
             self.active_tool_id = chunk_id
             self.active_tool_name = chunk_name
-            return
+            # DON'T return - allow processing args if present in same chunk (Groq sends everything at once)
         
         if chunk_args_str and self.active_tool_id in self.pending_tools:
             tool_state = self.pending_tools[self.active_tool_id]
@@ -109,6 +126,7 @@ class ToolCallHandler(ContentHandler):
                     "action": "stream_args"
                 })
             }
+
     
     async def _handle_tool_result(self, msg: Any, metadata: Dict) -> AsyncGenerator[Dict, None]:
         tool_call_id = msg.tool_call_id
@@ -141,6 +159,19 @@ class ToolCallHandler(ContentHandler):
             for key in list(self.pending_tools.keys()):
                 if self.pending_tools[key].tool_call_id == tool_call_id:
                     del self.pending_tools[key]
+                    break
+            return
+        
+        # Skip non-critical tools - they execute silently in the background
+        if tool_name and tool_name not in self.CRITICAL_TOOLS:
+            logger.debug(f"Skipping non-critical tool result: {tool_name}")
+            # Clean up pending state
+            for key in list(self.pending_tools.keys()):
+                if self.pending_tools[key].tool_call_id == tool_call_id:
+                    del self.pending_tools[key]
+                    if self.active_tool_id == key:
+                        self.active_tool_id = None
+                        self.active_tool_name = None
                     break
             return
         

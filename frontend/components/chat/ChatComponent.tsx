@@ -74,6 +74,8 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
   onToggleGraphPanel,
   graphPanelOpen = false,
   graphStructure,
+  suggestedQuery,
+  onQuerySet,
 }) => {
 
 
@@ -140,6 +142,14 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
       localStorage.setItem('useStreaming', JSON.stringify(useStreaming));
     }
   }, [useStreaming]);
+
+  // Handle suggested query from parent (e.g., from ExplorerPanel)
+  useEffect(() => {
+    if (suggestedQuery) {
+      setInputValue(suggestedQuery);
+      onQuerySet?.(); // Notify parent that query was set
+    }
+  }, [suggestedQuery, onQuerySet]);
 
   // Tool call state for ephemeral indicators - now tracks step history
   const [toolStepHistory, setToolStepHistory] = useState<{

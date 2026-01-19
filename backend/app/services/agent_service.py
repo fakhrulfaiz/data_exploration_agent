@@ -241,19 +241,26 @@ class AgentService:
     
     async def get_current_state(
         self, 
-        thread_id: str
+        thread_id: str,
+        user_id: Optional[str] = None  # Add user_id for proper isolation
     ) -> Optional[Dict[str, Any]]:
         """
         Get the current state for a thread.
         
         Args:
             thread_id: Thread identifier
+            user_id: Optional user ID for proper checkpoint isolation
             
         Returns:
             Current state dictionary or None if not found
         """
         try:
             config = {"configurable": {"thread_id": thread_id}}
+            
+            # Include user_id for proper checkpoint isolation
+            if user_id:
+                config["configurable"]["user_id"] = user_id
+            
             # Use get_state for synchronous operation on the graph
             state = self._agent.graph.get_state(config)
             

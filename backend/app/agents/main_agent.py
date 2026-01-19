@@ -65,7 +65,7 @@ class MainAgent:
         self.create_handoff_tools()
         self.assistant_agent_instance = AssistantAgent(
             llm=llm,
-            transfer_tools=[self.transfer_to_main_agent]
+            transfer_tools=[self.transfer_to_main_agent, self.update_user_profile]
         )
         self.assistant_agent = self.assistant_agent_instance
         
@@ -124,6 +124,9 @@ class MainAgent:
     
     def create_handoff_tools(self):
         """Create handoff tools for assistant agent routing."""
+        # Import profile tool
+        from app.agents.tools.profile_tools import update_user_profile
+        
         @tool("transfer_to_main_agent", description="Transfer to the main agent for data exploration and analysis tasks")
         def transfer_to_main_agent(
             state: Annotated[Dict[str, Any], InjectedState],
@@ -167,6 +170,7 @@ class MainAgent:
             )
         
         self.transfer_to_main_agent = transfer_to_main_agent
+        self.update_user_profile = update_user_profile
     
     def _get_latest_human_message(self, messages: List[BaseMessage]) -> Optional[str]:
         """Get the latest human message from message history."""
@@ -1054,6 +1058,10 @@ CRITICAL: Base your reasoning ONLY on the information provided above. Do NOT ass
         
         # Set entry point
         graph.set_entry_point("planner")
+        
+        # Assistant logic
+        graph.add_edge("assistant", END)
+        graph.add_edge("main_agent_flow", "planner")
         
         # Conditional routing after planner
         graph.add_conditional_edges(

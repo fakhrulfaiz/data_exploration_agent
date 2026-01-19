@@ -258,10 +258,10 @@ class MessagesRepository(BaseRepository[ChatMessage]):
             result = await self.session.execute(stmt)
             messages = result.scalars().all()
             
-            # Convert to checkpoint format
+            # Convert to checkpoint format (query will be fetched from agent state)
             checkpoints = []
             for msg in messages:
-                checkpoints.append(                {
+                checkpoints.append({
                     "checkpoint_id": msg.checkpoint_id,
                     "thread_id": msg.thread_id,
                     "timestamp": msg.timestamp,

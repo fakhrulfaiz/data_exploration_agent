@@ -515,12 +515,24 @@ async def stream_graph(
                 if not msg:
                     continue
                 
+                # DEBUG: Log message type and key attributes to understand Groq vs OpenAI
+                logger.debug(f"[MSG_DEBUG] type={type(msg).__name__}, "
+                           f"has_content={hasattr(msg, 'content')}, "
+                           f"has_tool_calls={hasattr(msg, 'tool_calls')}, "
+                           f"has_tool_call_chunks={hasattr(msg, 'tool_call_chunks')}, "
+                           f"node={context.node_name}")
+                if hasattr(msg, 'tool_calls') and msg.tool_calls:
+                    logger.debug(f"[MSG_DEBUG] tool_calls={msg.tool_calls}")
+                if hasattr(msg, 'tool_call_chunks') and msg.tool_call_chunks:
+                    logger.debug(f"[MSG_DEBUG] tool_call_chunks={msg.tool_call_chunks}")
+                
                 checkpoint_ns = metadata.get('langgraph_checkpoint_ns')
                 if isinstance(checkpoint_ns, str):
                     normalized_checkpoint_ns = checkpoint_ns.replace(" ", "_")
-                    if normalized_checkpoint_ns.startswith("assistant"):
-                        logger.debug(f"Skipping chunk from assistant_keep_agent namespace: {checkpoint_ns}")
-                        continue
+                    # Only skip messages from assistant's internal subgraph, not the assistant node itself
+                    # if normalized_checkpoint_ns.startswith("assistant:"):
+                    #     logger.debug(f"Skipping chunk from assistant subgraph namespace: {checkpoint_ns}")
+                    #     continue
                 
                 if await tool_call_handler.can_handle(msg, metadata):
                     async for event in tool_call_handler.handle(msg, metadata):

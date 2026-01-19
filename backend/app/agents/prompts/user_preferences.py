@@ -78,9 +78,9 @@ def _build_prompt(prefs: Optional[Dict[str, Any]]) -> str:
     # Communication style - imperative directives
     style = prefs.get('communication_style', 'balanced')
     style_map = {
-        'concise': 'ALWAYS be brief and to-the-point. Avoid lengthy explanations and technical implementation details unless explicitly requested. Focus on results and high-level summaries.',
-        'detailed': 'ALWAYS provide comprehensive explanations with examples and context. Prioritize thoroughness. You may include technical details if relevant, but MUST explain them in accessible, non-technical language first.',
-        'balanced': 'Balance brevity with clarity. Provide sufficient detail without being verbose. Avoid unnecessary technical jargon and focus on functional explanations.'
+        'concise': 'ALWAYS be extremely brief and direct. Use short sentences. Provide ONLY final results and key numbers. Skip explanations, examples, and technical details entirely. One or two sentences maximum per section.',
+        'balanced': 'Balance brevity with clarity. Provide sufficient detail without being verbose. AVOID technical jargon (SQL queries, tool names, technical implementation details). Focus on WHAT happened and WHY it matters in plain language. Use 2-3 sentences per section.',
+        'detailed': 'ALWAYS provide comprehensive, thorough explanations with examples and context. Include step-by-step breakdowns. You MAY include technical details (SQL queries, tool names, algorithms) BUT you MUST explain them in accessible, non-technical language FIRST. Use multiple paragraphs if needed.'
     }
     sections.append(f"\n**COMMUNICATION RULES:**")
     sections.append(f"- {style_map.get(style, style_map['balanced'])}")

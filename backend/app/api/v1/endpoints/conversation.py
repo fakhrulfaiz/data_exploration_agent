@@ -104,14 +104,17 @@ async def create_conversation(
 async def list_conversations(
     limit: int = Query(50, ge=1, le=100, description="Number of conversations to return"),
     skip: int = Query(0, ge=0, description="Number of conversations to skip"),
+    current_user: SupabaseUser = Depends(get_current_user), 
     chat_service: ChatThreadService = Depends(get_chat_thread_service)
 ) -> ConversationListResponse:
-    """List all conversation threads."""
+    """List all conversation threads for the current user."""
     try:
-        logger.info("Retrieving conversations")
+        user_id = current_user.user_id
+        logger.info(f"Retrieving conversations for user {user_id}")
         
-        threads = await chat_service.get_all_threads_summary(limit=limit, skip=skip)
-        total = await chat_service.get_thread_count()
+        # Filter by user_id to only show user's own conversations
+        threads = await chat_service.get_all_threads_summary(limit=limit, skip=skip, user_id=user_id)
+        total = await chat_service.get_thread_count(user_id=user_id)
         
         conversations = [
             ConversationSummary(
@@ -175,17 +178,37 @@ async def list_checkpoints(
         )
         total = await messages_repo.count_checkpoints_by_user_id(user_id=user_id)
         
-        # Convert to CheckpointSummary models
-        checkpoints = [
-            CheckpointSummary(
-                checkpoint_id=item["checkpoint_id"],
-                thread_id=item["thread_id"],
-                timestamp=item["timestamp"],
-                message_id=item["message_id"],
-                query=None  # Query can be added later if needed
+        # Convert to CheckpointSummary models and fetch queries from agent state
+        checkpoints = []
+        for item in checkpoints_data:
+            # Get query from agent state at this specific checkpoint
+            query_text = None
+            try:
+                # Access agent service from request.app.state
+                agent_service = request.app.state.agent_service
+                if agent_service:
+                    # Use checkpoint_id to get state at that specific checkpoint
+                    config = {
+                        "configurable": {
+                            "thread_id": item["thread_id"],
+                            "checkpoint_id": item["checkpoint_id"]
+                        }
+                    }
+                    state = agent_service._agent.graph.get_state(config)
+                    if state and state.values:
+                        query_text = state.values.get("query")
+            except Exception as e:
+                logger.debug(f"Could not fetch query from state for checkpoint {item['checkpoint_id']}: {e}")
+            
+            checkpoints.append(
+                CheckpointSummary(
+                    checkpoint_id=item["checkpoint_id"],
+                    thread_id=item["thread_id"],
+                    timestamp=item["timestamp"],
+                    message_id=item["message_id"],
+                    query=query_text
+                )
             )
-            for item in checkpoints_data
-        ]
         
         return CheckpointListResponse(
             data=CheckpointListData(
@@ -209,17 +232,27 @@ async def list_checkpoints(
 @router.get("/{thread_id}", response_model=ConversationResponse)
 async def get_conversation(
     thread_id: str,
+    current_user: SupabaseUser = Depends(get_current_user),  
     chat_service: ChatThreadService = Depends(get_chat_thread_service)
 ) -> ConversationResponse:
     """Get a specific conversation thread."""
     try:
-        logger.info(f"Retrieving thread {thread_id}")
+        user_id = current_user.user_id
+        logger.info(f"Retrieving thread {thread_id} for user {user_id}")
         
         thread = await chat_service.get_thread(thread_id)
         if not thread:
             raise HTTPException(
                 status_code=404,
                 detail=f"Conversation {thread_id} not found"
+            )
+        
+        # Verify ownership
+        if thread.user_id != user_id:
+            logger.warning(f"User {user_id} attempted to access thread {thread_id} owned by {thread.user_id}")
+            raise HTTPException(
+                status_code=403,
+                detail="You do not have permission to access this conversation"
             )
         
         return ConversationResponse(
@@ -244,10 +277,29 @@ async def get_conversation(
 async def update_conversation_title(
     thread_id: str,
     request: UpdateTitleRequest,
+    current_user: SupabaseUser = Depends(get_current_user),  # Add authentication
     chat_service: ChatThreadService = Depends(get_chat_thread_service)
 ) -> SuccessResponse:
     """Update the title of a conversation thread."""
     try:
+        user_id = current_user.user_id
+        
+        # Verify ownership before updating
+        thread = await chat_service.get_thread(thread_id)
+        if not thread:
+            return SuccessResponse(
+                status="error",
+                message="Conversation not found",
+                errors=[{"code": "CONVERSATION_NOT_FOUND", "message": f"Conversation {thread_id} not found"}]
+            )
+        
+        if thread.user_id != user_id:
+            logger.warning(f"User {user_id} attempted to update thread {thread_id} owned by {thread.user_id}")
+            raise HTTPException(
+                status_code=403,
+                detail="You do not have permission to modify this conversation"
+            )
+        
         success = await chat_service.update_thread_title(thread_id, request.title)
         if not success:
             return SuccessResponse(
@@ -273,10 +325,28 @@ async def update_conversation_title(
 async def delete_conversation(
     request: Request,
     thread_id: str,
+    current_user: SupabaseUser = Depends(get_current_user),  # Add authentication
     chat_service: ChatThreadService = Depends(get_chat_thread_service),
     agent_service: AgentService = Depends(get_agent_service)
 ) -> SuccessResponse:
     try:
+        user_id = current_user.user_id
+        
+        # Verify ownership before deleting
+        thread = await chat_service.get_thread(thread_id)
+        if not thread:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Conversation {thread_id} not found"
+            )
+        
+        if thread.user_id != user_id:
+            logger.warning(f"User {user_id} attempted to delete thread {thread_id} owned by {thread.user_id}")
+            raise HTTPException(
+                status_code=403,
+                detail="You do not have permission to delete this conversation"
+            )
+        
         success = await chat_service.delete_thread(
             thread_id, 
             delete_checkpoint=True,
@@ -307,11 +377,13 @@ async def delete_conversation(
 async def restore_conversation(
     request: Request,
     thread_id: str,
+    current_user: SupabaseUser = Depends(get_current_user), 
     chat_service: ChatThreadService = Depends(get_chat_thread_service),
     agent_service: AgentService = Depends(get_agent_service)
 ) -> RestoreConversationResponse:
     try:
-        logger.info(f"Restoring conversation {thread_id}")
+        user_id = current_user.user_id
+        logger.info(f"Restoring conversation {thread_id} for user {user_id}")
         
         thread = await chat_service.get_thread(thread_id)
         if not thread:
@@ -319,11 +391,19 @@ async def restore_conversation(
                 status_code=404,
                 detail=f"Conversation {thread_id} not found"
             )
+        
+        # ✅ VERIFY OWNERSHIP: Check if user owns this thread
+        if thread.user_id != user_id:
+            logger.warning(f"User {user_id} attempted to access thread {thread_id} owned by {thread.user_id}")
+            raise HTTPException(
+                status_code=403,
+                detail="You do not have permission to access this conversation"
+            )
 
         data_context = None
         try:
-            config = {"configurable": {"thread_id": thread_id}}
-            state = await agent_service.get_current_state(thread_id)
+            # Get state with user_id for proper isolation
+            state = await agent_service.get_current_state(thread_id, user_id)
             if state and state.get("state"):
                 dc = state["state"].get("data_context")
                 # Convert DataContext instance to dict for Pydantic validation

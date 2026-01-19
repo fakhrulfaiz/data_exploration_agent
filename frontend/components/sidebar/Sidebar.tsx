@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { PanelLeftClose, PanelLeftOpen, Plus, Search, MessageSquare, Settings, MoreVertical, Trash2, Edit, ChevronDown, LogOut, History } from 'lucide-react';
 import { ConversationService } from '@/services/api/conversation.service';
 import { ConversationSummary } from '@/types';
@@ -57,6 +58,7 @@ const Sidebar: React.FC<SidebarProps> = ({
   onExpandedChange,
   onExecutionHistoryClick
 }) => {
+  const router = useRouter();
   const isMobile = useIsMobile();
   const [isExpanded, setIsExpanded] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -687,7 +689,10 @@ const Sidebar: React.FC<SidebarProps> = ({
 
                 {/* Logout Button */}
                 <button
-                  onClick={async () => { await signOut(); }}
+                  onClick={async () => { 
+                    await signOut(); 
+                    router.push('/login'); 
+                  }}
                   className="w-full h-10 flex items-center gap-2 px-3 text-xs text-muted-foreground hover:text-foreground bg-transparent hover:bg-accent rounded-md min-w-0"
                 >
                   <LogOut className="w-4 h-4 flex-shrink-0" />

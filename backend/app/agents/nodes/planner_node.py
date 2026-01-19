@@ -364,10 +364,15 @@ Context only (do not generate plan based on this):
             user_id = state.get("user_id")
             planning_style_directive = self._get_planning_style_directive(user_id)
         
-        # Generate intent understanding (if explainer enabled)
+        # Count only HumanMessages to detect first turn (ignore assistant transfer messages)
+        human_msgs = [m for m in messages if isinstance(m, HumanMessage)]
+        is_first_turn = len(human_msgs) <= 1
+        
         thought_response = None
-        if use_explainer:
+        if use_explainer and is_first_turn:
             thought_response = self._generate_intent_understanding(user_query, use_explainer, state, planning_style_directive)
+        elif use_explainer and not is_first_turn:
+            logger.info("Skipping intent generation for replan/feedback loop (not first turn)")
         
         # Build intent context for prompt
         intent_context = self._build_intent_context(thought_response) if use_explainer else ""
@@ -428,6 +433,7 @@ If Error Context provided, focus on solving the error. Be concise.
 - Tool needs data that must be retrieved first (database → analysis)
 - Tool needs output from another tool (query → transform → visualize)
 - Sequential operations that can't be done in one call
+- data_exploration_tool needs to be called one time for whole execution and can only be used again if operation after first data exploration complele, no back-to-back data exploration tool calls
 
 **When to Use Single Step**:
 - Complete sub-agents that handle entire workflows (e.g., data_exploration_tool can query + store)
