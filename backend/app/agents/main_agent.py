@@ -900,17 +900,11 @@ CRITICAL: Base your reasoning ONLY on the information provided above. Do NOT ass
                 return updates
                 
             elif action == "retry":
-                # NEW: For tool errors, allow retry without replanning
-                # Keep error_details so process_query can learn from the error
                 updates["status"] = "retry"
                 updates["feedback"] = None  # Clear feedback to allow retry
-                # DON'T clear error_details - keep for context
-                # Keep current_step_index as is to retry same step
                 return updates
             
             elif action == "approve":
-                # Plan approved - proceed with execution
-                # Clear any pending tool interrupts from previous failed executions
                 updates["status"] = "approved"
                 updates["_plan_approved"] = True  # Mark plan as approved
                 updates["error_explanation"] = None  # Clear error explanation to prevent replan loop
@@ -1005,15 +999,6 @@ CRITICAL: Base your reasoning ONLY on the information provided above. Do NOT ass
         data_context = state.get("data_context")
         if data_context:
             df_id = data_context.df_id
-            
-        # We need to update how we call execute since we changed signature of explain_error
-        # But wait, execute() usually calls explain_error(). I need to check execute() implementation.
-        # Let's assume for now I should pass it via state or kwargs if execute handles it.
-        # Actually, looking at the previous file view, ErrorExplainerNode didn't have an execute method shown in the snippet?
-        # I need to verify if ErrorExplainerNode inherits from something with execute or if it's missing.
-        # The 'view_code_item' showed "MainAgent.error_explainer_node" calling "self.error_explainer.execute(state)".
-        # So ErrorExplainerNode MUST have an execute method.
-        # I better check ErrorExplainerNode.execute first before making this change.
         return self.error_explainer.execute(state, df_id=df_id)
     
     def _build_system_message(self, state: ExplainableAgentState = None) -> str:

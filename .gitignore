@@ -82,6 +82,7 @@ friends_code/
 plans/
 docs/
 logs/
+project_report/
 backend/logs/
 backend/tests/
 backend/htmlcov/
