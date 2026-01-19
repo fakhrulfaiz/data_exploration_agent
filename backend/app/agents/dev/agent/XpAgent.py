@@ -55,6 +55,178 @@ from .state.main_agent_state_v2 import (
     TOOL_CAPABILITIES
 )
 
+# ============================================================================
+# XP AGENT IDENTITY & CAPABILITIES
+# ============================================================================
+
+XP_AGENT_IDENTITY = """
+## XP Agent - Intelligent Art Database Analysis Supervisor
+
+### Who I Am
+I am XP Agent, a sophisticated multi-agent orchestrator specialized in artwork database analysis.
+I coordinate intelligent subagents to accomplish complex research, analysis, and visualization tasks.
+
+### My Core Capabilities
+1. **Database Exploration**: Query and analyze artwork metadata (title, date, movement, genre)
+2. **Visual Analysis**: Analyze artwork images for colors, subjects, composition, style
+3. **Data Visualization**: Create charts and plots from analysis results
+
+### What Makes Me Powerful
+- I break down complex requests into logical steps
+- I coordinate multiple intelligent subagents that can each handle complex subtasks
+- I accumulate context across steps to build comprehensive answers
+- I can handle multi-turn conversations with memory
+
+### Task Complexity I Handle
+- Simple: "How many paintings are in the database?" (1 step)
+- Medium: "Show me Renaissance paintings with people in them" (2-3 steps: query → analyze images)
+- Complex: "Compare visual characteristics of Baroque vs Renaissance art and visualize the findings" (5+ steps)
+"""
+
+# ============================================================================
+# SUBAGENT CAPABILITIES DOCUMENTATION
+# ============================================================================
+
+SUBAGENT_CAPABILITIES = """
+## My Intelligent Subagents
+
+### 1. Database Exploration Agent (`database_exploration_agent`)
+**Type**: Intelligent LLM-powered SQL Agent
+
+**What It Can Do**:
+- Understand natural language queries about artwork data
+- Execute multiple SQL queries autonomously to fully explore the data
+- Handle consecutive tasks in a single invocation
+
+**Query Format for Consecutive Tasks**:
+```markdown
+Please complete the following tasks:
+- Find all paintings from the Renaissance era
+- Count how many there are per genre
+- Include img_path for any images that need visual analysis
+- Export the results to CSV
+```
+
+**Query Format for Simple Tasks**:
+```markdown
+Find the 5 oldest paintings in the database with their title, inception date, and img_path.
+```
+
+**Database Schema**:
+- Table: `paintings`
+- Columns: title (TEXT), inception (DATE), movement (TEXT), genre (TEXT), image_url (TEXT), img_path (TEXT)
+
+**CRITICAL**: Always request `img_path` when downstream visual analysis is needed!
+
+---
+
+### 2. Image QnA Agent (`image_qna_agent`)
+**Type**: Intelligent GPU-accelerated Visual Analysis Agent (BLIP VQA)
+
+**What It Can Do**:
+- Analyze visual content of artwork images
+- Process multiple images in batch
+- Answer specific questions about each image
+- Handle consecutive analysis tasks
+
+**Query Format for Consecutive Tasks**:
+```markdown
+For each image, analyze and report:
+- The main subjects depicted
+- Number of people visible
+- Dominant colors
+- Overall mood/atmosphere
+```
+
+**Query Format for Simple Tasks**:
+```markdown
+Describe what is depicted in each painting.
+```
+
+**REQUIRES**: img_path values from database_exploration_agent (format: 'images/img_N.jpg')
+
+---
+
+### 3. Data Plotting Agent (`data_plotting_agent`)
+**Type**: Intelligent Visualization Agent
+
+**What It Can Do**:
+- Read and understand CSV data structure
+- Generate appropriate visualizations
+- Create multiple charts in one invocation
+
+**Query Format for Consecutive Tasks**:
+```markdown
+Create the following visualizations:
+- Bar chart showing distribution by genre
+- Pie chart showing movement proportions
+- Line chart if temporal data is available
+```
+
+**Query Format for Simple Tasks**:
+```markdown
+Create a bar chart showing the count of paintings per art movement.
+```
+
+**IMPORTANT**: CSV file path is automatically resolved from previous steps.
+"""
+
+# ============================================================================
+# DYNAMIC ARG RESOLVER PROMPT
+# ============================================================================
+
+STEP_RESOLVER_PROMPT = """## Role
+You are a Step Argument Resolver. Your job is to determine the ACTUAL arguments for a tool call based on accumulated execution context.
+
+## Current Step to Execute
+- **Step {step_number}**: {step_description}
+- **Tool**: {tool_name}
+- **Intent**: {step_intent}
+- **Expected Output**: {expected_output}
+
+## Accumulated Context from Previous Steps
+{accumulated_context}
+
+## Your Task
+Based on the accumulated context above, determine the ACTUAL arguments needed to execute this step.
+
+### CRITICAL: Query Format
+The subagents are INTELLIGENT LLM-powered agents. Pass the intent directly as natural language.
+
+**For database_exploration_agent**:
+- Pass the intent AS-IS if it's well-formed
+- Do NOT convert to SQL - the subagent handles SQL internally
+- If intent has markdown list format, preserve it
+
+**For image_qna_agent**:
+- Pass the intent describing what to analyze
+- Extract img_path values from accumulated context (format: images/img_N.jpg)
+- If intent has markdown list format, preserve it
+
+**For data_plotting_agent**:
+- Pass the intent describing what charts to create
+- Find the CSV file path from accumulated context
+- If intent has markdown list format, preserve it
+
+### Rules:
+1. **Preserve intent format**: If intent uses markdown lists, keep them in resolved_query
+2. **Extract real values from context**: Only use paths that appear in the accumulated context
+3. **DO NOT hallucinate paths**: Never make up file paths or image paths
+4. **For image_qna_agent**: Extract ALL img_path values mentioned in previous results
+5. **For data_plotting_agent**: Find the ACTUAL CSV file path from previous step outputs
+6. **If required data is missing**: Set action to "replan" with a clear reason
+
+### Image Path Extraction:
+- Look for patterns like: images/img_0.jpg, images/img_123.jpg
+- These appear in database query results when img_path column is selected
+- Collect ALL relevant image paths, not just a subset
+
+### CSV Path Extraction:
+- Look for "Output CSV File:", "saved to:", or file paths ending in .csv
+- Use the FULL absolute path when available
+- The path is usually in format: /home/.../workspace/outputs/something.csv
+"""
+
 
 # ============================================================================
 # SUBAGENT IMPORTS - NEW CONFIGURABLE VERSIONS
@@ -534,95 +706,6 @@ IMPORTANT: Use the exact file path above when calling the generate_plot tool."""
         return step_result, f"Error in plotting: {str(e)}"
 
 
-def _execute_tool(
-    tool_name: str, 
-    args: Dict[str, Any], 
-    tool_context: str, 
-    factory: SubagentFactory,
-    generated_files: List[str] = None,
-    step_results: List[StepResult] = None
-) -> tuple[StepResult, str]:
-    """Execute a tool and return the result with context string.
-    
-    Args:
-        tool_name: Name of the tool to execute
-        args: Arguments from the plan (may contain hallucinated file paths)
-        tool_context: Accumulated context from previous steps
-        factory: SubagentFactory for creating agents
-        generated_files: List of actual files generated by previous steps
-        step_results: Results from previous steps (contains actual output_file paths)
-    """
-    generated_files = generated_files or []
-    step_results = step_results or []
-    
-    if tool_name == "database_exploration_agent":
-        query = args.get("query", "")
-        return execute_data_exploration(query, factory)
-    
-    elif tool_name == "image_qna_agent":
-        query = args.get("query", "")
-        img_paths = args.get("img_path", args.get("img_paths", []))
-        if isinstance(img_paths, str):
-            img_paths = [img_paths]
-        return execute_image_qna(query, img_paths, tool_context, factory)
-    
-    elif tool_name == "data_plotting_agent":
-        task = args.get("task", "")
-        
-        # IMPORTANT: Don't trust file_path from args - it's often hallucinated by the planner
-        # Instead, find the actual CSV file from previous step outputs
-        file_path = None
-        
-        # Strategy 1: Get from previous step results (most reliable)
-        for result in reversed(step_results):
-            if result.success and result.output_file:
-                if result.output_file.endswith('.csv') and os.path.exists(result.output_file):
-                    file_path = result.output_file
-                    print(f"   📄 Using CSV from step {result.step_number}: {file_path}")
-                    break
-        
-        # Strategy 2: Check generated_files list
-        if not file_path:
-            for f in reversed(generated_files):
-                if f.endswith('.csv') and os.path.exists(f):
-                    file_path = f
-                    print(f"   📄 Using generated file: {file_path}")
-                    break
-        
-        # Strategy 3: Extract from tool_context as last resort
-        if not file_path and tool_context:
-            csv_paths = _extract_csv_paths_from_content(tool_context)
-            for path in reversed(csv_paths):
-                if os.path.isabs(path) and os.path.exists(path):
-                    file_path = path
-                    print(f"   📄 Found CSV in context: {file_path}")
-                    break
-                # Try outputs directory
-                full_path = OUTPUT_PATH / os.path.basename(path)
-                if full_path.exists():
-                    file_path = str(full_path)
-                    print(f"   📄 Found CSV in outputs: {file_path}")
-                    break
-        
-        if not file_path:
-            return StepResult(
-                step_number=0,
-                success=False,
-                result_content="",
-                error_message="No CSV file found from previous steps. Data exploration must run first to generate a CSV."
-            ), "Error: No CSV file available for plotting"
-        
-        return execute_plotting(task, file_path, factory)
-    
-    else:
-        return StepResult(
-            step_number=0,
-            success=False,
-            result_content="",
-            error_message=f"Unknown tool: {tool_name}"
-        ), f"Error: Unknown tool {tool_name}"
-
-
 # ============================================================================
 # NODE: CONTEXT BUILDER - Handles multi-turn memory
 # ============================================================================
@@ -691,6 +774,7 @@ def create_context_builder_node():
                 "execution_complete": False,
                 "final_answer": None,
                 "feedback": None,
+                "replan_feedback": None,
                 "pending_interrupt": False,
                 "generated_files": []
             }
@@ -710,6 +794,7 @@ def create_context_builder_node():
                 "execution_complete": False,
                 "final_answer": None,
                 "feedback": None,
+                "replan_feedback": None,
                 "pending_interrupt": False,
                 "generated_files": []
             }
@@ -737,8 +822,9 @@ def create_planner_node(llm):
                     query = msg.content
                     break
         
-        # Check for feedback from previous attempts
-        feedback = state.get("feedback")
+        # Check for replan feedback (set when user approves replan)
+        # This is separate from 'feedback' which triggers interrupts
+        replan_feedback = state.get("replan_feedback")
         previous_results = state.get("step_results", [])
         
         # Build the planning prompt with conversation context
@@ -753,54 +839,100 @@ The user is continuing a conversation. Here's what happened before:
 **IMPORTANT**: The current query may reference previous results. Use the context above to understand references like "it", "that", "the painting", etc.
 """
         
-        system_prompt = f"""## Role
-You are a Strategic AI Planner for an artwork database analysis system.
-{context_section}
-## Available Tools
-{json.dumps({k: v.model_dump() for k, v in TOOL_CAPABILITIES.items()}, indent=2)}
+        system_prompt = f"""## Your Identity
+{XP_AGENT_IDENTITY}
 
-## Database Schema
+{context_section}
+
+## Your Intelligent Subagents
+{SUBAGENT_CAPABILITIES}
+
+## Database Schema Reference
 {DATABASE_SCHEMA}
 
-## Critical Planning Rules
+---
 
-1. **MINIMUM STEPS PRINCIPLE**: Create the SHORTEST possible plan.
-   - If only database info is needed → 1 step (database_exploration_agent)
-   - If visual analysis is needed → 2 steps (database to get img_path, then image_qna_agent)
-   - Add plotting ONLY if user explicitly asks for visualizations
-   - **If the answer is already in conversation context, you may not need any database query!**
+## CRITICAL: Planning Rules for Executable Plans
 
-2. **Tool Selection Rules**:
-   - database_exploration_agent: Use for ANY database query (counts, lists, filtering, etc.)
-   - image_qna_agent: Use ONLY when you need to analyze visual content of images
-   - data_plotting_agent: Use ONLY when user explicitly asks for charts/graphs/plots
+### Rule 1: Subagents Are INTELLIGENT Agents
+Your subagents are NOT simple functions - they are intelligent LLM-powered agents that can:
+- Handle complex, multi-part requests in a SINGLE invocation
+- Make their own decisions about how to accomplish tasks
+- Execute multiple operations autonomously
 
-3. **Image Analysis Protocol**:
-   - ALWAYS get img_path from database FIRST
-   - NEVER use image_url for visual analysis
-   - Pass img_path list to image_qna_agent
+**WRONG APPROACH** ❌ (Too many micro-steps):
+- Step 1: Query paintings from 1500-1550
+- Step 2: Query paintings from 1550-1600
+- Step 3: Query paintings from 1600-1650
+- Step 4: Combine results
 
-4. **Efficiency**:
-   - Don't add steps "just in case"
-   - **Use information from conversation context when available**
-   - Don't create data exploration steps if data is already available from previous results
-   - Skip plotting unless explicitly requested
+**CORRECT APPROACH** ✅ (Let the subagent handle it):
+- Step 1: database_exploration_agent → "Find all paintings from 1500-1650, group by era, and include img_path for visual analysis"
 
-5. **CRITICAL - File Path Rules**:
-   - For data_plotting_agent: DO NOT specify file_path in tool_args_json
-   - The system will AUTOMATICALLY use the CSV file from the previous step
-   - Just specify the "task" (what plot to create), leave file_path empty: {{"task": "create bar chart of counts"}}
-   - Example: {{"task": "bar chart showing distribution"}} - NO file_path needed!
+### Rule 2: Use Markdown Lists for Consecutive Tasks
+When a subagent needs to perform multiple related operations, use markdown list format:
+
+**For database_exploration_agent**:
+```
+Please complete the following tasks:
+- Query all paintings from the Renaissance movement
+- Count how many paintings exist per genre
+- Include img_path column for any paintings that need visual analysis
+- Order results by inception date
+```
+
+**For image_qna_agent**:
+```
+For each image, analyze and determine:
+- Main subjects depicted in the artwork
+- Number of people visible (if any)
+- Dominant color palette
+- Art style characteristics
+```
+
+**For data_plotting_agent**:
+```
+Create the following visualizations from the data:
+- Bar chart showing count per genre
+- Pie chart showing distribution by movement
+```
+
+### Rule 3: Intent Field Format
+The `intent` field describes WHAT to accomplish in natural language.
+- For simple tasks: Single sentence describing the goal
+- For consecutive tasks: Markdown list of sub-tasks
+
+**NEVER include**:
+- Specific file paths like "images/img_1.jpg" 
+- Hardcoded CSV paths
+- SQL syntax (let the subagent handle SQL)
+
+### Rule 4: Dependency Chain
+- image_qna_agent ALWAYS requires database_exploration_agent first (to get img_path)
+- data_plotting_agent requires data from previous steps (CSV automatically resolved)
+
+### Rule 5: Plan Validation Checklist
+Before finalizing your plan, verify:
+✅ Each step uses exactly one of: database_exploration_agent, image_qna_agent, data_plotting_agent
+✅ Intent describes WHAT to do, not HOW (no file paths, no SQL)
+✅ If visual analysis needed: database step comes FIRST with img_path requested
+✅ If charts needed: data source step comes BEFORE plotting step
+✅ Consecutive tasks in a step use markdown list format
+
+---
 
 ## Your Task
-Create a minimal, efficient plan to answer the user's query. Use conversation context when relevant.
+Create an EXECUTABLE plan that can be directly run by the subagents.
+Address ALL aspects of the user's query with as many steps as genuinely needed.
 """
 
         # Build user message with context
         user_content = f"**Current Query**: {query}\n\n"
         
-        if feedback:
-            user_content += f"**Previous Attempt Feedback**: {feedback}\n\n"
+        # Include replan feedback if this is a replan attempt
+        if replan_feedback:
+            user_content += f"**⚠️ Previous Attempt Failed - Reason**: {replan_feedback}\n\n"
+            user_content += "Please create a NEW plan that addresses this issue.\n\n"
         
         if previous_results:
             user_content += "**Previous Step Results**:\n"
@@ -809,7 +941,10 @@ Create a minimal, efficient plan to answer the user's query. Use conversation co
                 user_content += f"- Step {r.step_number}: {status} {r.result_content[:200]}...\n"
             user_content += "\n"
         
-        user_content += "Create the MINIMUM number of steps needed to answer this query."
+        user_content += "Create a complete, executable plan. Remember:\n"
+        user_content += "- Subagents are intelligent and can handle complex multi-part requests\n"
+        user_content += "- Use markdown list format for consecutive tasks within a step\n"
+        user_content += "- Intent should describe WHAT to do, not specific paths or SQL"
         
         # Get structured plan from LLM
         planner_llm = llm.with_structured_output(ExecutionPlan)
@@ -820,13 +955,20 @@ Create a minimal, efficient plan to answer the user's query. Use conversation co
                 HumanMessage(content=user_content)
             ])
             
-            # Update state with plan (keep conversation_context intact)
+            # Log the plan
+            print(f"\n📋 Plan created with {len(plan.steps)} steps:")
+            for step in plan.steps:
+                print(f"   Step {step.step_number}: [{step.tool_name}] {step.description}")
+                print(f"      Intent: {step.intent[:100]}...")
+            
+            # Update state with plan - clear replan_feedback after use
             return {
                 "plan_steps": plan.steps,
                 "total_steps": len(plan.steps),
                 "current_step_index": 0,
                 "completed_steps": 0,
-                "feedback": None,
+                "feedback": None,  # Ensure feedback is cleared
+                "replan_feedback": None,  # Clear replan_feedback after planner uses it
                 "pending_interrupt": False
             }
             
@@ -842,6 +984,167 @@ Create a minimal, efficient plan to answer the user's query. Use conversation co
 
 
 # ============================================================================
+# NODE: STEP RESOLVER - Dynamically resolves tool arguments from context
+# ============================================================================
+
+def create_step_resolver_node(llm):
+    """Create the step resolver node that determines actual tool arguments at runtime."""
+    
+    def step_resolver_node(state: MainAgentState):
+        """
+        Resolve actual tool arguments based on accumulated context.
+        This is the KEY to fixing the hallucinated args problem.
+        """
+        current_idx = state.get("current_step_index", 0)
+        plan_steps = state.get("plan_steps", [])
+        tool_context = state.get("tool_context", "")
+        step_results = state.get("step_results", [])
+        generated_files = state.get("generated_files", [])
+        
+        if current_idx >= len(plan_steps):
+            return {"execution_complete": True}
+        
+        current_step = plan_steps[current_idx]
+        
+        print(f"\n🔍 Resolving args for Step {current_step.step_number}: {current_step.description}")
+        print(f"   Tool: {current_step.tool_name}")
+        print(f"   Intent: {current_step.intent}")
+        
+        # Build context for the resolver
+        accumulated_context = f"## Previous Step Results and Files\n\n"
+        
+        # Add step results with their outputs
+        for result in step_results:
+            accumulated_context += f"### Step {result.step_number} Result\n"
+            accumulated_context += f"- Success: {result.success}\n"
+            if result.output_file:
+                accumulated_context += f"- Output File: {result.output_file}\n"
+            accumulated_context += f"- Content:\n{result.result_content[:2000]}\n\n"
+        
+        # Add generated files list
+        if generated_files:
+            accumulated_context += f"### Generated Files\n"
+            for f in generated_files:
+                accumulated_context += f"- {f}\n"
+            accumulated_context += "\n"
+        
+        # Add tool context (contains detailed results)
+        if tool_context:
+            accumulated_context += f"### Detailed Tool Context\n{tool_context}\n"
+        
+        # Create the resolver prompt
+        resolver_prompt = STEP_RESOLVER_PROMPT.format(
+            step_number=current_step.step_number,
+            step_description=current_step.description,
+            tool_name=current_step.tool_name,
+            step_intent=current_step.intent,
+            expected_output=current_step.expected_output,
+            accumulated_context=accumulated_context
+        )
+        
+        # Get structured decision from LLM
+        resolver_llm = llm.with_structured_output(StepExecutionDecision)
+        
+        try:
+            decision: StepExecutionDecision = resolver_llm.invoke([
+                SystemMessage(content=resolver_prompt),
+                HumanMessage(content=f"Resolve the actual arguments for tool: {current_step.tool_name}")
+            ])
+            
+            print(f"   📋 Decision: {decision.action}")
+            if decision.resolved_query:
+                print(f"   Query: {decision.resolved_query[:100]}...")
+            if decision.resolved_img_paths:
+                print(f"   Images: {len(decision.resolved_img_paths)} paths resolved")
+            if decision.resolved_csv_path:
+                print(f"   CSV: {decision.resolved_csv_path}")
+            
+            # Store the decision in state for the executor
+            return {
+                "current_step_decision": decision
+            }
+            
+        except Exception as e:
+            print(f"❌ Resolver error: {e}")
+            # Create a fallback decision using heuristics
+            fallback_decision = _create_fallback_decision(
+                current_step, tool_context, step_results, generated_files
+            )
+            return {
+                "current_step_decision": fallback_decision
+            }
+    
+    return step_resolver_node
+
+
+def _create_fallback_decision(
+    step: PlanStep, 
+    tool_context: str, 
+    step_results: List[StepResult],
+    generated_files: List[str]
+) -> StepExecutionDecision:
+    """Create a fallback decision using heuristic extraction."""
+    
+    if step.tool_name == "database_exploration_agent":
+        # Use the intent as the query
+        return StepExecutionDecision(
+            action="execute",
+            resolved_query=step.intent or step.description,
+            reasoning="Fallback: Using step intent as query"
+        )
+    
+    elif step.tool_name == "image_qna_agent":
+        # Extract image paths from context
+        img_paths = _extract_img_paths_from_content(tool_context)
+        if not img_paths:
+            return StepExecutionDecision(
+                action="replan",
+                replan_reason="No image paths found in previous step results",
+                reasoning="Cannot execute image analysis without image paths"
+            )
+        return StepExecutionDecision(
+            action="execute",
+            resolved_query=step.intent or step.description,
+            resolved_img_paths=img_paths,
+            reasoning=f"Fallback: Extracted {len(img_paths)} image paths from context"
+        )
+    
+    elif step.tool_name == "data_plotting_agent":
+        # Find CSV file from generated files or step results
+        csv_path = None
+        for f in reversed(generated_files):
+            if f.endswith('.csv') and os.path.exists(f):
+                csv_path = f
+                break
+        if not csv_path:
+            for result in reversed(step_results):
+                if result.output_file and result.output_file.endswith('.csv'):
+                    if os.path.exists(result.output_file):
+                        csv_path = result.output_file
+                        break
+        
+        if not csv_path:
+            return StepExecutionDecision(
+                action="replan",
+                replan_reason="No CSV file found from previous steps",
+                reasoning="Cannot create plot without data file"
+            )
+        
+        return StepExecutionDecision(
+            action="execute",
+            resolved_query=step.intent or step.description,
+            resolved_csv_path=csv_path,
+            reasoning=f"Fallback: Using CSV file {csv_path}"
+        )
+    
+    return StepExecutionDecision(
+        action="replan",
+        replan_reason=f"Unknown tool: {step.tool_name}",
+        reasoning="Cannot handle unknown tool"
+    )
+
+
+# ============================================================================
 # NODE: STEP EXECUTOR
 # ============================================================================
 
@@ -849,37 +1152,49 @@ def create_executor_node(llm, factory: SubagentFactory):
     """Create the step execution node."""
     
     def executor_node(state: MainAgentState):
-        """Execute the current step in the plan."""
+        """Execute the current step using resolved arguments."""
         
         current_idx = state.get("current_step_index", 0)
         plan_steps = state.get("plan_steps", [])
         tool_context = state.get("tool_context", "")
+        decision = state.get("current_step_decision")
         
         if current_idx >= len(plan_steps):
-            # No more steps
-            return {
-                "execution_complete": True
-            }
+            return {"execution_complete": True}
         
         current_step = plan_steps[current_idx]
+        
+        # Check if we need to replan based on resolver decision
+        if decision and decision.action == "replan":
+            print(f"⚠️ Step {current_step.step_number} needs replanning: {decision.replan_reason}")
+            return {
+                "feedback": decision.replan_reason,
+                "pending_interrupt": True
+            }
+        
+        if decision and decision.action == "skip":
+            print(f"⏭️ Skipping Step {current_step.step_number}: {decision.skip_reason}")
+            current_step.status = "skipped"
+            return {
+                "current_step_index": current_idx + 1,
+                "step_results": [StepResult(
+                    step_number=current_step.step_number,
+                    success=True,
+                    result_content=f"Skipped: {decision.skip_reason}"
+                )]
+            }
+        
         print(f"\n🔄 Executing Step {current_step.step_number}: {current_step.description}")
         print(f"   Tool: {current_step.tool_name}")
         
-        # Get tool arguments
-        tool_args = current_step.get_tool_args()
-        
-        # Get previous results and generated files for context
-        previous_results = state.get("step_results", [])
-        generated_files = state.get("generated_files", [])
-        
-        # Execute the tool with full context
-        step_result, new_context = _execute_tool(
-            current_step.tool_name,
-            tool_args,
+        # Execute with resolved arguments
+        step_result, new_context = _execute_tool_with_decision(
+            current_step,
+            decision,
             tool_context,
             factory,
-            generated_files=generated_files,
-            step_results=previous_results
+            state.get("generated_files", []),
+            state.get("step_results", [])
         )
         step_result.step_number = current_step.step_number
         
@@ -888,18 +1203,13 @@ def create_executor_node(llm, factory: SubagentFactory):
         current_step.result_summary = step_result.result_content[:500] if step_result.success else step_result.error_message
         current_step.output_file = step_result.output_file
         
-        # Extract image paths for potential downstream use
-        if step_result.success:
-            img_paths = _extract_img_paths_from_content(step_result.result_content)
-            if img_paths:
-                new_context += f"\n**Extracted Image Paths**: {json.dumps(img_paths)}\n"
-        
         # Build updates
         updates = {
             "current_step_index": current_idx + 1,
             "step_results": [step_result],
             "tool_context": new_context,
-            "completed_steps": state.get("completed_steps", 0) + (1 if step_result.success else 0)
+            "completed_steps": state.get("completed_steps", 0) + (1 if step_result.success else 0),
+            "current_step_decision": None  # Clear the decision
         }
         
         # Update generated files list
@@ -920,6 +1230,77 @@ def create_executor_node(llm, factory: SubagentFactory):
         return updates
     
     return executor_node
+
+
+def _execute_tool_with_decision(
+    step: PlanStep,
+    decision: Optional[StepExecutionDecision],
+    tool_context: str,
+    factory: SubagentFactory,
+    generated_files: List[str],
+    step_results: List[StepResult]
+) -> tuple[StepResult, str]:
+    """Execute a tool using the resolved decision."""
+    
+    tool_name = step.tool_name
+    
+    if tool_name == "database_exploration_agent":
+        query = (decision.resolved_query if decision and decision.resolved_query else None) or step.intent or step.description
+        return execute_data_exploration(query, factory)
+    
+    elif tool_name == "image_qna_agent":
+        query = (decision.resolved_query if decision and decision.resolved_query else None) or step.intent or step.description
+        img_paths = decision.resolved_img_paths if decision and decision.resolved_img_paths else []
+        
+        # Fallback: extract from context if decision didn't provide paths
+        if not img_paths:
+            img_paths = _extract_img_paths_from_content(tool_context)
+        
+        if not img_paths:
+            return StepResult(
+                step_number=0,
+                success=False,
+                result_content="",
+                error_message="No image paths available for analysis"
+            ), "Error: No image paths found"
+        
+        return execute_image_qna(query, img_paths, tool_context, factory)
+    
+    elif tool_name == "data_plotting_agent":
+        task = (decision.resolved_query if decision and decision.resolved_query else None) or step.intent or step.description
+        csv_path = decision.resolved_csv_path if decision else None
+        
+        # Fallback: find CSV from previous steps
+        if not csv_path:
+            for result in reversed(step_results):
+                if result.success and result.output_file and result.output_file.endswith('.csv'):
+                    if os.path.exists(result.output_file):
+                        csv_path = result.output_file
+                        break
+        
+        if not csv_path:
+            for f in reversed(generated_files):
+                if f.endswith('.csv') and os.path.exists(f):
+                    csv_path = f
+                    break
+        
+        if not csv_path:
+            return StepResult(
+                step_number=0,
+                success=False,
+                result_content="",
+                error_message="No CSV file found from previous steps"
+            ), "Error: No CSV file available for plotting"
+        
+        return execute_plotting(task, csv_path, factory)
+    
+    else:
+        return StepResult(
+            step_number=0,
+            success=False,
+            result_content="",
+            error_message=f"Unknown tool: {tool_name}"
+        ), f"Error: Unknown tool {tool_name}"
 
 
 # ============================================================================
@@ -1012,6 +1393,9 @@ Please synthesize these results into a clear, helpful answer for the user.
 def interrupt_for_replan_node(state: MainAgentState) -> Command[Literal["planner", "aggregator"]]:
     """Handle interrupts and decide whether to replan."""
     
+    # Get the feedback that triggered this interrupt
+    current_feedback = state.get("feedback", "Unknown issue")
+    
     # Check replan limit
     if state.get("replan_count", 0) >= state.get("max_replans", 3):
         print("⚠️ Maximum replans reached, showing partial results")
@@ -1019,31 +1403,41 @@ def interrupt_for_replan_node(state: MainAgentState) -> Command[Literal["planner
             goto="aggregator",
             update={
                 "pending_interrupt": False,
+                "feedback": None,  # Clear feedback
+                "replan_feedback": None,
                 "execution_complete": True
             }
         )
     
     # Ask user for approval
     is_approved = interrupt({
-        "question": f"Plan needs revision. Feedback: {state.get('feedback', 'Unknown issue')}\n\nDo you want to replan?",
+        "question": f"Plan needs revision. Feedback: {current_feedback}\n\nDo you want to replan?",
         "options": ["Yes, replan", "No, show partial results"]
     })
     
     if is_approved == "Yes, replan" or is_approved is True:
+        print(f"✅ User approved replan. Transferring feedback to replan_feedback.")
         return Command(
             goto="planner",
             update={
                 "replan_count": state.get("replan_count", 0) + 1,
                 "pending_interrupt": False,
                 "current_step_index": 0,
-                "plan_steps": []
+                "plan_steps": [],
+                # Transfer feedback to replan_feedback for planner to use
+                "replan_feedback": current_feedback,
+                # Clear feedback to prevent re-triggering interrupt
+                "feedback": None
             }
         )
     else:
+        print(f"❌ User rejected replan. Going to aggregator.")
         return Command(
             goto="aggregator",
             update={
                 "pending_interrupt": False,
+                "feedback": None,  # Clear feedback
+                "replan_feedback": None,
                 "execution_complete": True
             }
         )
@@ -1053,7 +1447,7 @@ def interrupt_for_replan_node(state: MainAgentState) -> Command[Literal["planner
 # ROUTING LOGIC
 # ============================================================================
 
-def route_after_executor(state: MainAgentState) -> Literal["executor", "aggregator", "interrupt_for_replan"]:
+def route_after_executor(state: MainAgentState) -> Literal["step_resolver", "aggregator", "interrupt_for_replan"]:
     """Route based on executor result."""
     
     if state.get("pending_interrupt"):
@@ -1068,17 +1462,19 @@ def route_after_executor(state: MainAgentState) -> Literal["executor", "aggregat
     if current_idx >= total_steps:
         return "aggregator"
     
-    return "executor"
+    # Go to step resolver for next step
+    return "step_resolver"
 
 
-def route_after_planner(state: MainAgentState) -> Literal["executor", "interrupt_for_replan"]:
+def route_after_planner(state: MainAgentState) -> Literal["step_resolver", "interrupt_for_replan"]:
     """Route based on planner result."""
     
     if state.get("pending_interrupt"):
         return "interrupt_for_replan"
     
     if state.get("plan_steps"):
-        return "executor"
+        # Go to step resolver first, not directly to executor
+        return "step_resolver"
     
     return "interrupt_for_replan"
 
@@ -1133,6 +1529,7 @@ def build_xp_agent(
     # Create nodes
     context_builder = create_context_builder_node()
     planner = create_planner_node(llm)
+    step_resolver = create_step_resolver_node(llm)  # NEW: Resolves args dynamically
     executor = create_executor_node(llm, factory)
     aggregator = create_aggregator_node(llm)
     
@@ -1140,8 +1537,9 @@ def build_xp_agent(
     builder = StateGraph(MainAgentState)
     
     # Add nodes
-    builder.add_node("context_builder", context_builder)  # NEW: Handles multi-turn memory
+    builder.add_node("context_builder", context_builder)  # Handles multi-turn memory
     builder.add_node("planner", planner)
+    builder.add_node("step_resolver", step_resolver)  # NEW: Dynamic arg resolution
     builder.add_node("executor", executor)
     builder.add_node("aggregator", aggregator)
     builder.add_node("interrupt_for_replan", interrupt_for_replan_node)
@@ -1152,12 +1550,13 @@ def build_xp_agent(
     builder.add_conditional_edges(
         "planner",
         route_after_planner,
-        ["executor", "interrupt_for_replan"]
+        ["step_resolver", "interrupt_for_replan"]  # planner -> step_resolver (not executor)
     )
+    builder.add_edge("step_resolver", "executor")  # step_resolver -> executor
     builder.add_conditional_edges(
         "executor",
         route_after_executor,
-        ["executor", "aggregator", "interrupt_for_replan"]
+        ["step_resolver", "aggregator", "interrupt_for_replan"]  # executor -> step_resolver for next step
     )
     builder.add_edge("aggregator", END)
     

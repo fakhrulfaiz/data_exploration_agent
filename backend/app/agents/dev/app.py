@@ -1086,12 +1086,15 @@ with gr.Blocks(title="🎨 Art Analysis Agent", css=CUSTOM_CSS) as demo:
     # Handle approval
     def on_approve(session_id, history):
         updated_history, _, status = handle_approval(session_id, True, history)
-        # Check again for new interrupts (in case there's a chain)
-        is_interrupted, _, modal_visibility, question = check_interrupt_status(session_id)
+        # Always hide modal first, then check for new interrupts
+        # Small delay check - but default to hiding modal
+        is_interrupted, _, _, question = check_interrupt_status(session_id)
         if is_interrupted:
+            # There's a new interrupt (chain of replans), show it
             question_md = f"**Reason:** {question}"
-            return updated_history, modal_visibility, question_md, status
+            return updated_history, gr.update(visible=True), question_md, status
         else:
+            # No new interrupt - hide the modal
             return updated_history, gr.update(visible=False), "", status
 
     approve_btn.click(
@@ -1102,13 +1105,14 @@ with gr.Blocks(title="🎨 Art Analysis Agent", css=CUSTOM_CSS) as demo:
 
     # Handle rejection
     def on_reject(session_id, history):
-        updated_history, modal_visibility, status = handle_approval(session_id, False, history)
-        return updated_history, modal_visibility, status
+        updated_history, _, status = handle_approval(session_id, False, history)
+        # Always hide modal on reject
+        return updated_history, gr.update(visible=False), "", status
 
     reject_btn.click(
         on_reject,
         inputs=[session_id_state, chatbot.chatbot],
-        outputs=[chatbot.chatbot, interrupt_modal, status_display]
+        outputs=[chatbot.chatbot, interrupt_modal, interrupt_question, status_display]
     )
 
     # Manual interrupt check (for debugging)

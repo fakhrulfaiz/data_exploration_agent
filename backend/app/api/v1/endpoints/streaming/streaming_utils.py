@@ -296,6 +296,50 @@ async def handle_xp_approval(
                 "action": "add_planner"
             })
         }
+    
+    elif interrupt_type == "xp_replan_approval":
+        # Dynamic replan approval - triggered by errors during execution
+        # This is the ONLY approval point for XpAgentV2
+        # Use block_type "plan" with action "replan" to match existing frontend handler
+        block_id = f"plan_{context.assistant_message_id}_replan"
+        
+        # Build replan message with feedback
+        feedback = interrupt_dict.get("feedback", "")
+        replan_count = interrupt_dict.get("replan_count", 0)
+        replan_content = f"**Execution Error**\n\n{feedback}\n\n**Options:**\n- Approve to replan with this feedback\n- Reject to show partial results"
+        
+        approval_block = {
+            "id": block_id,
+            "type": "plan",
+            "needsApproval": True,
+            "data": {
+                "plan": replan_content,
+                "isReplan": True,  # Flag for frontend to render replan UI
+                "feedback": feedback,
+                "replan_count": replan_count,
+                "checkpointId": checkpoint_id
+            }
+        }
+        await context.save_block(approval_block)
+        logger.info(f"✅ XpAgent replan approval block saved: {block_id}")
+        
+        # Yield content_block event for frontend using existing "plan" block type with "replan" action
+        # Include isReplan and feedback so frontend can render proper replan UI
+        yield {
+            "event": "content_block",
+            "data": json.dumps({
+                "block_type": "plan",
+                "block_id": block_id,
+                "content": replan_content,
+                "node": "interrupt_for_replan",
+                "message_id": context.assistant_message_id,
+                "needsApproval": True,
+                "action": "replan",
+                "isReplan": True,
+                "feedback": feedback,
+                "replan_count": replan_count
+            })
+        }
         
     elif interrupt_type == "xp_error":
         block_id = f"xp_error_{context.assistant_message_id}"
@@ -313,11 +357,15 @@ async def handle_xp_approval(
         logger.info(f"✅ XpAgent error approval block saved: {block_id}")
     
     # Yield status event for frontend
+    # Include response_type for frontend to know what kind of approval this is
+    response_type = "replan" if interrupt_type == "xp_replan_approval" else None
+    
     yield {
         "event": "status",
         "data": json.dumps({
             "status": "user_feedback",
-            "approval_type": "xp_" + interrupt_type.replace("xp_", ""),  # xp_plan_approval, xp_error
+            "response_type": response_type,  # Frontend checks this for replan handling
+            "approval_type": "xp_" + interrupt_type.replace("xp_", ""),  # xp_plan_approval, xp_replan_approval, xp_error
             "thread_id": context.thread_id,
             "checkpoint_id": checkpoint_id,
             "__interrupt__": [{"value": interrupt_dict}]

@@ -27,9 +27,34 @@ class PlanStep(BaseModel):
         ..., 
         description="Which tool to use for this step"
     )
-    tool_args_json: str = Field(
-        default="{}",
-        description="JSON string of arguments to pass to the tool. E.g. '{\"query\": \"Find all paintings\"}'"
+    # IMPORTANT: intent describes WHAT to do in NATURAL LANGUAGE
+    # The executor will resolve actual file paths from accumulated context at runtime
+    # For consecutive tasks, use markdown list format
+    intent: str = Field(
+        default="",
+        description="""The task/query to send to the subagent in NATURAL LANGUAGE.
+        
+For SIMPLE tasks: Single sentence describing what to do.
+Example: "Find the oldest painting in the database and include its img_path"
+
+For CONSECUTIVE tasks: Use markdown list format.
+Example:
+"Please complete the following tasks:
+- Query all Renaissance paintings
+- Count how many exist per genre
+- Include img_path for visual analysis
+- Order by inception date"
+
+NEVER include:
+- Specific file paths like 'images/img_1.jpg'
+- Hardcoded CSV paths like '/path/to/file.csv'
+- Raw SQL queries (let the subagent handle SQL)
+
+The subagents are intelligent and will understand natural language instructions."""
+    )
+    expected_output: str = Field(
+        default="",
+        description="What type of output this step should produce (e.g., 'CSV with painting metadata', 'Image analysis results', 'Bar chart visualization')"
     )
     depends_on: List[int] = Field(
         default_factory=list,
@@ -47,15 +72,6 @@ class PlanStep(BaseModel):
         default=None,
         description="Path to output file if step produces one"
     )
-    
-    # Note: Using a method instead of @property to avoid Pydantic including it in JSON schema
-    # which causes OpenAI structured output to fail with additionalProperties error
-    def get_tool_args(self) -> Dict[str, Any]:
-        """Parse tool_args_json and return as dict."""
-        try:
-            return json.loads(self.tool_args_json)
-        except json.JSONDecodeError:
-            return {}
     
     def to_prompt_string(self) -> str:
         """Format step for prompt context."""
@@ -109,30 +125,64 @@ class ToolCapability(BaseModel):
 TOOL_CAPABILITIES = {
     "database_exploration_agent": ToolCapability(
         name="database_exploration_agent",
-        description="Queries SQL database for artwork metadata. Can access: title, inception, movement, genre, image_url, img_path. CANNOT analyze image content. IMPORTANT: When visual analysis is needed, ALWAYS include img_path column in your query to get local image paths. Automatically saves results to CSV.",
+        description="""INTELLIGENT SQL Database Exploration Subagent.
+
+This is a SMART AGENT (not a simple tool) that can:
+- Understand natural language queries and translate them to SQL
+- Execute MULTIPLE database queries autonomously to gather complete data
+- Handle complex multi-step database explorations (e.g., "find paintings, count by genre, then filter top 5")
+- Automatically export results to CSV for downstream processing
+
+Database Schema: paintings table with columns (title, inception, movement, genre, image_url, img_path)
+
+CRITICAL: When visual analysis is needed downstream, instruct the agent to include img_path in results.
+
+CANNOT: Analyze image visual content - only database metadata.""",
         required_args=["query"],
         optional_args=[],
         can_produce_csv=True,
         requires_csv_input=False,
-        example_args_json='{"query": "SELECT title, inception, img_path FROM paintings WHERE movement = \\"Renaissance\\" LIMIT 10"}'
+        example_args_json='{"query": "Find all Renaissance paintings and include their img_path for visual analysis"}'
     ),
     "image_qna_agent": ToolCapability(
         name="image_qna_agent",
-        description="Analyzes visual content of images using BLIP VQA. Can describe: colors, subjects, objects, people, style, composition. REQUIRES img_path values from the database (e.g., 'images/img_0.jpg'). These are LOCAL paths, not URLs. Automatically saves results to CSV.",
+        description="""INTELLIGENT Image Analysis Subagent with GPU-accelerated BLIP VQA.
+
+This is a SMART AGENT (not a simple tool) that can:
+- Process MULTIPLE images in a single invocation
+- Understand complex visual queries and analyze each image accordingly
+- Handle batch operations (e.g., "analyze all images for subjects, then count people in each")
+- Automatically synthesize results and export to CSV
+
+Capabilities: Detect colors, subjects, objects, people count, art style, composition, mood, etc.
+
+REQUIRES: img_path values from database_exploration_agent (format: 'images/img_N.jpg')
+These are LOCAL file paths, NOT URLs. The img_path column from database must be queried first.""",
         required_args=["query", "img_path"],
         optional_args=[],
         can_produce_csv=True,
         requires_csv_input=False,
-        example_args_json='{"query": "Count the number of people visible in this image", "img_path": ["images/img_0.jpg", "images/img_1.jpg"]}'
+        example_args_json='{"query": "For each image: 1. Identify main subjects 2. Count number of people 3. Describe the color palette"}'
     ),
     "data_plotting_agent": ToolCapability(
         name="data_plotting_agent",
-        description="Creates visualizations from CSV data. Supports: bar, line, scatter, pie charts. IMPORTANT: Do NOT specify file_path - the system automatically uses the CSV from the previous step.",
+        description="""INTELLIGENT Data Visualization Subagent.
+
+This is a SMART AGENT (not a simple tool) that can:
+- Read and understand CSV data structure automatically
+- Generate multiple plot types in a single invocation
+- Choose appropriate visualizations based on data characteristics
+- Handle complex requests (e.g., "create a bar chart for categories and a pie chart for distribution")
+
+Supported: bar, line, scatter, pie, histogram charts with matplotlib
+
+IMPORTANT: The CSV file path is automatically resolved from previous step outputs.
+Just describe what visualizations you want.""",
         required_args=["task"],
         optional_args=[],
         can_produce_csv=False,
         requires_csv_input=True,
-        example_args_json='{"task": "Create a bar chart showing the distribution"}'
+        example_args_json='{"task": "Create: 1. Bar chart showing count by genre 2. Pie chart showing movement distribution"}'
     )
 }
 
@@ -215,10 +265,15 @@ class MainAgentState(MessagesState):
     replan_count: int = Field(default=0, description="Number of times plan was revised")
     max_replans: int = Field(default=3, description="Maximum allowed replans")
     
-    # Feedback from subagents
+    # Feedback from subagents - triggers interrupt when set
     feedback: Optional[str] = Field(
         default=None,
-        description="Feedback from failed step or subagent"
+        description="Feedback from failed step or subagent. When set with pending_interrupt=True, triggers replan flow."
+    )
+    # Replan feedback - passed to planner after user approves replan
+    replan_feedback: Optional[str] = Field(
+        default=None,
+        description="Feedback to show to planner during replan. Set when user approves replan, cleared after planner uses it."
     )
     pending_interrupt: bool = Field(
         default=False,
@@ -240,6 +295,12 @@ class MainAgentState(MessagesState):
         default_factory=list,
         description="List of files generated during execution"
     )
+    
+    # Step resolver decision - dynamically resolved args for current step
+    current_step_decision: Optional["StepExecutionDecision"] = Field(
+        default=None,
+        description="The resolved execution decision for the current step"
+    )
 
 
 # ============================================================================
@@ -251,22 +312,22 @@ class ExecutionPlan(BaseModel):
     
     understanding: str = Field(
         ...,
-        description="Your understanding of what the user wants to achieve"
+        description="Your understanding of what the user wants to achieve, including all sub-goals"
     )
     
-    minimal_approach: str = Field(
+    complexity_analysis: str = Field(
         ...,
-        description="Explain why this is the MINIMUM number of steps needed. What tools are NOT needed and why?"
+        description="Analyze the complexity: Is this a simple single-step query, or a complex multi-step task? Complex tasks may need 5-15 steps. Consider: multiple data sources, multiple analyses, multiple visualizations, iterative refinement, etc."
     )
     
     steps: List[PlanStep] = Field(
         ...,
-        description="MINIMAL list of steps - only include steps that are absolutely necessary"
+        description="Complete list of steps needed. Simple tasks may need 1-3 steps, complex tasks may need 5-15+ steps. DO NOT artificially limit the number of steps."
     )
     
     reasoning: str = Field(
         ...,
-        description="Why this minimal plan will accomplish the user's goal efficiently"
+        description="Why this plan will accomplish ALL aspects of the user's goal"
     )
     
     potential_issues: List[str] = Field(
@@ -292,16 +353,28 @@ class ExecutionPlan(BaseModel):
 # ============================================================================
 
 class StepExecutionDecision(BaseModel):
-    """What the executor decides to do for a step."""
+    """What the executor decides to do for a step - with DYNAMICALLY resolved arguments."""
     
     action: Literal["execute", "skip", "replan"] = Field(
         ...,
         description="What action to take"
     )
     
-    tool_call_args_json: Optional[str] = Field(
+    # IMPORTANT: These are the ACTUAL resolved arguments based on accumulated context
+    # NOT the hallucinated args from the plan
+    resolved_query: Optional[str] = Field(
         default=None,
-        description="JSON string of arguments to pass to the tool if executing. E.g. '{\"query\": \"Find paintings\"}'"
+        description="The actual query/task to execute (for database_exploration_agent or image_qna_agent)"
+    )
+    
+    resolved_img_paths: Optional[List[str]] = Field(
+        default=None,
+        description="Actual image paths extracted from previous step results (for image_qna_agent). Extract from accumulated context, NOT from the plan."
+    )
+    
+    resolved_csv_path: Optional[str] = Field(
+        default=None,
+        description="Actual CSV file path from previous step results (for data_plotting_agent). Extract from accumulated context, NOT from the plan."
     )
     
     skip_reason: str = Field(
@@ -316,19 +389,8 @@ class StepExecutionDecision(BaseModel):
     
     reasoning: str = Field(
         ...,
-        description="Reasoning behind the decision"
+        description="Explain how you resolved the actual arguments from the accumulated context"
     )
-    
-    # Note: Using a method instead of @property to avoid Pydantic including it in JSON schema
-    # which causes OpenAI structured output to fail with additionalProperties error
-    def get_tool_call_args(self) -> Optional[Dict[str, Any]]:
-        """Parse tool_call_args_json and return as dict."""
-        if self.tool_call_args_json is None:
-            return None
-        try:
-            return json.loads(self.tool_call_args_json)
-        except json.JSONDecodeError:
-            return {}
 
 
 # ============================================================================

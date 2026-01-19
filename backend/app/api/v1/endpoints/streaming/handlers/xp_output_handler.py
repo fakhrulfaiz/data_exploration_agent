@@ -41,17 +41,22 @@ class XpOutputHandler(ContentHandler):
         - Output hasn't been emitted yet
         """
         if self.output_emitted:
+            logger.debug(f"XpOutputHandler.can_handle_state_update: already emitted, skipping")
             return False
         
         agent_type = state_values.get("agent_type", "")
         if agent_type != "xp_agent_v2":
+            logger.debug(f"XpOutputHandler.can_handle_state_update: agent_type={agent_type}, not xp_agent_v2")
             return False
         
         if node_name not in ("aggregator", "finalizer"):
+            logger.debug(f"XpOutputHandler.can_handle_state_update: node_name={node_name}, not aggregator/finalizer")
             return False
         
         final_answer = state_values.get("final_answer")
-        return bool(final_answer and final_answer.strip())
+        has_answer = bool(final_answer and final_answer.strip())
+        logger.info(f"XpOutputHandler.can_handle_state_update: node={node_name}, has_final_answer={has_answer}")
+        return has_answer
     
     async def handle_state_update(self, node_name: str, state_values: Dict) -> AsyncGenerator[Dict, None]:
         """

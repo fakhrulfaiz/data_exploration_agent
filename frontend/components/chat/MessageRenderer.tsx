@@ -1,23 +1,35 @@
-import React, { useState } from 'react';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
-import { Message, ContentBlock, isTextBlock, isToolCallsBlock, isExplorerBlock, isVisualizationsBlock, isPlanBlock, isErrorBlock, isExplanationBlock, isReasoningChainBlock, isFinalizerBlock } from '@/types/chat';
-import { ExplorerMessage } from '@/components/messages/ExplorerMessage';
-import { markdownComponents } from '@/utils/markdownComponents';
-import VisualizationMessage from '@/components/messages/VisualizationMessage';
-import { ToolCallMessage } from '@/components/messages/ToolCallMessage';
-import { PlanMessage } from '@/components/messages/PlanMessage';
-import { ErrorMessage } from '@/components/messages/ErrorMessage';
-import { ExplanationMessage } from '@/components/messages/ExplanationMessage';
-import { ReasoningChainMessage } from '@/components/messages/ReasoningChainMessage';
-import { SqlApprovalMessage } from '@/components/messages/SqlApprovalMessage';
-import FinalResponseMessage from '@/components/messages/FinalResponseMessage';
+import React, { useState } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import {
+  Message,
+  ContentBlock,
+  isTextBlock,
+  isToolCallsBlock,
+  isExplorerBlock,
+  isVisualizationsBlock,
+  isPlanBlock,
+  isErrorBlock,
+  isExplanationBlock,
+  isReasoningChainBlock,
+  isFinalizerBlock,
+} from "@/types/chat";
+import { ExplorerMessage } from "@/components/messages/ExplorerMessage";
+import { markdownComponents } from "@/utils/markdownComponents";
+import VisualizationMessage from "@/components/messages/VisualizationMessage";
+import { ToolCallMessage } from "@/components/messages/ToolCallMessage";
+import { PlanMessage } from "@/components/messages/PlanMessage";
+import { ErrorMessage } from "@/components/messages/ErrorMessage";
+import { ExplanationMessage } from "@/components/messages/ExplanationMessage";
+import { ReasoningChainMessage } from "@/components/messages/ReasoningChainMessage";
+import { SqlApprovalMessage } from "@/components/messages/SqlApprovalMessage";
+import FinalResponseMessage from "@/components/messages/FinalResponseMessage";
 import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
-} from '@/components/ui/collapsible';
-import { ChevronDown, ChevronRight } from 'lucide-react';
+} from "@/components/ui/collapsible";
+import { ChevronDown, ChevronRight } from "lucide-react";
 
 interface MessageRendererProps {
   message: Message;
@@ -33,7 +45,7 @@ interface ToolHistoryCollapsibleProps {
 const ToolHistoryCollapsible: React.FC<ToolHistoryCollapsibleProps> = ({
   blocks,
   collapseUntilIndex,
-  renderContentBlock
+  renderContentBlock,
 }) => {
   const [isExpanded, setIsExpanded] = useState(false);
 
@@ -68,7 +80,7 @@ const ToolHistoryCollapsible: React.FC<ToolHistoryCollapsibleProps> = ({
             </span>
             {!isExpanded && (
               <span className="text-sm text-muted-foreground">
-                ({toolNames.length} {toolNames.length === 1 ? 'tool' : 'tools'})
+                ({toolNames.length} {toolNames.length === 1 ? "tool" : "tools"})
               </span>
             )}
           </button>
@@ -122,22 +134,25 @@ const ThoughtCollapsible: React.FC<{ content: string }> = ({ content }) => {
   );
 };
 
-export const MessageRenderer: React.FC<MessageRendererProps> = ({ message, onAction }) => {
+export const MessageRenderer: React.FC<MessageRendererProps> = ({
+  message,
+  onAction,
+}) => {
   // Helper function to get border styling based on block status
   const getBlockBorderClass = (block: ContentBlock): string => {
-    if (!block.messageStatus) return '';
+    if (!block.messageStatus) return "";
 
     switch (block.messageStatus) {
-      case 'approved':
-        return ''; // Removed green box styling
-      case 'rejected':
-        return 'border border-red-500/50 rounded-lg p-3';
-      case 'error':
-        return 'border border-destructive/50 rounded-lg p-3';
-      case 'timeout':
-        return 'border border-orange-500/50 rounded-lg p-3';
+      case "approved":
+        return ""; // Removed green box styling
+      case "rejected":
+        return "border border-red-500/50 rounded-lg p-3";
+      case "error":
+        return "border border-destructive/50 rounded-lg p-3";
+      case "timeout":
+        return "border border-orange-500/50 rounded-lg p-3";
       default:
-        return '';
+        return "";
     }
   };
 
@@ -146,14 +161,28 @@ export const MessageRenderer: React.FC<MessageRendererProps> = ({ message, onAct
     if (!block.messageStatus) return null;
 
     switch (block.messageStatus) {
-      case 'approved':
-        return <span className="text-xs text-green-600 font-medium ml-2">✓ Approved</span>;
-      case 'rejected':
-        return <span className="text-xs text-red-600 font-medium ml-2">Cancelled</span>;
-      case 'error':
-        return <span className="text-xs text-red-600 font-medium ml-2">Error</span>;
-      case 'timeout':
-        return <span className="text-xs text-orange-600 font-medium ml-2">Timed out</span>;
+      case "approved":
+        return (
+          <span className="text-xs text-green-600 font-medium ml-2">
+            ✓ Approved
+          </span>
+        );
+      case "rejected":
+        return (
+          <span className="text-xs text-red-600 font-medium ml-2">
+            Cancelled
+          </span>
+        );
+      case "error":
+        return (
+          <span className="text-xs text-red-600 font-medium ml-2">Error</span>
+        );
+      case "timeout":
+        return (
+          <span className="text-xs text-orange-600 font-medium ml-2">
+            Timed out
+          </span>
+        );
       default:
         return null;
     }
@@ -162,33 +191,51 @@ export const MessageRenderer: React.FC<MessageRendererProps> = ({ message, onAct
   const renderContentBlock = (block: ContentBlock) => {
     if (isTextBlock(block)) {
       // Check for SQL approval metadata
-      if (block.metadata?.type === 'sql_approval' && block.metadata?.sql) {
+      if (block.metadata?.type === "sql_approval" && block.metadata?.sql) {
         return (
           <div key={block.id} className="content-block sql-approval-block mb-4">
             <SqlApprovalMessage
               data={{
                 sql: block.metadata.sql,
-                type: 'sql_approval',
-                tool_call_id: block.metadata.tool_call_id
+                type: "sql_approval",
+                tool_call_id: block.metadata.tool_call_id,
               }}
-              onApprove={onAction ? () => onAction('approveSql', block) : undefined}
-              onReject={onAction ? () => onAction('rejectSql', block) : undefined}
-              onEdit={onAction ? (newSql) => onAction('editSql', { ...block, metadata: { ...block.metadata, sql: newSql } }) : undefined}
+              onApprove={
+                onAction ? () => onAction("approveSql", block) : undefined
+              }
+              onReject={
+                onAction ? () => onAction("rejectSql", block) : undefined
+              }
+              onEdit={
+                onAction
+                  ? (newSql) =>
+                      onAction("editSql", {
+                        ...block,
+                        metadata: { ...block.metadata, sql: newSql },
+                      })
+                  : undefined
+              }
             />
           </div>
         );
       }
 
       // Check for Thought blocks
-      if (typeof block.data.text === 'string' && block.data.text.includes('Thought: ')) {
+      if (
+        typeof block.data.text === "string" &&
+        block.data.text.includes("Thought: ")
+      ) {
         const parts = block.data.text.split(/(Thought:\s[\s\S]*?(?=\n\n|$))/g);
 
         return (
-          <div key={block.id} className="content-block text-block mb-4 last:mb-0">
+          <div
+            key={block.id}
+            className="content-block text-block mb-4 last:mb-0"
+          >
             {parts.map((part, index) => {
-              if (part.startsWith('Thought: ')) {
+              if (part.startsWith("Thought: ")) {
                 // Render thought block
-                const thoughtContent = part.replace(/^Thought:\s/, '');
+                const thoughtContent = part.replace(/^Thought:\s/, "");
                 return (
                   <div key={index} className="mb-4">
                     <ThoughtCollapsible content={thoughtContent} />
@@ -226,14 +273,14 @@ export const MessageRenderer: React.FC<MessageRendererProps> = ({ message, onAct
     }
 
     if (isToolCallsBlock(block)) {
-      const mappedToolCalls = block.data.toolCalls.map(toolCall => ({
+      const mappedToolCalls = block.data.toolCalls.map((toolCall) => ({
         id: toolCall.name,
         name: toolCall.name,
         input: toolCall.input,
         output: toolCall.output,
         status: toolCall.status,
         internalTools: toolCall.internalTools,
-        generatedContent: toolCall.generatedContent
+        generatedContent: toolCall.generatedContent,
       }));
 
       return (
@@ -242,12 +289,31 @@ export const MessageRenderer: React.FC<MessageRendererProps> = ({ message, onAct
             toolCalls={mappedToolCalls}
             content={block.data.content}
             needsApproval={block.needsApproval}
-            onApprove={onAction ? () => onAction('approveToolCall', block) : undefined}
-            onReject={onAction ? () => onAction('rejectToolCall', block) : undefined}
-            onEdit={onAction ? (toolCallId, editedContent) => onAction('editToolCall', { block, toolCallId, editedContent }) : undefined}
-            onRetry={onAction ? () => onAction('retryToolCall', block) : undefined}
-            onReplan={onAction ? () => onAction('replanToolCall', block) : undefined}
-            onCancel={onAction ? () => onAction('cancelToolCall', block) : undefined}
+            onApprove={
+              onAction ? () => onAction("approveToolCall", block) : undefined
+            }
+            onReject={
+              onAction ? () => onAction("rejectToolCall", block) : undefined
+            }
+            onEdit={
+              onAction
+                ? (toolCallId, editedContent) =>
+                    onAction("editToolCall", {
+                      block,
+                      toolCallId,
+                      editedContent,
+                    })
+                : undefined
+            }
+            onRetry={
+              onAction ? () => onAction("retryToolCall", block) : undefined
+            }
+            onReplan={
+              onAction ? () => onAction("replanToolCall", block) : undefined
+            }
+            onCancel={
+              onAction ? () => onAction("cancelToolCall", block) : undefined
+            }
           />
         </div>
       );
@@ -259,7 +325,12 @@ export const MessageRenderer: React.FC<MessageRendererProps> = ({ message, onAct
           <ExplorerMessage
             checkpointId={block.data.checkpointId}
             data={block.data.explorerData}
-            onOpenExplorer={() => onAction?.('openExplorer', { checkpointId: block.data.checkpointId, data: block.data.explorerData })}
+            onOpenExplorer={() =>
+              onAction?.("openExplorer", {
+                checkpointId: block.data.checkpointId,
+                data: block.data.explorerData,
+              })
+            }
           />
         </div>
       );
@@ -271,7 +342,12 @@ export const MessageRenderer: React.FC<MessageRendererProps> = ({ message, onAct
           <VisualizationMessage
             checkpointId={block.data.checkpointId}
             charts={block.data.visualizations}
-            onOpenVisualization={() => onAction?.('openVisualization', { checkpointId: block.data.checkpointId, charts: block.data.visualizations })}
+            onOpenVisualization={() =>
+              onAction?.("openVisualization", {
+                checkpointId: block.data.checkpointId,
+                charts: block.data.visualizations,
+              })
+            }
           />
         </div>
       );
@@ -281,13 +357,26 @@ export const MessageRenderer: React.FC<MessageRendererProps> = ({ message, onAct
       const borderClass = getBlockBorderClass(block);
       const statusText = getBlockStatusText(block);
 
+      // Check if this is a replan block (has feedback field)
+      const isReplan = Boolean(block.data.isReplan || block.data.feedback);
+
       return (
-        <div key={block.id} className={`content-block plan-block mb-4 ${borderClass}`}>
+        <div
+          key={block.id}
+          className={`content-block plan-block mb-4 ${borderClass}`}
+        >
           <PlanMessage
             plan={block.data.plan}
             needsApproval={block.needsApproval}
-            onApprove={onAction ? () => onAction('approvePlan', block) : undefined}
-            onReject={onAction ? () => onAction('rejectPlan', block) : undefined}
+            onApprove={
+              onAction ? () => onAction("approvePlan", block) : undefined
+            }
+            onReject={
+              onAction ? () => onAction("rejectPlan", block) : undefined
+            }
+            isReplan={isReplan}
+            feedback={block.data.feedback}
+            replanCount={block.data.replan_count}
           />
           {statusText && <div className="mt-1">{statusText}</div>}
         </div>
@@ -312,7 +401,10 @@ export const MessageRenderer: React.FC<MessageRendererProps> = ({ message, onAct
 
     if (isReasoningChainBlock(block)) {
       return (
-        <div key={block.id} className="content-block reasoning-chain-block mb-4">
+        <div
+          key={block.id}
+          className="content-block reasoning-chain-block mb-4"
+        >
           <ReasoningChainMessage data={block.data} />
         </div>
       );
@@ -321,9 +413,11 @@ export const MessageRenderer: React.FC<MessageRendererProps> = ({ message, onAct
     if (isFinalizerBlock(block)) {
       return (
         <div key={block.id} className="content-block finalizer-block mb-4">
-          <FinalResponseMessage 
-            data={block.data} 
-            onSuggestionClick={(query) => onAction && onAction('suggestionClick', query)}
+          <FinalResponseMessage
+            data={block.data}
+            onSuggestionClick={(query) =>
+              onAction && onAction("suggestionClick", query)
+            }
           />
         </div>
       );
@@ -342,61 +436,89 @@ export const MessageRenderer: React.FC<MessageRendererProps> = ({ message, onAct
 
     // Filter out tool_explanation text blocks if tool_calls block already has the content
     // This prevents duplication while still allowing real-time streaming
-    const toolCallsBlock = contentBlocks.find((b: ContentBlock) => b.type === 'tool_calls');
-    const toolCallsContent = toolCallsBlock ? (toolCallsBlock.data as any).content : null;
+    const toolCallsBlock = contentBlocks.find(
+      (b: ContentBlock) => b.type === "tool_calls",
+    );
+    const toolCallsContent = toolCallsBlock
+      ? (toolCallsBlock.data as any).content
+      : null;
 
     // Filter: hide text blocks that appear before tool_calls block and match tool_calls content
     // This hides tool_explanation text while keeping the final response text
     const filteredBlocks = toolCallsContent
       ? contentBlocks.filter((block, index) => {
-        if (block.type === 'text') {
-          const textContent = (block.data as any).text || '';
-          const toolCallsIndex = contentBlocks.findIndex((b: ContentBlock) => b.type === 'tool_calls');
+          if (block.type === "text") {
+            const textContent = (block.data as any).text || "";
+            const toolCallsIndex = contentBlocks.findIndex(
+              (b: ContentBlock) => b.type === "tool_calls",
+            );
 
-          // Hide text block if:
-          // 1. It appears before tool_calls block
-          // 2. Its content matches or is contained in tool_calls block content
-          if (index < toolCallsIndex && toolCallsContent && typeof textContent === 'string' && textContent.trim()) {
-            const normalizedText = textContent.trim();
-            const normalizedToolContent = toolCallsContent.trim();
-            // Check if text content matches tool_calls content (tool explanation)
-            if (normalizedToolContent.includes(normalizedText) || normalizedText === normalizedToolContent) {
-              return false; // Hide this text block (it's the tool explanation)
+            // Hide text block if:
+            // 1. It appears before tool_calls block
+            // 2. Its content matches or is contained in tool_calls block content
+            if (
+              index < toolCallsIndex &&
+              toolCallsContent &&
+              typeof textContent === "string" &&
+              textContent.trim()
+            ) {
+              const normalizedText = textContent.trim();
+              const normalizedToolContent = toolCallsContent.trim();
+              // Check if text content matches tool_calls content (tool explanation)
+              if (
+                normalizedToolContent.includes(normalizedText) ||
+                normalizedText === normalizedToolContent
+              ) {
+                return false; // Hide this text block (it's the tool explanation)
+              }
             }
           }
-        }
-        return true;
-      })
+          return true;
+        })
       : contentBlocks;
 
+    const latestToolCallIndex = filteredBlocks.reduce(
+      (acc, block, index) => (isToolCallsBlock(block) ? index : acc),
+      -1,
+    );
 
-    const latestToolCallIndex = filteredBlocks.reduce((acc, block, index) => (
-      isToolCallsBlock(block) ? index : acc
-    ), -1);
-
-
-    const hasToolCallHistory = latestToolCallIndex > 0 &&
-      filteredBlocks.slice(0, latestToolCallIndex).some(b => isToolCallsBlock(b));
+    const hasToolCallHistory =
+      latestToolCallIndex > 0 &&
+      filteredBlocks
+        .slice(0, latestToolCallIndex)
+        .some((b) => isToolCallsBlock(b));
 
     if (hasToolCallHistory) {
       // Keep blocks in stream order, but collapse older tool calls
       // Find where to start collapsing (first tool call)
-      const firstToolCallIndex = filteredBlocks.findIndex(b => isToolCallsBlock(b));
+      const firstToolCallIndex = filteredBlocks.findIndex((b) =>
+        isToolCallsBlock(b),
+      );
 
       return (
         <div className="content-blocks">
           {/* Blocks before any tool calls (e.g., plan) */}
-          {filteredBlocks.slice(0, firstToolCallIndex).map((block) => renderContentBlock(block))}
+          {filteredBlocks
+            .slice(0, firstToolCallIndex)
+            .map((block) => renderContentBlock(block))}
 
           {/* Collapsible section: everything from first tool call to before latest tool call */}
           <ToolHistoryCollapsible
-            blocks={filteredBlocks.slice(firstToolCallIndex, latestToolCallIndex)}
-            collapseUntilIndex={filteredBlocks.slice(firstToolCallIndex, latestToolCallIndex).length}
+            blocks={filteredBlocks.slice(
+              firstToolCallIndex,
+              latestToolCallIndex,
+            )}
+            collapseUntilIndex={
+              filteredBlocks.slice(firstToolCallIndex, latestToolCallIndex)
+                .length
+            }
             renderContentBlock={renderContentBlock}
           />
 
           {/* Latest tool call and everything after (always visible) */}
-          {filteredBlocks.slice(latestToolCallIndex).map((block) => renderContentBlock(block))}
+          {filteredBlocks
+            .slice(latestToolCallIndex)
+            .map((block) => renderContentBlock(block))}
         </div>
       );
     }
@@ -408,9 +530,5 @@ export const MessageRenderer: React.FC<MessageRendererProps> = ({ message, onAct
     );
   };
 
-  return (
-    <div className="message-content min-w-0">
-      {renderContent()}
-    </div>
-  );
+  return <div className="message-content min-w-0">{renderContent()}</div>;
 };

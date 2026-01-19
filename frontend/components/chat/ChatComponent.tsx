@@ -80,7 +80,7 @@ const EphemeralToolIndicator: React.FC<{
               {step.status === "completed"
                 ? `${Math.max(
                     1,
-                    Math.floor((step.endTime! - step.startTime) / 1000)
+                    Math.floor((step.endTime! - step.startTime) / 1000),
                   )}s`
                 : `${Math.floor((Date.now() - step.startTime) / 1000)}s`}
             </span>
@@ -95,6 +95,7 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
   onSendMessage,
   onApprove,
   onFeedback,
+  onReject,
   onCancel,
   onRetry,
   onErrorRecovery,
@@ -329,14 +330,14 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
       }
 
       const blockNeedingApproval = message.content.find(
-        (block) => block.needsApproval === true && block.type !== "text"
+        (block) => block.needsApproval === true && block.type !== "text",
       );
 
       if (blockNeedingApproval) {
         setPendingApproval(blockNeedingApproval.id);
       }
     },
-    []
+    [],
   );
 
   useEffect(() => {
@@ -361,7 +362,7 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
     const blockExists = messages.some(
       (message) =>
         Array.isArray(message.content) &&
-        message.content.some((block) => block.id === pendingApproval)
+        message.content.some((block) => block.id === pendingApproval),
     );
 
     if (!blockExists) {
@@ -385,7 +386,7 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
       initialMessages.length,
       initialMessages.map((m) => m.message_id).join(","),
       initialMessages.map((m) => m.content).join(","),
-    ]
+    ],
   );
 
   // Update messages when initialMessages prop changes
@@ -409,7 +410,7 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
               createTextBlock(
                 `text_${explorerMessageId}`,
                 response.message,
-                false
+                false,
               ),
             ]
           : [],
@@ -424,7 +425,7 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
         setMessages((prev) => [...prev, explorerMessage]);
       }, 50);
     },
-    [contextThreadId, currentThreadId]
+    [contextThreadId, currentThreadId],
   );
   // Helper function to handle response and create special messages if needed
   const handleResponse = useCallback(
@@ -453,7 +454,7 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
       }
       return response.message;
     },
-    [createExplorerMessage, contextThreadId, currentThreadId]
+    [createExplorerMessage, contextThreadId, currentThreadId],
   );
 
   // Helper function to handle streaming errors
@@ -468,16 +469,16 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
                   createTextBlock(
                     `error_${streamingMsgId}`,
                     `Error: ${streamErr.message || "Streaming failed"}`,
-                    false
+                    false,
                   ),
                 ],
                 isStreaming: false,
               }
-            : m
-        )
+            : m,
+        ),
       );
     },
-    []
+    [],
   );
 
   // Helper function to check if error is timeout
@@ -496,10 +497,12 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
   const updateMessage = useCallback(
     (messageId: string, updates: Partial<MessageType>) => {
       setMessages((prev) =>
-        prev.map((m) => (m.message_id === messageId ? { ...m, ...updates } : m))
+        prev.map((m) =>
+          m.message_id === messageId ? { ...m, ...updates } : m,
+        ),
       );
     },
-    []
+    [],
   );
 
   // Helper function to update message flags and trigger callback
@@ -521,7 +524,7 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
         onMessageUpdated(updatedMessage);
       }
     },
-    [updateMessage, onMessageUpdated, messages]
+    [updateMessage, onMessageUpdated, messages],
   );
 
   // Helper function to handle tool events
@@ -558,7 +561,7 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
               if (existingStep) {
                 // Update existing step (for incremental updates)
                 const updatedSteps = prev.steps.map((step) =>
-                  step.id === toolId ? { ...step, name: toolName } : step
+                  step.id === toolId ? { ...step, name: toolName } : step,
                 );
                 return { ...prev, steps: updatedSteps };
               } else {
@@ -645,7 +648,7 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
             const updatedSteps = prev.steps.map((step) =>
               step.id === toolCallId
                 ? { ...step, status: "completed" as const, endTime: Date.now() }
-                : step
+                : step,
             );
             return { ...prev, steps: updatedSteps };
           });
@@ -654,7 +657,7 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
         }
       }
     },
-    [contextThreadId, currentThreadId]
+    [contextThreadId, currentThreadId],
   );
 
   // Helper function to resolve backend message ID to frontend message ID
@@ -671,7 +674,7 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
       // Fall back to the provided frontend message ID
       return frontendMessageId;
     },
-    []
+    [],
   );
 
   const updateContentBlocksCallback = useCallback(
@@ -690,7 +693,7 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
 
             // Keep existing blocks that aren't being updated
             const preservedBlocks = existingBlocks.filter(
-              (b) => !newBlockIds.has(b.id)
+              (b) => !newBlockIds.has(b.id),
             );
 
             // Add all new/updated blocks
@@ -699,10 +702,10 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
             return { ...m, content: mergedBlocks };
           }
           return m;
-        })
+        }),
       );
     },
-    []
+    [],
   );
 
   // Shared handler for content_block events
@@ -710,7 +713,7 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
     (
       eventData: string,
       streamingMsgId: string,
-      currentContentBlocks: ContentBlock[]
+      currentContentBlocks: ContentBlock[],
     ): ContentBlock[] => {
       try {
         // Mark that we've received content from the stream
@@ -742,7 +745,7 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
               // Block not found with finalized ID - it might be using a streaming ID
               // Look for a text block with a different ID (likely text_run--*)
               const streamingTextBlock = updatedBlocks.find(
-                (b) => b.type === "text" && b.id.startsWith("text_run--")
+                (b) => b.type === "text" && b.id.startsWith("text_run--"),
               );
 
               if (streamingTextBlock) {
@@ -787,14 +790,14 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
                       needsApproval: needsApproval,
                       data: { plan: blockData.content },
                     }
-                  : block
+                  : block,
               );
             } else if (!planBlock) {
               // First time seeing this plan - create it
               planBlock = createPlanBlock(
                 blockId,
                 blockData.content,
-                needsApproval
+                needsApproval,
               );
               updatedBlocks = [...updatedBlocks, planBlock];
             } else {
@@ -807,7 +810,7 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
                       needsApproval: needsApproval,
                       data: { plan: blockData.content },
                     }
-                  : block
+                  : block,
               );
             }
           } else if (action === "replan") {
@@ -818,27 +821,38 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
                   ? msg.content.map((block) =>
                       block.type === "plan"
                         ? { ...block, needsApproval: false }
-                        : block
+                        : block,
                     )
                   : msg.content,
-              }))
+              })),
             );
             updatedBlocks = updatedBlocks.map((block) =>
-              block.type === "plan" ? { ...block, needsApproval: false } : block
+              block.type === "plan"
+                ? { ...block, needsApproval: false }
+                : block,
             );
 
-            // Create new plan block with the new block ID from backend
+            // Create new plan block with replan-specific fields from backend
             let planBlock = updatedBlocks.find((b) => b.id === blockId);
             if (!planBlock) {
               planBlock = createPlanBlock(
                 blockId,
                 blockData.content,
-                needsApproval
+                needsApproval,
               );
+              // Add replan-specific fields
+              (planBlock.data as any).isReplan = blockData.isReplan || true;
+              (planBlock.data as any).feedback = blockData.feedback || "";
+              (planBlock.data as any).replan_count =
+                blockData.replan_count || 0;
               updatedBlocks = [...updatedBlocks, planBlock];
             } else {
               // Streaming update for the same replan
               (planBlock.data as any).plan = blockData.content;
+              (planBlock.data as any).isReplan = blockData.isReplan || true;
+              (planBlock.data as any).feedback = blockData.feedback || "";
+              (planBlock.data as any).replan_count =
+                blockData.replan_count || 0;
               planBlock.needsApproval = needsApproval;
             }
           }
@@ -846,7 +860,7 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
           const blockIdFromBackend =
             blockData.block_id || `tool_calls_${streamingMsgId}`;
           let consolidatedBlock = updatedBlocks.find(
-            (b) => b.id === blockIdFromBackend && b.type === "tool_calls"
+            (b) => b.id === blockIdFromBackend && b.type === "tool_calls",
           );
 
           if (action === "stream_args") {
@@ -859,7 +873,7 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
               consolidatedBlock = createToolCallsBlock(
                 blockIdFromBackend,
                 [toolCall],
-                false
+                false,
               );
               updatedBlocks = [...updatedBlocks, consolidatedBlock];
             }
@@ -868,7 +882,7 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
               ...consolidatedBlock.data,
             } as ToolCallsContent;
             let toolCallIndex = toolCallsData.toolCalls.findIndex(
-              (tc) => tc.name === blockData.tool_name
+              (tc) => tc.name === blockData.tool_name,
             );
 
             if (toolCallIndex < 0) {
@@ -904,7 +918,7 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
               updatedBlocks = updatedBlocks.map((block) =>
                 block.id === blockIdFromBackend
                   ? { ...block, data: updatedToolCallsData }
-                  : block
+                  : block,
               );
 
               updateContentBlocksCallback(streamingMsgId, updatedBlocks);
@@ -914,7 +928,7 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
               const newToolCallsBlock = createToolCallsBlock(
                 blockIdFromBackend,
                 [],
-                false
+                false,
               );
               (newToolCallsBlock.data as ToolCallsContent).content = "";
               consolidatedBlock = newToolCallsBlock;
@@ -932,7 +946,7 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
             updatedBlocks = updatedBlocks.map((block) =>
               block.id === blockIdFromBackend
                 ? { ...block, data: toolCallsData }
-                : block
+                : block,
             );
           } else if (action === "add_tool_call") {
             const parsedArgs = blockData.args ? JSON.parse(blockData.args) : {};
@@ -946,7 +960,7 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
               consolidatedBlock = createToolCallsBlock(
                 blockIdFromBackend,
                 [toolCall],
-                false
+                false,
               );
               updatedBlocks = [...updatedBlocks, consolidatedBlock];
             } else {
@@ -954,7 +968,7 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
                 ...consolidatedBlock.data,
               } as ToolCallsContent;
               const existingToolCallIndex = toolCallsData.toolCalls.findIndex(
-                (tc) => tc.name === blockData.tool_name
+                (tc) => tc.name === blockData.tool_name,
               );
 
               if (existingToolCallIndex >= 0) {
@@ -986,7 +1000,7 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
               updatedBlocks = updatedBlocks.map((block) =>
                 block.id === blockIdFromBackend
                   ? { ...block, data: toolCallsData }
-                  : block
+                  : block,
               );
             }
           } else if (action === "update_tool_result") {
@@ -995,7 +1009,7 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
                 ...consolidatedBlock.data,
               } as ToolCallsContent;
               const toolCallIndex = toolCallsData.toolCalls.findIndex(
-                (tc) => tc.name === blockData.tool_name
+                (tc) => tc.name === blockData.tool_name,
               );
               if (toolCallIndex >= 0) {
                 const existingToolCall = toolCallsData.toolCalls[toolCallIndex];
@@ -1003,9 +1017,9 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
                   blockData.input && Object.keys(blockData.input).length > 0
                     ? blockData.input
                     : existingToolCall.input &&
-                      Object.keys(existingToolCall.input).length > 0
-                    ? existingToolCall.input
-                    : {};
+                        Object.keys(existingToolCall.input).length > 0
+                      ? existingToolCall.input
+                      : {};
 
                 // Detect error status from output
                 let toolStatus: "pending" | "approved" | "rejected" | "error" =
@@ -1041,7 +1055,7 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
                 updatedBlocks = updatedBlocks.map((block) =>
                   block.id === blockIdFromBackend
                     ? { ...block, data: toolCallsData, needsApproval }
-                    : block
+                    : block,
                 );
 
                 updateContentBlocksCallback(streamingMsgId, updatedBlocks);
@@ -1059,7 +1073,7 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
                     if (output?.data_context?.df_id) {
                       console.log(
                         "DataFrame detected:",
-                        output.data_context.df_id
+                        output.data_context.df_id,
                       );
                       onDataFrameDetected(output.data_context.df_id);
                     }
@@ -1085,7 +1099,7 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
             blockId,
             blockData.checkpoint_id,
             false,
-            explorerData
+            explorerData,
           );
           updatedBlocks = [...updatedBlocks, explorerBlock];
         } else if (
@@ -1097,7 +1111,7 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
             blockId,
             blockData.checkpoint_id,
             false,
-            visualizations
+            visualizations,
           );
           updatedBlocks = [...updatedBlocks, vizBlock];
         } else if (blockType === "error" && action === "add_error") {
@@ -1112,7 +1126,7 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
           if (explanationData) {
             const explanationBlock = createExplanationBlock(
               blockId,
-              explanationData
+              explanationData,
             );
             updatedBlocks = [...updatedBlocks, explanationBlock];
           }
@@ -1122,7 +1136,7 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
           if (chainData && chainData.steps) {
             const reasoningChainBlock = createReasoningChainBlock(
               blockId,
-              chainData
+              chainData,
             );
             updatedBlocks = [...updatedBlocks, reasoningChainBlock];
           }
@@ -1151,7 +1165,7 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
         return currentContentBlocks;
       }
     },
-    [resolveMessageId, updateContentBlocksCallback, handleToolEvents]
+    [resolveMessageId, updateContentBlocksCallback, handleToolEvents],
   );
 
   const handleSuggestionClick = (query: string) => {
@@ -1172,7 +1186,7 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
       const message = messages.find(
         (m) =>
           Array.isArray(m.content) &&
-          m.content.some((block) => block.id === pendingApproval)
+          m.content.some((block) => block.id === pendingApproval),
       );
       if (!message) return;
 
@@ -1195,7 +1209,7 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
         const result = await onFeedback(
           message.message_id,
           userMessage,
-          message
+          message,
         );
         // Handle the result similar to handleSendFeedback
         if (result) {
@@ -1211,7 +1225,7 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
                 : Date.now().toString();
 
             const existingMessageIndex = messages.findIndex(
-              (m) => m.message_id === streamingMsgId
+              (m) => m.message_id === streamingMsgId,
             );
 
             if (existingMessageIndex !== -1) {
@@ -1223,8 +1237,8 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
                         isStreaming: true,
                         needsApproval: false,
                       }
-                    : m
-                )
+                    : m,
+                ),
               );
             } else {
               // Message doesn't exist - create new one
@@ -1254,7 +1268,7 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
                   currentContentBlocks = handleContentBlockEvent(
                     eventData,
                     streamingMsgId,
-                    currentContentBlocks
+                    currentContentBlocks,
                   );
                   return;
                 }
@@ -1292,7 +1306,7 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
                   currentContentBlocks = [...currentContentBlocks, errorBlock];
                   updateContentBlocksCallback(
                     streamingMsgId,
-                    currentContentBlocks
+                    currentContentBlocks,
                   );
 
                   setMessages((prev) =>
@@ -1302,8 +1316,8 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
                             ...m,
                             isStreaming: false,
                           }
-                        : m
-                    )
+                        : m,
+                    ),
                   );
                   return;
                 }
@@ -1326,8 +1340,8 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
                               (responseType === "replan" ||
                                 responseType === undefined),
                           }
-                        : m
-                    )
+                        : m,
+                    ),
                   );
 
                   if (
@@ -1337,12 +1351,12 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
                     // Find the first block that needs approval in the streaming message
                     // Use messagesRef to get the latest state
                     const streamingMessage = messagesRef.current.find(
-                      (m) => m.message_id === streamingMsgId
+                      (m) => m.message_id === streamingMsgId,
                     );
                     setPendingApprovalFromMessage(streamingMessage);
                   }
                 }
-              }
+              },
             );
             setStreamingActive(false);
           } else {
@@ -1359,7 +1373,7 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
                       `text_${tempId}`,
                       (result as HandlerResponse).message ||
                         "Response received",
-                      false
+                      false,
                     ),
                   ]
                 : [],
@@ -1370,7 +1384,7 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
             const hasBlockNeedingApproval =
               Array.isArray(assistantMessage.content) &&
               assistantMessage.content.some(
-                (block) => block.needsApproval === true
+                (block) => block.needsApproval === true,
               );
             if (hasBlockNeedingApproval) {
               setPendingApprovalFromMessage(assistantMessage);
@@ -1454,7 +1468,7 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
                 currentContentBlocks = handleContentBlockEvent(
                   eventData,
                   streamingMsgId,
-                  currentContentBlocks
+                  currentContentBlocks,
                 );
                 return;
               }
@@ -1500,8 +1514,8 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
                           ...m,
                           isStreaming: false,
                         }
-                      : m
-                  )
+                      : m,
+                  ),
                 );
                 return;
               }
@@ -1529,7 +1543,7 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
                           if (block.type === "tool_calls") {
                             const toolCallsData = block.data as any;
                             const hasOutput = toolCallsData.toolCalls?.some(
-                              (tc: any) => tc.output
+                              (tc: any) => tc.output,
                             );
 
                             if (!hasOutput) {
@@ -1544,10 +1558,10 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
                       }
 
                       const hasBlockNeedingApproval = Array.isArray(
-                        updatedContent
+                        updatedContent,
                       )
                         ? updatedContent.some(
-                            (block) => block.needsApproval === true
+                            (block) => block.needsApproval === true,
                           )
                         : false;
 
@@ -1559,18 +1573,18 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
                       };
                     }
                     return m;
-                  })
+                  }),
                 );
 
                 const streamingMessage = messagesRef.current.find(
-                  (m) => m.message_id === streamingMsgId
+                  (m) => m.message_id === streamingMsgId,
                 );
                 if (
                   streamingMessage &&
                   Array.isArray(streamingMessage.content)
                 ) {
                   const blockNeedingApproval = streamingMessage.content.find(
-                    (block) => block.needsApproval === true
+                    (block) => block.needsApproval === true,
                   );
                   if (blockNeedingApproval) {
                     setPendingApproval(blockNeedingApproval.id);
@@ -1581,7 +1595,7 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
               if (status === "completed_payload") {
               } else if (status === "visualizations_ready") {
               }
-            }
+            },
           );
         } catch (streamErr) {
           handleStreamingError(streamErr as Error, streamingMsgId);
@@ -1607,7 +1621,7 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
         const hasBlockNeedingApproval =
           Array.isArray(assistantMessage.content) &&
           assistantMessage.content.some(
-            (block) => block.needsApproval === true
+            (block) => block.needsApproval === true,
           );
         if (hasBlockNeedingApproval) {
           setPendingApprovalFromMessage(assistantMessage);
@@ -1625,7 +1639,7 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
           createTextBlock(
             `error_${errorMessageId}`,
             `Error: ${(error as Error).message || "Something went wrong"}`,
-            false
+            false,
           ),
         ],
         timestamp: new Date(),
@@ -1640,7 +1654,7 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
     const message = messages.find(
       (m) =>
         Array.isArray(m.content) &&
-        m.content.some((block) => block.id === blockId)
+        m.content.some((block) => block.id === blockId),
     );
 
     if (!message) {
@@ -1656,7 +1670,7 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
     if (!block || !block.needsApproval) {
       console.warn(
         "handleApprove: block not found or no longer awaiting approval",
-        { blockId, messageId: message.message_id }
+        { blockId, messageId: message.message_id },
       );
       return;
     }
@@ -1670,7 +1684,7 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
         const updatedContent = message.content.map((b) =>
           b.id === blockId
             ? { ...b, messageStatus: "approved" as const, needsApproval: false }
-            : b
+            : b,
         );
         await updateMessageFlags(message.message_id, {
           content: updatedContent,
@@ -1705,7 +1719,7 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
             const streamingMsgId = latestAssistantMsgId || message.message_id;
 
             const existingMessageIndex = messages.findIndex(
-              (m) => m.message_id === streamingMsgId
+              (m) => m.message_id === streamingMsgId,
             );
 
             if (existingMessageIndex !== -1) {
@@ -1717,8 +1731,8 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
                         isStreaming: true,
                         needsApproval: false,
                       }
-                    : m
-                )
+                    : m,
+                ),
               );
             } else {
               const streamingMessage: MessageType = {
@@ -1742,15 +1756,15 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
             if (message.message_id && typeof message.message_id === "string") {
               backendToFrontendMessageIdMap.current.set(
                 streamingMsgId,
-                message.message_id
+                message.message_id,
               );
             }
             try {
               const existingMessage = messages.find(
-                (m) => m.message_id === streamingMsgId
+                (m) => m.message_id === streamingMsgId,
               );
               let currentContentBlocks: ContentBlock[] = Array.isArray(
-                existingMessage?.content
+                existingMessage?.content,
               )
                 ? existingMessage.content.map((block) => ({
                     ...block,
@@ -1767,7 +1781,7 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
                     currentContentBlocks = handleContentBlockEvent(
                       eventData,
                       streamingMsgId,
-                      currentContentBlocks
+                      currentContentBlocks,
                     );
                     return;
                   }
@@ -1779,7 +1793,7 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
                         (window as any).updateGraphNodeStatus(
                           nodeData.node_id,
                           nodeData.status,
-                          nodeData.previous_node_id
+                          nodeData.previous_node_id,
                         );
                       }
                     } catch (e) {
@@ -1835,7 +1849,7 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
                         technical_details: errorText,
                         user_action_needed:
                           "Please check your connection and try again.",
-                      }
+                      },
                     );
 
                     // Update message with error block appended using callback
@@ -1850,7 +1864,7 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
                           };
                         }
                         return m;
-                      })
+                      }),
                     );
                     return;
                   }
@@ -1868,7 +1882,7 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
                               status: "completed" as const,
                               endTime: Date.now(),
                             }
-                          : step
+                          : step,
                       );
                       return { ...prev, steps: updatedSteps };
                     });
@@ -1896,7 +1910,7 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
                               if (block.type === "tool_calls") {
                                 const toolCallsData = block.data as any;
                                 const hasOutput = toolCallsData.toolCalls?.some(
-                                  (tc: any) => tc.output
+                                  (tc: any) => tc.output,
                                 );
                                 // Only set needsApproval if the tool doesn't have output yet
                                 if (!hasOutput) {
@@ -1908,10 +1922,10 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
                           }
 
                           const hasBlockNeedingApproval = Array.isArray(
-                            updatedContent
+                            updatedContent,
                           )
                             ? updatedContent.some(
-                                (block) => block.needsApproval === true
+                                (block) => block.needsApproval === true,
                               )
                             : false;
 
@@ -1923,12 +1937,12 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
                           };
                         }
                         return m;
-                      })
+                      }),
                     );
 
                     // Set pending approval to the first block that needs approval
                     const streamingMessage = messagesRef.current.find(
-                      (m) => m.message_id === streamingMsgId
+                      (m) => m.message_id === streamingMsgId,
                     );
                     if (
                       streamingMessage &&
@@ -1940,14 +1954,14 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
                         streamingMessage.content.find(
                           (block) =>
                             block.needsApproval === true &&
-                            block.type !== "text"
+                            block.type !== "text",
                         );
                       if (blockNeedingApproval) {
                         setPendingApproval(blockNeedingApproval.id);
                       }
                     }
                   }
-                }
+                },
               );
             } catch (streamErr) {
               setMessages((prev) =>
@@ -1961,13 +1975,13 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
                             `Error: ${
                               (streamErr as Error).message || "Streaming failed"
                             }`,
-                            false
+                            false,
                           ),
                         ],
                         isStreaming: false,
                       }
-                    : m
-                )
+                    : m,
+                ),
               );
             } finally {
               setStreamingActive(false);
@@ -2003,7 +2017,7 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
           const updatedContent = message.content.map((b) =>
             b.id === blockId
               ? { ...b, messageStatus: "timeout" as const, needsApproval: true }
-              : b
+              : b,
           );
           await updateMessageFlags(message.message_id, {
             content: updatedContent,
@@ -2020,7 +2034,7 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
           const updatedContent = message.content.map((b) =>
             b.id === blockId
               ? { ...b, messageStatus: "pending" as const, needsApproval: true }
-              : b
+              : b,
           );
           await updateMessageFlags(message.message_id, {
             content: updatedContent,
@@ -2042,7 +2056,7 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
               `Error during approval: ${
                 (error as Error).message || "Something went wrong"
               }`,
-              false
+              false,
             ),
           ],
           timestamp: new Date(),
@@ -2060,7 +2074,7 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
     const message = messages.find(
       (m) =>
         Array.isArray(m.content) &&
-        m.content.some((block) => block.id === blockId)
+        m.content.some((block) => block.id === blockId),
     );
 
     if (!message) {
@@ -2078,56 +2092,199 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
     setExecutionStatus("running");
     setIsLoading(true);
 
-    // Update the specific block to show it's cancelled
+    // Update the specific block to show it's rejected
     if (Array.isArray(message.content)) {
       const updatedContent = message.content.map((b) =>
         b.id === blockId
           ? { ...b, messageStatus: "rejected" as const, needsApproval: false }
-          : b
-      );
-
-      // Check if message still needs approval after updating this block
-      const stillNeedsApproval = updatedContent.some(
-        (b) => b.needsApproval === true
+          : b,
       );
 
       await updateMessageFlags(message.message_id, {
         content: updatedContent,
       });
     } else {
-      // For legacy messages without content blocks, update content
       await updateMessageFlags(message.message_id, {
         content: message.content,
       });
     }
 
     try {
-      // Use onFeedback for rejection instead of onCancel
-      if (onFeedback) {
-        const result = await onFeedback(
-          message.message_id,
-          "Rejected",
-          message
+      // Use onReject for rejection (show partial results) - sends REJECTED to backend
+      // Falls back to onFeedback if onReject is not provided
+      const rejectHandler = onReject || onFeedback;
+      if (rejectHandler) {
+        const textContent = Array.isArray(message.content)
+          ? message.content
+              .filter((block) => block.type === "text")
+              .map((block) => (block.data as any).text)
+              .join("\n")
+          : message.content;
+
+        const latestAssistantMsgId = getLatestAssistantMessageId();
+        const streamingMsgId = latestAssistantMsgId || message.message_id;
+        const result = await rejectHandler(
+          streamingMsgId,
+          textContent,
+          message,
         );
 
-        // If the feedback handler returns a result, add it as a new message
         if (result) {
-          const resultMessageId = String(Date.now() + 1);
-          const resultText =
-            typeof result === "string"
-              ? result
-              : (result as HandlerResponse).message || "";
-          const resultMessage: MessageType = {
-            message_id: resultMessageId,
-            sender: "assistant",
-            content: resultText
-              ? [createTextBlock(`text_${resultMessageId}`, resultText, false)]
-              : [],
-            timestamp: new Date(),
-          };
+          // Check if this is a streaming response (like handleApprove)
+          if (
+            (result as HandlerResponse).isStreaming &&
+            (result as HandlerResponse).streamingHandler
+          ) {
+            // Reuse existing message or create new one for streaming
+            const existingMessageIndex = messages.findIndex(
+              (m) => m.message_id === streamingMsgId,
+            );
 
-          setMessages((prev) => [...prev, resultMessage]);
+            if (existingMessageIndex !== -1) {
+              setMessages((prev) =>
+                prev.map((m, idx) =>
+                  idx === existingMessageIndex
+                    ? {
+                        ...m,
+                        isStreaming: true,
+                        needsApproval: false,
+                      }
+                    : m,
+                ),
+              );
+            } else {
+              const streamingMessage: MessageType = {
+                message_id: streamingMsgId,
+                sender: "assistant",
+                content: [],
+                timestamp: new Date(),
+                threadId:
+                  message.threadId ||
+                  contextThreadId ||
+                  currentThreadId ||
+                  undefined,
+                isStreaming: true,
+              } as any;
+              setMessages((prev) => [...prev, streamingMessage]);
+            }
+
+            setStreamingActive(true);
+            setHasReceivedContent(false);
+
+            if (message.message_id && typeof message.message_id === "string") {
+              backendToFrontendMessageIdMap.current.set(
+                streamingMsgId,
+                message.message_id,
+              );
+            }
+
+            try {
+              const existingMessage = messages.find(
+                (m) => m.message_id === streamingMsgId,
+              );
+              let currentContentBlocks: ContentBlock[] = Array.isArray(
+                existingMessage?.content,
+              )
+                ? existingMessage.content.map((block) => ({
+                    ...block,
+                    needsApproval: false,
+                  }))
+                : [];
+
+              await (result as HandlerResponse).streamingHandler!(
+                streamingMsgId,
+                updateContentBlocksCallback,
+                (status, eventData, responseType) => {
+                  if (!status) return;
+                  if (status === "content_block" && eventData) {
+                    currentContentBlocks = handleContentBlockEvent(
+                      eventData,
+                      streamingMsgId,
+                      currentContentBlocks,
+                    );
+                    return;
+                  }
+
+                  if (status === "graph_node" && eventData) {
+                    try {
+                      const nodeData = JSON.parse(eventData);
+                      if ((window as any).updateGraphNodeStatus) {
+                        (window as any).updateGraphNodeStatus(
+                          nodeData.node_id,
+                          nodeData.status,
+                          nodeData.previous_node_id,
+                        );
+                      }
+                    } catch (e) {
+                      console.error("Failed to parse graph_node event", e);
+                    }
+                    return;
+                  }
+
+                  if (status === "user_feedback") {
+                    setExecutionStatus("user_feedback");
+                    // Find the first block that needs approval in the streaming message
+                    const streamingMessage = messages.find(
+                      (m) => m.message_id === streamingMsgId,
+                    );
+                    if (streamingMessage) {
+                      setPendingApprovalFromMessage(streamingMessage);
+                    }
+                    return;
+                  }
+
+                  if (status === "finished") {
+                    setExecutionStatus("idle");
+                    setStreamingActive(false);
+                    setIsLoading(false);
+                    setMessages((prev) =>
+                      prev.map((m) =>
+                        m.message_id === streamingMsgId
+                          ? { ...m, isStreaming: false }
+                          : m,
+                      ),
+                    );
+                  }
+                },
+              );
+            } catch (streamError) {
+              console.error("Streaming error during reject:", streamError);
+              setMessages((prev) =>
+                prev.map((m) =>
+                  m.message_id === streamingMsgId
+                    ? { ...m, isStreaming: false }
+                    : m,
+                ),
+              );
+            } finally {
+              setStreamingActive(false);
+              setIsLoading(false);
+            }
+          } else {
+            // Non-streaming result - add as a new message
+            const resultMessageId = String(Date.now() + 1);
+            const resultText =
+              typeof result === "string"
+                ? result
+                : (result as HandlerResponse).message || "";
+            if (resultText) {
+              const resultMessage: MessageType = {
+                message_id: resultMessageId,
+                sender: "assistant",
+                content: [
+                  createTextBlock(`text_${resultMessageId}`, resultText, false),
+                ],
+                timestamp: new Date(),
+              };
+              setMessages((prev) => [...prev, resultMessage]);
+            }
+            setIsLoading(false);
+          }
+        } else {
+          setIsLoading(false);
         }
+      } else {
+        setIsLoading(false);
       }
     } catch (error) {
       // Add error message if rejection fails
@@ -2141,14 +2298,13 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
             `Error during rejection: ${
               (error as Error).message || "Something went wrong"
             }`,
-            false
+            false,
           ),
         ],
         timestamp: new Date(),
       };
 
       setMessages((prev) => [...prev, errorMessage]);
-    } finally {
       setIsLoading(false);
     }
   };
@@ -2179,7 +2335,7 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
       const updatedContent = message.content.map((block) =>
         block.messageStatus === "timeout"
           ? { ...block, messageStatus: "pending" as const }
-          : block
+          : block,
       );
       await updateMessageFlags(messageId, {
         content: updatedContent,
@@ -2217,7 +2373,7 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
           message.content.some((block) => block.needsApproval === true);
         if (hasApprovalNeeded && Array.isArray(message.content)) {
           const blockNeedingApproval = message.content.find(
-            (block) => block.needsApproval === true
+            (block) => block.needsApproval === true,
           );
           if (blockNeedingApproval) {
             await handleApprove(blockNeedingApproval.id);
@@ -2232,7 +2388,7 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
         const updatedContent = message.content.map((block) =>
           block.messageStatus === "pending"
             ? { ...block, messageStatus: "timeout" as const }
-            : block
+            : block,
         );
         await updateMessageFlags(messageId, {
           content: updatedContent,
@@ -2252,7 +2408,7 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
               `Retry failed: ${
                 (error as Error).message || "Something went wrong"
               }`,
-              false
+              false,
             ),
           ],
           timestamp: new Date(),
@@ -2267,12 +2423,12 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
 
   const handleErrorRecovery = async (
     blockId: string,
-    action: string
+    action: string,
   ): Promise<void> => {
     const message = messages.find(
       (m) =>
         Array.isArray(m.content) &&
-        m.content.some((block) => block.id === blockId)
+        m.content.some((block) => block.id === blockId),
     );
 
     if (!message) {
@@ -2290,12 +2446,12 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
           return {
             ...msg,
             content: msg.content.map((block) =>
-              block.id === blockId ? { ...block, needsApproval: false } : block
+              block.id === blockId ? { ...block, needsApproval: false } : block,
             ),
           };
         }
         return msg;
-      })
+      }),
     );
 
     if (onErrorRecovery) {
@@ -2311,10 +2467,10 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
 
         try {
           const existingMessage = messages.find(
-            (m) => m.message_id === streamingMsgId
+            (m) => m.message_id === streamingMsgId,
           );
           let currentContentBlocks: ContentBlock[] = Array.isArray(
-            existingMessage?.content
+            existingMessage?.content,
           )
             ? existingMessage.content.map((block) => ({
                 ...block,
@@ -2331,7 +2487,7 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
                 currentContentBlocks = handleContentBlockEvent(
                   eventData,
                   streamingMsgId,
-                  currentContentBlocks
+                  currentContentBlocks,
                 );
                 return;
               }
@@ -2343,7 +2499,7 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
                     (window as any).updateGraphNodeStatus(
                       nodeData.node_id,
                       nodeData.status,
-                      nodeData.previous_node_id
+                      nodeData.previous_node_id,
                     );
                   }
                 } catch (e) {
@@ -2360,7 +2516,7 @@ const ChatComponent: React.FC<ChatComponentProps> = ({
                 setExecutionStatus("error");
                 setStreamingActive(false);
               }
-            }
+            },
           );
         } catch (error) {
           console.error("Error recovery streaming failed:", error);

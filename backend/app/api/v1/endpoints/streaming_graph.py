@@ -540,15 +540,21 @@ async def stream_graph(
                 
                 # Handle XpAgentV2 aggregator/finalizer output (state updates, not messages)
                 if mode == "updates" and context.node_name in ('aggregator', 'finalizer'):
+                    logger.info(f"🔍 XpAgentV2 state update detected for node: {context.node_name}")
                     try:
                         state = agent.graph.get_state(config)
                         values = getattr(state, 'values', {}) or {}
+                        logger.info(f"  -> State has final_answer: {bool(values.get('final_answer'))}")
+                        logger.info(f"  -> State agent_type: {values.get('agent_type')}")
                         
                         # Check if this is XpAgentV2 and handler can process it
                         if await xp_output_handler.can_handle_state_update(context.node_name, values):
+                            logger.info(f"  -> XpOutputHandler CAN handle this update, processing...")
                             async for event in xp_output_handler.handle_state_update(context.node_name, values):
                                 yield event
                             logger.info(f"✅ XpAgentV2 output handled from {context.node_name}")
+                        else:
+                            logger.info(f"  -> XpOutputHandler cannot handle this update")
                     except Exception as e:
                         logger.error(f"Failed to handle XpAgentV2 output: {e}", exc_info=True)
                 
@@ -619,6 +625,21 @@ async def stream_graph(
                         interrupt_data, tool_call_handler, persistence, context, state, config
                     ):
                         yield event
+            elif state.next and 'interrupt_for_replan' in state.next:
+                # XpAgentV2 dynamic interrupt - triggered by errors during execution
+                # This is the ONLY approval point for XpAgentV2 (no fixed human_feedback)
+                logger.info(f"🔔 XpAgentV2 interrupt_for_replan detected! Showing approval popup.")
+                xp_replan_interrupt = {
+                    "type": "xp_replan_approval",
+                    "question": f"Plan needs revision. Feedback: {values.get('feedback', 'Unknown issue')}\n\nDo you want to replan?",
+                    "feedback": values.get("feedback", ""),
+                    "replan_count": values.get("replan_count", 0),
+                    "options": ["Yes, replan", "No, show partial results"]
+                }
+                async for event in handle_xp_approval(
+                    xp_replan_interrupt, persistence, context, state, config
+                ):
+                    yield event
             elif state.next and 'human_feedback' in state.next:
                 if is_xp_agent:
                     # XpAgent uses simple boolean approval

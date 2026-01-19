@@ -53,6 +53,10 @@ class ExplainableAgentState(MessagesState):
     generated_files: Optional[List[str]] = None  # List of files generated during execution
     pending_interrupt: bool = False  # Whether there's a pending interrupt
     
+    # ===== REPLAN TRACKING FIELDS =====
+    replan_count: int = 0  # Number of times replanning has occurred
+    max_replans: int = 3  # Maximum allowed replans before forcing aggregation
+    
     # ===== ERROR HANDLING FIELDS =====
     error_info: Optional[Dict[str, Any]] = None  # Error details (error_message, error_type, tool_name, tool_input) - Used by error_explainer_node
     error_explanation: Optional[Dict[str, Any]] = None  # User-friendly error explanation - Used by error_explainer_node

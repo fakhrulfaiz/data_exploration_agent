@@ -9,11 +9,23 @@ Key design principles:
 - Has its own workspace: backend/app/agents/workspace
 - Used in experiment_mode
 
+v2.4 Changes:
+- REMOVED fixed human_feedback approval after planner
+- Planner goes DIRECTLY to executor (no approval needed)
+- interrupt_for_replan is ONLY triggered on errors (dynamic HITL)
+- Streaming endpoint detects state.next == "interrupt_for_replan" to show approval UI
+
+v2.3 Changes:
+- Added interrupt_for_replan node (dynamic, not part of normal flow)
+- Interrupt triggered by: pending_interrupt=True OR Command(goto="interrupt_for_replan")
+- Interrupt uses Command(goto="planner" or "aggregator") to route explicitly
+- Planner uses feedback from previous attempts when replanning
+- Follows dev XpAgent blueprint pattern exactly
+
 v2.2 Changes:
 - Added SubagentFactory for tool management (matches dev blueprint)
 - Added executor node for step execution
 - Added StepResult model for tracking execution results
-- Graph flow: START -> planner -> executor -> finalizer -> END
 - Tools: data_exploration_agent (Phase 1)
 """
 
@@ -381,6 +393,25 @@ def execute_data_exploration(query: str, factory: SubagentFactory) -> tuple:
         
         # Run the graph
         result = graph.invoke(initial_state)
+        
+        # DEBUG: Log result keys to understand what we get back
+        print(f"🔍 DEBUG: graph.invoke() result keys: {result.keys() if isinstance(result, dict) else type(result)}")
+        
+        # Check if subagent returned feedback (error condition)
+        # When subagent uses Command(graph=Command.PARENT, update={'feedback': ...}), 
+        # the invoke() returns the state which includes the feedback field
+        feedback = result.get("feedback", "")
+        error_occurred = result.get("error_occurred", False)
+        
+        if feedback or error_occurred:
+            error_msg = feedback or result.get("error_message", "Unknown error")
+            logger.warning(f"⚠️ Data exploration subagent returned error: {error_msg}")
+            return StepResult(
+                step_number=0,
+                success=False,
+                result_content="",
+                error_message=error_msg
+            ), f"Error in data exploration: {error_msg}"
         
         # DEBUG: Check if files exist after subagent completes
         import os as os_module
@@ -859,9 +890,13 @@ class XpAgentV2:
         1. Analyzes the user's query
         2. Generates a structured plan with minimal steps
         3. Sets the plan in state for approval
+        4. Uses feedback from previous attempts if available (replan scenario)
         """
         query = state.get("query", "")
         messages = state.get("messages", [])
+        
+        # Check for feedback from previous attempts (following blueprint pattern)
+        feedback = state.get("feedback")
         
         # Extract query from messages if not set
         if not query:
@@ -871,6 +906,8 @@ class XpAgentV2:
                     break
         
         logger.info(f"XpAgentV2 planner processing query: {query[:100]}...")
+        if feedback:
+            logger.info(f"XpAgentV2 planner has feedback from previous attempt: {feedback[:100]}...")
         
         # Build planning prompt following XpAgent dev blueprint
         system_prompt = f"""## Role
@@ -912,7 +949,14 @@ You are a Strategic AI Planner for an artwork database analysis system.
 Create a minimal, efficient plan to answer the user's query.
 """
 
-        user_content = f"**Current Query**: {query}\n\nCreate the MINIMUM number of steps needed to answer this query."
+        user_content = f"**Current Query**: {query}\n\n"
+        
+        # Include feedback from previous attempt (enables replan with context)
+        if feedback:
+            user_content += f"**Previous Attempt Feedback**: {feedback}\n\n"
+            user_content += "Please create a REVISED plan that addresses this feedback.\n\n"
+        
+        user_content += "Create the MINIMUM number of steps needed to answer this query."
         
         # Get structured plan from LLM
         try:
@@ -973,7 +1017,7 @@ Create a minimal, efficient plan to answer the user's query.
                 "plan": plan_text.strip(),  # Display format for PlanMessage
                 "steps": plan_steps,  # Legacy field - same as plan_steps for compatibility
                 "step_counter": 0,
-                "status": "user_feedback",  # Triggers routing to human_feedback node
+                "status": "planning_complete",  # v2.4: No fixed approval, goes directly to executor
                 "agent_type": "xp_agent_v2",
                 
                 # === Dev blueprint MainAgentState fields ===
@@ -1070,7 +1114,10 @@ Create a minimal, efficient plan to answer the user's query.
                 "status": "approved",
                 "human_comment": None,
                 "pending_interrupt": False,
-                "feedback": None
+                "feedback": None,
+                # Reset approval state to defaults for next interaction
+                "plan": "",  # Clear plan display
+                "response_type": None
             }
         else:
             logger.info("XpAgentV2 plan rejected - cancelling execution")
@@ -1086,8 +1133,106 @@ Create a minimal, efficient plan to answer the user's query.
                 "human_comment": rejection_reason if rejection_reason else "Plan was rejected by user.",
                 "assistant_response": f"Plan was rejected. {rejection_reason}".strip(),
                 "execution_complete": True,
-                "final_answer": f"Plan was rejected by user. {rejection_reason}".strip()
+                "final_answer": f"Plan was rejected by user. {rejection_reason}".strip(),
+                # Reset approval state to defaults for next interaction
+                "plan": "",  # Clear plan display
+                "plan_steps": [],  # Clear plan steps
+                "pending_interrupt": False,
+                "feedback": None,
+                "response_type": "cancel"
             }
+    
+    def _interrupt_for_replan_node(self, state: ExplainableAgentState) -> Command[Literal["planner", "aggregator"]]:
+        """
+        Dynamic interrupt handler for errors from subagents.
+        
+        Following the dev blueprint pattern:
+        1. This node is reached via conditional routing when `pending_interrupt=True`
+           or when a subagent sends `Command(goto="interrupt_for_replan")`
+        2. Uses `interrupt()` to ask user for approval
+        3. Uses `Command(goto=...)` to explicitly route to planner or aggregator
+        
+        User options:
+        - "Yes, replan" / True -> Command(goto="planner") with feedback preserved
+        - "No, show partial results" / False -> Command(goto="aggregator")
+        """
+        feedback = state.get("feedback", "")
+        replan_count = state.get("replan_count", 0)
+        max_replans = state.get("max_replans", 3)
+        
+        logger.info(f"XpAgentV2 interrupt_for_replan: feedback={feedback}, replan_count={replan_count}")
+        
+        # Check replan limit
+        if replan_count >= max_replans:
+            logger.warning("⚠️ Maximum replans reached, showing partial results")
+            return Command(
+                goto="aggregator",
+                update={
+                    "pending_interrupt": False,
+                    "execution_complete": True
+                }
+            )
+        
+        # Build interrupt message for user
+        interrupt_message = f"Plan needs revision. Feedback: {feedback or 'Unknown issue'}\n\nDo you want to replan?"
+        
+        # Ask user for approval - this pauses execution
+        user_response = interrupt({
+            "type": "xp_replan_approval",
+            "question": interrupt_message,
+            "feedback": feedback,
+            "replan_count": replan_count,
+            "options": ["Yes, replan", "No, show partial results"]
+        })
+        
+        logger.info(f"XpAgentV2 interrupt_for_replan: User response = {user_response}")
+        
+        # Process response
+        should_replan = False
+        if isinstance(user_response, bool):
+            should_replan = user_response
+        elif isinstance(user_response, str):
+            should_replan = user_response.lower() in ("yes", "yes, replan", "replan", "true", "approve", "retry")
+        elif isinstance(user_response, dict):
+            action = user_response.get("action", "").lower()
+            should_replan = action in ("replan", "yes", "approve", "retry")
+        
+        if should_replan:
+            logger.info("XpAgentV2 interrupt_for_replan: User approved replan -> going to planner")
+            return Command(
+                goto="planner",
+                update={
+                    "replan_count": replan_count + 1,
+                    "pending_interrupt": False,
+                    "current_step_index": 0,
+                    "plan_steps": [],
+                    "step_results": [],
+                    "execution_complete": False,
+                    "status": "approved"
+                    # NOTE: feedback is preserved for planner to use
+                }
+            )
+        else:
+            # User declined replan - show partial results via aggregator
+            # Preserve tool_context and step_results for aggregator to synthesize
+            tool_context = state.get("tool_context", "") or ""
+            step_results = state.get("step_results", []) or []
+            
+            logger.info(f"XpAgentV2 interrupt_for_replan: User declined replan -> going to aggregator")
+            logger.info(f"  -> Preserving tool_context ({len(tool_context)} chars), step_results ({len(step_results)} items)")
+            
+            return Command(
+                goto="aggregator",
+                update={
+                    "pending_interrupt": False,
+                    "execution_complete": False,  # Let aggregator set this to True
+                    "feedback": None,  # Clear feedback since we're not replanning
+                    "status": "approved",
+                    # Explicitly preserve context for aggregator (shouldn't be necessary but be safe)
+                    "tool_context": tool_context,
+                    "step_results": step_results
+                }
+            )
     
     def _executor_node(self, state: ExplainableAgentState) -> Dict[str, Any]:
         """
@@ -1197,7 +1342,13 @@ Create a minimal, efficient plan to answer the user's query.
         generated_files = state.get("generated_files") or []
         messages = state.get("messages", [])
         
-        logger.info("XpAgentV2 aggregator: Synthesizing final answer...")
+        logger.info("=" * 60)
+        logger.info("XpAgentV2 aggregator: STARTING - Synthesizing final answer...")
+        logger.info(f"  -> original_query: {original_query[:100]}...")
+        logger.info(f"  -> step_results count: {len(step_results)}")
+        logger.info(f"  -> tool_context length: {len(tool_context)} chars")
+        logger.info(f"  -> generated_files: {generated_files}")
+        logger.info("=" * 60)
         
         # Build aggregation prompt
         system_prompt = """You are a helpful assistant that synthesizes information to answer user queries.
@@ -1226,13 +1377,86 @@ Rules:
                 HumanMessage(content=user_content)
             ])
             final_answer = response.content
+            logger.info(f"XpAgentV2 aggregator: LLM response received ({len(final_answer)} chars)")
         except Exception as e:
             logger.error(f"XpAgentV2 aggregator error: {e}")
             final_answer = f"I found some results but had trouble summarizing them. Here's what I know:\n\n{tool_context[:1000]}"
         
-        # Build response message
-        response_message = AIMessage(content=final_answer)
+        # Extract df_id, plot_urls, and output_urls from step_results for frontend actions
+        df_id = None
+        plot_urls = []
+        output_urls = []  # CSV files
+        
+        for result in step_results:
+            if isinstance(result, dict):
+                output_file = result.get("output_file")
+            else:
+                output_file = getattr(result, "output_file", None)
+            
+            if output_file:
+                # Check if it's a plot file
+                if output_file.endswith(('.png', '.jpg', '.jpeg', '.svg')):
+                    plot_urls.append(output_file)
+                # Check if it's a CSV file (for df_id and output display)
+                elif output_file.endswith('.csv'):
+                    # Use the file path as df_id for export
+                    df_id = output_file
+                    output_urls.append(output_file)
+        
+        # Also check generated_files for any plots or CSVs
+        for file_path in generated_files:
+            if file_path.endswith(('.png', '.jpg', '.jpeg', '.svg')) and file_path not in plot_urls:
+                plot_urls.append(file_path)
+            elif file_path.endswith('.csv') and file_path not in output_urls:
+                output_urls.append(file_path)
+                if not df_id:
+                    df_id = file_path
+        
+        # Convert local file paths to API URLs for frontend display
+        api_plot_urls = []
+        for plot_path in plot_urls:
+            # Extract just the filename from the path
+            filename = os.path.basename(plot_path)
+            # Create API URL for serving the plot
+            api_url = f"/api/v1/data/plot/{filename}"
+            api_plot_urls.append(api_url)
+        
+        # Convert CSV file paths to API URLs
+        api_output_urls = []
+        for output_path in output_urls:
+            filename = os.path.basename(output_path)
+            api_url = f"/api/v1/data/output/{filename}"
+            api_output_urls.append(api_url)
+        
+        logger.info(f"XpAgentV2 aggregator: Extracted df_id={df_id}, plot_urls={api_plot_urls}, output_urls={api_output_urls}")
+        
+        # Build structured response with actions (like main agent's finalizer)
+        actions = {
+            "export_dataframe": {"df_id": df_id} if df_id else None,
+            "download_plots": {"plot_urls": api_plot_urls} if api_plot_urls else None,
+            "download_outputs": {"output_urls": api_output_urls} if api_output_urls else None,
+            "next_queries": []  # Could be populated by LLM
+        }
+        
+        # Create finalizer-style response JSON for frontend parsing
+        final_response_data = {
+            "response": final_answer,
+            "actions": actions
+        }
+        final_response_json = json.dumps(final_response_data)
+        
+        # Build response message with is_finalizer_response flag for frontend
+        response_message = AIMessage(
+            content=final_response_json,
+            additional_kwargs={"is_finalizer_response": True}
+        )
         new_messages = list(messages) + [response_message]
+        
+        logger.info("=" * 60)
+        logger.info(f"XpAgentV2 aggregator: COMPLETE - final_answer set ({len(final_answer)} chars)")
+        logger.info(f"  -> First 200 chars: {final_answer[:200]}...")
+        logger.info(f"  -> Actions: df_id={df_id}, plot_urls count={len(plot_urls)}, output_urls count={len(output_urls)}")
+        logger.info("=" * 60)
         
         return {
             "messages": new_messages,
@@ -1336,26 +1560,75 @@ Be concise and helpful."""
         }
     
     # ========================================================================
-    # ROUTING FUNCTIONS
+    # ROUTING FUNCTIONS (following dev blueprint pattern)
     # ========================================================================
     
-    def _route_after_executor(self, state: ExplainableAgentState) -> Literal["executor", "aggregator"]:
+    def _route_after_planner(self, state: ExplainableAgentState) -> Literal["executor", "interrupt_for_replan"]:
         """
-        Route after executor: continue executing steps or aggregate results.
+        Route after planner based on state.
         
-        If execution_complete or all steps done -> go to aggregator
-        Otherwise -> loop back to executor for next step
+        Following blueprint pattern (NO fixed approval):
+        1. pending_interrupt=True -> interrupt_for_replan
+        2. Valid plan -> executor (direct execution, no approval needed)
+        3. No plan -> interrupt_for_replan
         """
-        execution_complete = state.get("execution_complete", False)
+        pending_interrupt = state.get("pending_interrupt", False)
+        
+        if pending_interrupt:
+            logger.info("XpAgentV2 routing: Planning error, going to interrupt_for_replan")
+            return "interrupt_for_replan"
+        
+        if state.get("plan_steps"):
+            logger.info("XpAgentV2 routing: Plan ready, going to executor (no approval needed)")
+            return "executor"
+        
+        # No plan steps = error
+        logger.info("XpAgentV2 routing: No plan steps, going to interrupt_for_replan")
+        return "interrupt_for_replan"
+    
+    # NOTE: _route_after_approval is DEPRECATED - no longer used in v2.4
+    # Keeping for backward compatibility but it's dead code
+    def _route_after_approval(self, state: ExplainableAgentState) -> Literal["executor", "finalizer"]:
+        """
+        Route after approval: execute plan or finalize (if rejected).
+        """
+        status = state.get("status", "")
+        
+        if status == "approved":
+            logger.info("XpAgentV2 routing: Plan approved, going to executor")
+            return "executor"
+        else:
+            logger.info(f"XpAgentV2 routing: Plan not approved (status={status}), going to finalizer")
+            return "finalizer"
+    
+    def _route_after_executor(self, state: ExplainableAgentState) -> Literal["executor", "interrupt_for_replan", "aggregator"]:
+        """
+        Route after executor based on state.
+        
+        Following blueprint pattern:
+        1. pending_interrupt=True -> interrupt_for_replan
+        2. execution_complete=True or all steps done -> aggregator
+        3. Otherwise -> executor (loop)
+        """
+        pending_interrupt = state.get("pending_interrupt", False)
+        
+        if pending_interrupt:
+            logger.info("XpAgentV2 routing: Error occurred, going to interrupt_for_replan")
+            return "interrupt_for_replan"
+        
+        if state.get("execution_complete", False):
+            logger.info("XpAgentV2 routing: Execution complete, going to aggregator")
+            return "aggregator"
+        
         current_idx = state.get("current_step_index", 0)
         plan_steps = state.get("plan_steps") or []
         
-        if execution_complete or current_idx >= len(plan_steps):
-            logger.info("XpAgentV2 routing: Execution complete, going to aggregator")
+        if current_idx >= len(plan_steps):
+            logger.info("XpAgentV2 routing: All steps done, going to aggregator")
             return "aggregator"
-        else:
-            logger.info(f"XpAgentV2 routing: Step {current_idx + 1}/{len(plan_steps)}, continuing execution")
-            return "executor"
+        
+        logger.info(f"XpAgentV2 routing: Step {current_idx + 1}/{len(plan_steps)}, continuing")
+        return "executor"
     
     # ========================================================================
     # GRAPH CONSTRUCTION
@@ -1363,38 +1636,59 @@ Be concise and helpful."""
     
     def _create_graph(self):
         """
-        Create the XpAgentV2 graph with planning and execution flow.
+        Create the XpAgentV2 graph following dev blueprint pattern.
         
-        Flow (v2.2 - with executor):
-            START -> planner -> executor -> [loop until complete] -> aggregator -> finalizer -> END
+        Flow (NO fixed approval - dynamic interrupt only):
         
-        Note: Interrupt is disabled for initial testing of executor flow.
+            START -> planner -> executor -> [loop until done]
+                        |           |
+                        |           v (on error)
+                        |     interrupt_for_replan <-- DYNAMIC HITL
+                        |           |
+                        |     [User choice]
+                        |      /         \\
+                        |  "replan"    "show partial"
+                        |     |              |
+                        +<----+              v
+                                        aggregator -> finalizer -> END
+        
+        Key features:
+        - NO fixed human_feedback approval after planner
+        - Planner goes DIRECTLY to executor
+        - interrupt_for_replan is ONLY triggered on errors (pending_interrupt=True)
+        - Uses interrupt() to pause graph and wait for user approval
+        - Uses Command(goto=...) to route to planner (replan) or aggregator (show partial)
         """
         graph = StateGraph(ExplainableAgentState)
         
-        # Add nodes
+        # Add nodes (NO human_feedback - approval only via interrupt_for_replan)
         graph.add_node("planner", self._planner_node)
         graph.add_node("executor", self._executor_node)
+        graph.add_node("interrupt_for_replan", self._interrupt_for_replan_node)
         graph.add_node("aggregator", self._aggregator_node)
         graph.add_node("finalizer", self._finalizer_node)
         
         # Set entry point
         graph.set_entry_point("planner")
         
-        # Flow: planner -> executor (skip interrupt for testing)
-        graph.add_edge("planner", "executor")
+        # Planner -> executor (direct, no approval) or interrupt_for_replan (on error)
+        graph.add_conditional_edges(
+            "planner",
+            self._route_after_planner,
+            ["executor", "interrupt_for_replan"]
+        )
         
-        # Conditional edge after executor: loop or proceed to aggregator
+        # Executor -> conditional routing
         graph.add_conditional_edges(
             "executor",
             self._route_after_executor,
-            {
-                "executor": "executor",
-                "aggregator": "aggregator"
-            }
+            ["executor", "interrupt_for_replan", "aggregator"]
         )
         
-        # Flow: aggregator -> finalizer -> END
+        # interrupt_for_replan uses Command(goto=...) so no explicit edges needed
+        # The Command will route to either "planner" or "aggregator"
+        
+        # Aggregator -> finalizer -> END
         graph.add_edge("aggregator", "finalizer")
         graph.add_edge("finalizer", END)
         

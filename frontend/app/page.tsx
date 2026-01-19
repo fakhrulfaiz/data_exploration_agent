@@ -22,6 +22,7 @@ import ExecutionHistory from "@/components/ExecutionHistory";
 import ExplorerPanel from "@/components/panels/ExplorerPanel";
 import VisualizationPanel from "@/components/panels/VisualizationPanel";
 import DataFramePanel from "@/components/panels/DataFramePanel";
+import OutputsPanel from "@/components/panels/OutputsPanel";
 import GraphFlowPanel from "@/components/graph-flow/GraphFlowPanel";
 import { GraphStructure } from "@/types/graph";
 import {
@@ -59,10 +60,13 @@ const ChatWithApproval: React.FC = () => {
     useState<DataFramePreviewData | null>(null);
   const [graphPanelOpen, setGraphPanelOpen] = useState(false);
   const [graphStructure, setGraphStructure] = useState<GraphStructure | null>(
-    null
+    null,
   );
   const [currentDataContext, setCurrentDataContext] =
     useState<DataContext | null>(null);
+  const [outputsPanelOpen, setOutputsPanelOpen] = useState(false);
+  const [outputsPanelPlotUrls, setOutputsPanelPlotUrls] = useState<string[]>([]);
+  const [outputsPanelOutputUrls, setOutputsPanelOutputUrls] = useState<string[]>([]);
 
   const eventSourceRef = useRef<EventSource | null>(null);
   const currentThreadIdRef = useRef<string | null>(null);
@@ -172,14 +176,14 @@ const ChatWithApproval: React.FC = () => {
             // Fetch explorer data using the same pattern as handleCheckpointClick
             const explorerResponse = await ExplorerService.getExplorerData(
               threadId,
-              checkpointId
+              checkpointId,
             );
             explorerData = explorerResponse?.data;
           } catch (error) {
             console.error(
               "Error fetching explorer data for checkpoint:",
               checkpointId,
-              error
+              error,
             );
             explorerData = explorerData || null;
           }
@@ -206,7 +210,7 @@ const ChatWithApproval: React.FC = () => {
       // Update currentDataContext to enable refresh button
       if (previewResponse.data?.metadata) {
         setCurrentDataContext(
-          previewResponse.data.metadata as unknown as DataContext
+          previewResponse.data.metadata as unknown as DataContext,
         );
       }
 
@@ -283,7 +287,7 @@ const ChatWithApproval: React.FC = () => {
               const visualizationResponse =
                 await VisualizationService.getVisualizationData(
                   threadId,
-                  checkpointId
+                  checkpointId,
                 );
 
               // Fix: visualizations are at response.data.visualizations, not response.data.data
@@ -294,7 +298,7 @@ const ChatWithApproval: React.FC = () => {
               console.error(
                 "Error fetching visualization data for checkpoint:",
                 checkpointId,
-                error
+                error,
               );
               // Continue with empty charts array
             }
@@ -314,9 +318,22 @@ const ChatWithApproval: React.FC = () => {
         setVisualizationOpen(true);
       }
     };
+    // Handler to open the outputs panel with plots and/or CSV outputs
+    (window as any).openOutputsPanel = (data?: { plotUrls?: string[]; outputUrls?: string[] }) => {
+      setExplorerOpen(false);
+      setExplorerData(null);
+      setDataFrameOpen(false);
+      setDataFrameData(null);
+      setVisualizationOpen(false);
+      setVisualizationCharts(null);
+      setOutputsPanelPlotUrls(data?.plotUrls || []);
+      setOutputsPanelOutputUrls(data?.outputUrls || []);
+      setOutputsPanelOpen(true);
+    };
     return () => {
       delete (window as any).openExplorer;
       delete (window as any).openVisualization;
+      delete (window as any).openOutputsPanel;
     };
   }, [handleOpenExplorer, currentThreadId, selectedChatThreadId]);
 
@@ -330,7 +347,7 @@ const ChatWithApproval: React.FC = () => {
   }, []);
 
   const createNewChatThread = async (
-    initialMessage?: string
+    initialMessage?: string,
   ): Promise<string> => {
     try {
       const thread = await ConversationService.createConversation({
@@ -362,11 +379,11 @@ const ChatWithApproval: React.FC = () => {
         | "visualizations_ready"
         | "content_block",
       eventData?: string,
-      responseType?: "answer" | "replan" | "cancel"
+      responseType?: "answer" | "replan" | "cancel",
     ) => void,
     usePlanning: boolean = true,
     useExplainer: boolean = true,
-    preStartResponse?: GraphResponse
+    preStartResponse?: GraphResponse,
   ): Promise<void> => {
     try {
       const startResponse =
@@ -431,7 +448,7 @@ const ChatWithApproval: React.FC = () => {
                     ];
                     updateContentCallback(
                       String(explorerMessageId),
-                      contentBlocks
+                      contentBlocks,
                     );
                   }
                 }
@@ -482,7 +499,7 @@ const ChatWithApproval: React.FC = () => {
           onComplete: () => {
             setLoading(false);
           },
-        }
+        },
       );
     } catch (error) {
       console.error("Failed to start streaming:", error);
@@ -509,9 +526,9 @@ const ChatWithApproval: React.FC = () => {
         | "visualizations_ready"
         | "content_block",
       eventData?: string,
-      responseType?: "answer" | "replan" | "cancel"
+      responseType?: "answer" | "replan" | "cancel",
     ) => void,
-    preResumeResponse?: GraphResponse
+    preResumeResponse?: GraphResponse,
   ): Promise<void> => {
     try {
       const resumeResponse =
@@ -553,7 +570,7 @@ const ChatWithApproval: React.FC = () => {
                 ) {
                   // Create a new message with its own ID for explorer data
                   const explorerMessageId = String(
-                    Date.now() + Math.floor(Math.random() * 1000)
+                    Date.now() + Math.floor(Math.random() * 1000),
                   );
                   const explorerMessage = {
                     message_id: explorerMessageId,
@@ -585,7 +602,7 @@ const ChatWithApproval: React.FC = () => {
                 if (visualizations.length > 0) {
                   // Create a new message with its own ID for visualization data
                   const vizMessageId = String(
-                    Date.now() + Math.floor(Math.random() * 1000) + 10000
+                    Date.now() + Math.floor(Math.random() * 1000) + 10000,
                   );
                   const vizMessage = {
                     message_id: vizMessageId,
@@ -631,7 +648,7 @@ const ChatWithApproval: React.FC = () => {
           onComplete: () => {
             setLoading(false);
           },
-        }
+        },
       );
     } catch (error) {
       console.error("Failed to resume streaming:", error);
@@ -648,7 +665,7 @@ const ChatWithApproval: React.FC = () => {
       useExplainer?: boolean;
       experimentMode?: boolean;
       attachedFiles?: File[];
-    }
+    },
   ): Promise<HandlerResponse> => {
     // Close any open panels at start
     setExplorerData(null);
@@ -728,7 +745,7 @@ const ChatWithApproval: React.FC = () => {
         } else if (response.data?.run_status === "error") {
           throw new Error(
             response.data?.error ||
-              "An error occurred while processing your request."
+              "An error occurred while processing your request.",
           );
         }
 
@@ -771,8 +788,8 @@ const ChatWithApproval: React.FC = () => {
                 | "visualizations_ready"
                 | "content_block",
               eventData?: string,
-              responseType?: "answer" | "replan" | "cancel"
-            ) => void
+              responseType?: "answer" | "replan" | "cancel",
+            ) => void,
           ) => {
             await startStreamingForMessage(
               message,
@@ -782,7 +799,7 @@ const ChatWithApproval: React.FC = () => {
               onStatus,
               usePlanning,
               useExplainer,
-              startResponse
+              startResponse,
             );
           },
         };
@@ -797,7 +814,7 @@ const ChatWithApproval: React.FC = () => {
   const handleApprove = async (
     messageId: string | undefined,
     _content: string,
-    message: Message
+    message: Message,
   ): Promise<HandlerResponse> => {
     const threadId =
       currentThreadIdRef.current ||
@@ -835,7 +852,7 @@ const ChatWithApproval: React.FC = () => {
             }
             if (response.data.total_time) {
               detailedResponse += `- Total time: ${response.data.total_time.toFixed(
-                2
+                2,
               )}s\n`;
             }
           }
@@ -857,7 +874,7 @@ const ChatWithApproval: React.FC = () => {
           };
         } else if (response.data?.run_status === "error") {
           throw new Error(
-            response.data?.error || "An error occurred during execution"
+            response.data?.error || "An error occurred during execution",
           );
         } else {
           const assistantResponse =
@@ -883,9 +900,8 @@ const ChatWithApproval: React.FC = () => {
               human_comment: undefined,
             };
 
-        const resumeResponse = await GraphService.resumeStreamingGraph(
-          resumeRequest
-        );
+        const resumeResponse =
+          await GraphService.resumeStreamingGraph(resumeRequest);
         setCurrentThreadId(resumeResponse.data?.thread_id || "");
 
         return {
@@ -910,8 +926,8 @@ const ChatWithApproval: React.FC = () => {
                 | "visualizations_ready"
                 | "content_block",
               eventData?: string,
-              responseType?: "answer" | "replan" | "cancel"
-            ) => void
+              responseType?: "answer" | "replan" | "cancel",
+            ) => void,
           ) => {
             await resumeStreamingForMessage(
               threadId,
@@ -920,7 +936,7 @@ const ChatWithApproval: React.FC = () => {
               streamingMessageId,
               updateContentCallback,
               onStatus,
-              resumeResponse
+              resumeResponse,
             );
           },
         };
@@ -932,10 +948,82 @@ const ChatWithApproval: React.FC = () => {
     }
   };
 
+  // Handler for reject/show partial results - sends REJECTED to backend
+  const handleReject = async (
+    messageId: string | undefined,
+    _content: string,
+    message: Message,
+  ): Promise<HandlerResponse> => {
+    const threadId =
+      currentThreadIdRef.current ||
+      currentThreadId ||
+      selectedChatThreadId ||
+      message.threadId;
+
+    if (!threadId) {
+      throw new Error("No active thread to reject");
+    }
+
+    try {
+      setLoading(true);
+      setExecutionStatus("running");
+
+      // Send REJECTED status - this tells the backend to show partial results
+      const resumeResponse = await GraphService.resumeStreamingGraph({
+        thread_id: threadId,
+        message_id: messageId,
+        review_action: ApprovalStatus.REJECTED,
+      });
+
+      setCurrentThreadId(resumeResponse.data?.thread_id || "");
+
+      return {
+        message: "",
+        needsApproval: false,
+        isStreaming: true,
+        backendMessageId: resumeResponse.data?.assistant_message_id as
+          | string
+          | undefined,
+        streamingHandler: async (
+          streamingMessageId: string,
+          updateContentCallback: (id: string, contentBlocks: any[]) => void,
+          onStatus?: (
+            status:
+              | "user_feedback"
+              | "finished"
+              | "running"
+              | "error"
+              | "tool_call"
+              | "tool_result"
+              | "completed_payload"
+              | "visualizations_ready"
+              | "content_block",
+            eventData?: string,
+            responseType?: "answer" | "replan" | "cancel",
+          ) => void,
+        ) => {
+          await resumeStreamingForMessage(
+            threadId,
+            ApprovalStatus.REJECTED,
+            undefined,
+            streamingMessageId,
+            updateContentCallback,
+            onStatus,
+            resumeResponse,
+          );
+        },
+      };
+    } catch (error) {
+      console.error("Error rejecting:", error);
+      setLoading(false);
+      throw error;
+    }
+  };
+
   const handleFeedback = async (
     messageId: string | undefined,
     content: string,
-    _message: Message
+    _message: Message,
   ): Promise<HandlerResponse> => {
     const threadId =
       currentThreadIdRef.current || currentThreadId || selectedChatThreadId;
@@ -949,7 +1037,7 @@ const ChatWithApproval: React.FC = () => {
         // Original blocking approach
         const response = await GraphService.provideFeedbackAndContinue(
           threadId,
-          content
+          content,
         );
 
         if (response.data?.run_status === "user_feedback") {
@@ -983,7 +1071,7 @@ const ChatWithApproval: React.FC = () => {
             }
             if (response.data?.total_time) {
               detailedResponse += `- Total time: ${response.data?.total_time.toFixed(
-                2
+                2,
               )}s\n`;
             }
           }
@@ -1004,7 +1092,7 @@ const ChatWithApproval: React.FC = () => {
           };
         } else if (response.data?.run_status === "error") {
           throw new Error(
-            response.data?.error || "An error occurred during execution"
+            response.data?.error || "An error occurred during execution",
           );
         } else {
           const assistantResponse =
@@ -1044,8 +1132,8 @@ const ChatWithApproval: React.FC = () => {
                 | "visualizations_ready"
                 | "content_block",
               eventData?: string,
-              responseType?: "answer" | "replan" | "cancel"
-            ) => void
+              responseType?: "answer" | "replan" | "cancel",
+            ) => void,
           ) => {
             await resumeStreamingForMessage(
               threadId,
@@ -1054,7 +1142,7 @@ const ChatWithApproval: React.FC = () => {
               streamingMessageId,
               updateContentCallback,
               onStatus,
-              resumeResponse
+              resumeResponse,
             );
           },
         };
@@ -1097,7 +1185,7 @@ const ChatWithApproval: React.FC = () => {
 
   // Error interrupt handlers
   const handleRetryError = async (
-    message: Message
+    message: Message,
   ): Promise<HandlerResponse> => {
     const threadId =
       currentThreadIdRef.current ||
@@ -1143,8 +1231,8 @@ const ChatWithApproval: React.FC = () => {
               | "visualizations_ready"
               | "content_block",
             eventData?: string,
-            responseType?: "answer" | "replan" | "cancel"
-          ) => void
+            responseType?: "answer" | "replan" | "cancel",
+          ) => void,
         ) => {
           await resumeStreamingForMessage(
             threadId,
@@ -1153,7 +1241,7 @@ const ChatWithApproval: React.FC = () => {
             streamingMessageId,
             updateContentCallback,
             onStatus,
-            resumeResponse
+            resumeResponse,
           );
         },
       };
@@ -1165,7 +1253,7 @@ const ChatWithApproval: React.FC = () => {
   };
 
   const handleReplanError = async (
-    message: Message
+    message: Message,
   ): Promise<HandlerResponse> => {
     const threadId =
       currentThreadIdRef.current ||
@@ -1211,8 +1299,8 @@ const ChatWithApproval: React.FC = () => {
               | "visualizations_ready"
               | "content_block",
             eventData?: string,
-            responseType?: "answer" | "replan" | "cancel"
-          ) => void
+            responseType?: "answer" | "replan" | "cancel",
+          ) => void,
         ) => {
           await resumeStreamingForMessage(
             threadId,
@@ -1221,7 +1309,7 @@ const ChatWithApproval: React.FC = () => {
             streamingMessageId,
             updateContentCallback,
             onStatus,
-            resumeResponse
+            resumeResponse,
           );
         },
       };
@@ -1233,7 +1321,7 @@ const ChatWithApproval: React.FC = () => {
   };
 
   const handleCancelError = async (
-    message: Message
+    message: Message,
   ): Promise<HandlerResponse> => {
     const threadId =
       currentThreadIdRef.current ||
@@ -1279,8 +1367,8 @@ const ChatWithApproval: React.FC = () => {
               | "visualizations_ready"
               | "content_block",
             eventData?: string,
-            responseType?: "answer" | "replan" | "cancel"
-          ) => void
+            responseType?: "answer" | "replan" | "cancel",
+          ) => void,
         ) => {
           await resumeStreamingForMessage(
             threadId,
@@ -1289,7 +1377,7 @@ const ChatWithApproval: React.FC = () => {
             streamingMessageId,
             updateContentCallback,
             onStatus,
-            resumeResponse
+            resumeResponse,
           );
         },
       };
@@ -1304,7 +1392,7 @@ const ChatWithApproval: React.FC = () => {
   const handleErrorRecovery = async (
     blockId: string,
     action: string,
-    message: Message
+    message: Message,
   ): Promise<HandlerResponse | void> => {
     console.log(`Error recovery requested: ${action} for block ${blockId}`);
 
@@ -1335,9 +1423,8 @@ const ChatWithApproval: React.FC = () => {
       setShowExecutionHistory(false); // Return to chat component when selecting a thread
 
       if (threadId) {
-        const response = await ConversationService.restoreConversation(
-          threadId
-        );
+        const response =
+          await ConversationService.restoreConversation(threadId);
         const { thread_id, title, messages } = response.data || {};
         const data_context = response.data?.data_context;
         // Store data context for potential refresh operations
@@ -1364,7 +1451,7 @@ const ChatWithApproval: React.FC = () => {
             const response = await DataService.recreateDataFrame(
               threadId,
               data_context.sql_query,
-              data_context.df_id
+              data_context.df_id,
             );
             setDataFrameData(response.data || null);
           } catch (err: any) {
@@ -1404,13 +1491,13 @@ const ChatWithApproval: React.FC = () => {
 
   const handleCheckpointClick = async (
     checkpointId: string,
-    threadId: string
+    threadId: string,
   ) => {
     try {
       // Fetch explorer data for the selected checkpoint
       const explorerResponse = await ExplorerService.getExplorerData(
         threadId,
-        checkpointId
+        checkpointId,
       );
       setExplorerData(explorerResponse?.data);
       setExplorerOpen(true);
@@ -1420,7 +1507,7 @@ const ChatWithApproval: React.FC = () => {
       console.error(
         "Error fetching explorer data for checkpoint:",
         checkpointId,
-        error
+        error,
       );
       // Still open the panel even if fetch fails
       setExplorerOpen(true);
@@ -1471,7 +1558,7 @@ const ChatWithApproval: React.FC = () => {
       const response = await DataService.recreateDataFrame(
         threadId,
         currentDataContext.sql_query,
-        currentDataContext.df_id
+        currentDataContext.df_id,
       );
 
       // Update the panel data
@@ -1528,6 +1615,7 @@ const ChatWithApproval: React.FC = () => {
                 onSendMessage={handleSendMessage}
                 onApprove={handleApprove}
                 onFeedback={handleFeedback}
+                onReject={handleReject}
                 onErrorRecovery={handleErrorRecovery}
                 currentThreadId={currentThreadId || selectedChatThreadId}
                 initialMessages={restoredMessages}
@@ -1561,12 +1649,22 @@ const ChatWithApproval: React.FC = () => {
           charts={visualizationCharts || []}
         />
         <DataFramePanel
-          open={dataFrameOpen && !explorerOpen && !visualizationOpen}
+          open={dataFrameOpen && !explorerOpen && !visualizationOpen && !outputsPanelOpen}
           onClose={() => setDataFrameOpen(false)}
           data={dataFrameData}
           onRefresh={
             currentDataContext?.sql_query ? handleRefreshDataFrame : undefined
           }
+        />
+        <OutputsPanel
+          open={outputsPanelOpen && !explorerOpen && !visualizationOpen && !dataFrameOpen}
+          onClose={() => {
+            setOutputsPanelOpen(false);
+            setOutputsPanelPlotUrls([]);
+            setOutputsPanelOutputUrls([]);
+          }}
+          plotUrls={outputsPanelPlotUrls}
+          outputUrls={outputsPanelOutputUrls}
         />
         {/* GraphFlowPanel now rendered inline in split view above */}
       </div>

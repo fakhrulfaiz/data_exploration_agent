@@ -354,3 +354,172 @@ async def download_plots(
     except Exception as e:
         logger.error(f"Failed to download plots: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to download plots: {str(e)}")
+
+
+@router.get("/plot/{plot_filename}")
+async def serve_plot(plot_filename: str):
+    """
+    Serve a plot image file from the workspace.
+    This allows displaying generated plots inline in the frontend.
+    """
+    import os
+    from pathlib import Path
+    from fastapi.responses import FileResponse
+    
+    # Security: Only allow specific extensions
+    allowed_extensions = {'.png', '.jpg', '.jpeg', '.svg', '.gif'}
+    ext = Path(plot_filename).suffix.lower()
+    if ext not in allowed_extensions:
+        raise HTTPException(status_code=400, detail=f"Invalid file extension: {ext}")
+    
+    # Security: Prevent directory traversal
+    if '..' in plot_filename or '/' in plot_filename or '\\' in plot_filename:
+        raise HTTPException(status_code=400, detail="Invalid filename")
+    
+    # Define workspace plot directories to search
+    workspace_dirs = [
+        Path(__file__).resolve().parent.parent.parent.parent / "agents" / "workspace" / "plot",
+        Path(__file__).resolve().parent.parent.parent.parent / "agents" / "dev" / "workspace" / "plot",
+    ]
+    
+    # Find the file
+    for workspace_dir in workspace_dirs:
+        file_path = workspace_dir / plot_filename
+        if file_path.exists() and file_path.is_file():
+            logger.info(f"Serving plot: {file_path}")
+            
+            # Determine media type
+            media_types = {
+                '.png': 'image/png',
+                '.jpg': 'image/jpeg',
+                '.jpeg': 'image/jpeg',
+                '.svg': 'image/svg+xml',
+                '.gif': 'image/gif'
+            }
+            media_type = media_types.get(ext, 'image/png')
+            
+            return FileResponse(
+                path=str(file_path),
+                media_type=media_type,
+                filename=plot_filename
+            )
+    
+    logger.warning(f"Plot not found: {plot_filename}")
+    raise HTTPException(status_code=404, detail=f"Plot not found: {plot_filename}")
+
+
+@router.get("/output/{output_filename}")
+async def serve_output(output_filename: str):
+    """
+    Serve a CSV output file from the workspace as JSON for table display.
+    """
+    import os
+    from pathlib import Path
+    
+    # Security: Only allow CSV files
+    if not output_filename.endswith('.csv'):
+        raise HTTPException(status_code=400, detail="Only CSV files are supported")
+    
+    # Security: Prevent directory traversal
+    if '..' in output_filename or '/' in output_filename or '\\' in output_filename:
+        raise HTTPException(status_code=400, detail="Invalid filename")
+    
+    # Define workspace output directories to search
+    workspace_dirs = [
+        Path(__file__).resolve().parent.parent.parent.parent / "agents" / "workspace" / "outputs",
+        Path(__file__).resolve().parent.parent.parent.parent / "agents" / "dev" / "workspace" / "outputs",
+    ]
+    
+    # Find the file
+    for workspace_dir in workspace_dirs:
+        file_path = workspace_dir / output_filename
+        if file_path.exists() and file_path.is_file():
+            logger.info(f"Serving output: {file_path}")
+            
+            try:
+                df = pd.read_csv(file_path)
+                # Convert to JSON-serializable format
+                records = df.where(pd.notnull(df), None).to_dict(orient='records')
+                
+                return {
+                    "status": "success",
+                    "data": {
+                        "filename": output_filename,
+                        "columns": df.columns.tolist(),
+                        "total_rows": len(df),
+                        "data": records
+                    }
+                }
+            except Exception as e:
+                logger.error(f"Failed to parse CSV {output_filename}: {e}")
+                raise HTTPException(status_code=500, detail=f"Failed to parse CSV: {str(e)}")
+    
+    logger.warning(f"Output not found: {output_filename}")
+    raise HTTPException(status_code=404, detail=f"Output not found: {output_filename}")
+
+
+@router.get("/generated-files")
+async def list_generated_files():
+    """
+    List all generated files (plots and CSV outputs) from the workspace.
+    Returns file paths that can be used by /plot/{filename} and /output/{filename} endpoints.
+    """
+    from pathlib import Path
+    import os
+    
+    result = {
+        "plots": [],
+        "outputs": []
+    }
+    
+    # Define workspace directories
+    workspace_dirs = [
+        {
+            "plot": Path(__file__).resolve().parent.parent.parent.parent / "agents" / "workspace" / "plot",
+            "outputs": Path(__file__).resolve().parent.parent.parent.parent / "agents" / "workspace" / "outputs",
+        },
+        {
+            "plot": Path(__file__).resolve().parent.parent.parent.parent / "agents" / "dev" / "workspace" / "plot",
+            "outputs": Path(__file__).resolve().parent.parent.parent.parent / "agents" / "dev" / "workspace" / "outputs",
+        }
+    ]
+    
+    plot_extensions = {'.png', '.jpg', '.jpeg', '.svg', '.gif'}
+    
+    for dirs in workspace_dirs:
+        # Collect plots
+        plot_dir = dirs["plot"]
+        if plot_dir.exists():
+            for file_path in plot_dir.iterdir():
+                if file_path.is_file() and file_path.suffix.lower() in plot_extensions:
+                    stat = file_path.stat()
+                    result["plots"].append({
+                        "filename": file_path.name,
+                        "url": f"/api/v1/data/plot/{file_path.name}",
+                        "size": stat.st_size,
+                        "modified": stat.st_mtime
+                    })
+        
+        # Collect outputs (CSV files)
+        outputs_dir = dirs["outputs"]
+        if outputs_dir.exists():
+            for file_path in outputs_dir.iterdir():
+                if file_path.is_file() and file_path.suffix.lower() == '.csv':
+                    stat = file_path.stat()
+                    result["outputs"].append({
+                        "filename": file_path.name,
+                        "url": f"/api/v1/data/output/{file_path.name}",
+                        "size": stat.st_size,
+                        "modified": stat.st_mtime
+                    })
+    
+    # Sort by modification time (newest first)
+    result["plots"].sort(key=lambda x: x["modified"], reverse=True)
+    result["outputs"].sort(key=lambda x: x["modified"], reverse=True)
+    
+    logger.info(f"Listed generated files: {len(result['plots'])} plots, {len(result['outputs'])} outputs")
+    
+    return {
+        "status": "success",
+        "data": result
+    }
