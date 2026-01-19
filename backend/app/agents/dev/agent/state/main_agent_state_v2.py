@@ -301,6 +301,21 @@ class MainAgentState(MessagesState):
         default=None,
         description="The resolved execution decision for the current step"
     )
+    
+    # ============================================================================
+    # CROSS-STEP DATA PASSING (Structured, not via LLM messages)
+    # ============================================================================
+    # These fields pass structured data between steps without token limits
+    
+    extracted_img_paths: List[str] = Field(
+        default_factory=list,
+        description="Image paths extracted from data exploration, passed directly to image_qna (bypasses LLM token limits)"
+    )
+    
+    extracted_csv_path: Optional[str] = Field(
+        default=None,
+        description="CSV file path from previous step, passed directly to plotting agent"
+    )
 
 
 # ============================================================================

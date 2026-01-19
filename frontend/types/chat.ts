@@ -54,10 +54,6 @@ export interface PlanContent {
       sub_intents: string[];
     };
   };
-  // Replan-specific fields (for interrupt_for_replan)
-  isReplan?: boolean;
-  feedback?: string;
-  replan_count?: number;
 }
 
 export interface ErrorContent {
@@ -101,9 +97,6 @@ export interface FinalizerContent {
     } | null;
     download_plots?: {
       plot_urls?: string[];
-    } | null;
-    download_outputs?: {
-      output_urls?: string[];
     } | null;
     next_queries?: string[];
   };
@@ -266,10 +259,9 @@ export interface HandlerResponse {
 
 
 export interface ChatComponentProps {
-  onSendMessage: (message: string, messageHistory: Message[], options?: { usePlanning?: boolean; useExplainer?: boolean; experimentMode?: boolean; attachedFiles?: File[] }) => Promise<HandlerResponse>;
+  onSendMessage: (message: string, messageHistory: Message[], options?: { usePlanning?: boolean; useExplainer?: boolean; attachedFiles?: File[] }) => Promise<HandlerResponse>;
   onApprove?: (messageId: string | undefined, content: string, message: Message) => Promise<HandlerResponse | void> | HandlerResponse | void;
   onFeedback?: (messageId: string | undefined, content: string, message: Message) => Promise<HandlerResponse | void> | HandlerResponse | void;
-  onReject?: (messageId: string | undefined, content: string, message: Message) => Promise<HandlerResponse | void> | HandlerResponse | void; // Handler for reject/show partial results
   onCancel?: (messageId: string | undefined, content: string, message: Message) => Promise<string> | string;
   onRetry?: (message: Message) => Promise<HandlerResponse | void> | HandlerResponse | void;
   onErrorRecovery?: (blockId: string, action: string, message: Message) => Promise<HandlerResponse | void> | HandlerResponse | void; // Error recovery handler
@@ -289,6 +281,8 @@ export interface ChatComponentProps {
   onToggleGraphPanel?: () => void; // Callback to toggle graph flow panel
   graphPanelOpen?: boolean; // Whether graph panel is currently open
   graphStructure?: any; // Graph structure data for visualization (GraphStructure from types/graph.ts)
+  suggestedQuery?: string; // Query to auto-fill from suggestions (e.g., from ExplorerPanel)
+  onQuerySet?: () => void; // Callback after query is set from suggestion
 }
 
 export interface MessageComponentProps {
@@ -308,7 +302,6 @@ export interface StartRequest {
   thread_id?: string; // Optional thread ID for existing conversations
   use_planning?: boolean; // Whether to use planning in agent execution
   use_explainer?: boolean; // Whether to use explainer node for step explanations
-  experiment_mode?: boolean; // Whether to use experimental XpAgent mode
   agent_type?: string; // Type of agent to use
 }
 

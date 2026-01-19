@@ -81,6 +81,8 @@ I coordinate intelligent subagents to accomplish complex research, analysis, and
 - Simple: "How many paintings are in the database?" (1 step)
 - Medium: "Show me Renaissance paintings with people in them" (2-3 steps: query → analyze images)
 - Complex: "Compare visual characteristics of Baroque vs Renaissance art and visualize the findings" (5+ steps)
+
+### 
 """
 
 # ============================================================================
@@ -434,8 +436,13 @@ def _extract_csv_paths_from_content(content: str) -> List[str]:
 # TOOL EXECUTION FUNCTIONS
 # ============================================================================
 
-def execute_data_exploration(query: str, factory: SubagentFactory) -> tuple[StepResult, str]:
-    """Execute data exploration agent and return result with context summary."""
+def execute_data_exploration(query: str, factory: SubagentFactory) -> tuple[StepResult, str, List[str], Optional[str]]:
+    """
+    Execute data exploration agent and return result with context summary.
+    
+    Returns:
+        tuple: (StepResult, context_string, extracted_img_paths, csv_file_path)
+    """
     try:
         agent = factory.get_data_exploration_agent()
         result = agent.invoke({
@@ -480,6 +487,38 @@ def execute_data_exploration(query: str, factory: SubagentFactory) -> tuple[Step
             if not output_file:
                 output_file = csv_paths[0]
         
+        # ============================================================================
+        # EXTRACT IMAGE PATHS - Store in state for reliable passing to image_qna
+        # ============================================================================
+        extracted_img_paths = []
+        
+        # Method 1: Extract from content using regex
+        extracted_img_paths.extend(_extract_img_paths_from_content(search_content))
+        
+        # Method 2: If CSV file exists and has img_path column, extract from there
+        if output_file and os.path.exists(output_file):
+            try:
+                import pandas as pd
+                df = pd.read_csv(output_file)
+                if 'img_path' in df.columns:
+                    # Get all non-null img_path values
+                    csv_img_paths = df['img_path'].dropna().tolist()
+                    extracted_img_paths.extend([str(p) for p in csv_img_paths if p])
+                    print(f"   📸 Extracted {len(csv_img_paths)} img_paths from CSV column")
+            except Exception as csv_err:
+                print(f"   ⚠️ Could not extract img_paths from CSV: {csv_err}")
+        
+        # Deduplicate while preserving order
+        seen = set()
+        unique_img_paths = []
+        for p in extracted_img_paths:
+            if p not in seen:
+                seen.add(p)
+                unique_img_paths.append(p)
+        extracted_img_paths = unique_img_paths
+        
+        print(f"   📸 Total extracted img_paths: {len(extracted_img_paths)}")
+        
         # Build context string with explicit CSV file info for downstream agents
         context = f"## Database Query Result\n\n"
         context += f"**Query**: {query}\n\n"
@@ -487,7 +526,12 @@ def execute_data_exploration(query: str, factory: SubagentFactory) -> tuple[Step
         if result_summary:
             context += f"**Summary**:\n{result_summary}\n\n"
         
-        context += f"**Full Response**:\n{content}\n"
+        # Don't include full content if too long (prevent token overflow)
+        if len(content) > 2000:
+            context += f"**Response Preview**:\n{content[:2000]}...\n\n"
+            context += f"*(Full response truncated - {len(content)} chars total)*\n"
+        else:
+            context += f"**Full Response**:\n{content}\n"
         
         # Add explicit CSV file information for plotting agent
         if output_file:
@@ -505,6 +549,13 @@ def execute_data_exploration(query: str, factory: SubagentFactory) -> tuple[Step
             except Exception as preview_err:
                 context += f"- (Could not load preview: {preview_err})\n"
         
+        # Add summary of extracted image paths (not full list - that goes in state)
+        if extracted_img_paths:
+            context += f"\n### Image Paths Extracted\n"
+            context += f"- **Total**: {len(extracted_img_paths)} images\n"
+            context += f"- **Sample**: {extracted_img_paths[:3]}{'...' if len(extracted_img_paths) > 3 else ''}\n"
+            context += f"- *(Full list stored in state for image_qna agent)*\n"
+        
         step_result = StepResult(
             step_number=0,
             success=True,
@@ -512,7 +563,7 @@ def execute_data_exploration(query: str, factory: SubagentFactory) -> tuple[Step
             output_file=output_file
         )
         
-        return step_result, context
+        return step_result, context, extracted_img_paths, output_file
         
     except Exception as e:
         step_result = StepResult(
@@ -521,7 +572,7 @@ def execute_data_exploration(query: str, factory: SubagentFactory) -> tuple[Step
             result_content="",
             error_message=str(e)
         )
-        return step_result, f"Error in data exploration: {str(e)}"
+        return step_result, f"Error in data exploration: {str(e)}", [], None
 
 
 def execute_image_qna(query: str, img_paths: List[str], tool_context: str, factory: SubagentFactory) -> tuple[StepResult, str]:
@@ -793,7 +844,10 @@ def create_context_builder_node():
                 "feedback": None,
                 "replan_feedback": None,
                 "pending_interrupt": False,
-                "generated_files": []
+                "generated_files": [],
+                # Reset cross-step data
+                "extracted_img_paths": [],
+                "extracted_csv_path": None
             }
         else:
             # First query in conversation - no context to build
@@ -813,7 +867,10 @@ def create_context_builder_node():
                 "feedback": None,
                 "replan_feedback": None,
                 "pending_interrupt": False,
-                "generated_files": []
+                "generated_files": [],
+                # Reset cross-step data
+                "extracted_img_paths": [],
+                "extracted_csv_path": None
             }
     
     return context_builder_node
@@ -928,7 +985,11 @@ The `intent` field describes WHAT to accomplish in natural language.
 - image_qna_agent ALWAYS requires database_exploration_agent first (to get img_path)
 - data_plotting_agent requires data from previous steps (CSV automatically resolved)
 
-### Rule 5: Plan Validation Checklist
+### Rule 5: Plan based on schema
+- Some tasks might include question that are not extracted by schema (impossible to get from database_exploration_agent), find a workaround.
+- Example: Plot the number of paintings that depict War for each year. -> There is no war column in the database, Use image_qna_agent to query all images if the painting depicts war. Then plot.
+
+### Rule 6: Plan Validation Checklist
 Before finalizing your plan, verify:
 ✅ Each step uses exactly one of: database_exploration_agent, image_qna_agent, data_plotting_agent
 ✅ Intent describes WHAT to do, not HOW (no file paths, no SQL)
@@ -1204,14 +1265,16 @@ def create_executor_node(llm, factory: SubagentFactory):
         print(f"\n🔄 Executing Step {current_step.step_number}: {current_step.description}")
         print(f"   Tool: {current_step.tool_name}")
         
-        # Execute with resolved arguments
-        step_result, new_context = _execute_tool_with_decision(
+        # Execute with resolved arguments - pass full state for cross-step data
+        step_result, new_context, state_updates = _execute_tool_with_decision(
             current_step,
             decision,
             tool_context,
             factory,
             state.get("generated_files", []),
-            state.get("step_results", [])
+            state.get("step_results", []),
+            state.get("extracted_img_paths", []),  # Pass state-based img_paths
+            state.get("extracted_csv_path")  # Pass state-based csv_path
         )
         step_result.step_number = current_step.step_number
         
@@ -1229,6 +1292,9 @@ def create_executor_node(llm, factory: SubagentFactory):
             "current_step_decision": None  # Clear the decision
         }
         
+        # Merge state updates from tool execution (e.g., extracted_img_paths, extracted_csv_path)
+        updates.update(state_updates)
+        
         # Update generated files list
         if step_result.output_file:
             current_files = state.get("generated_files", [])
@@ -1238,6 +1304,9 @@ def create_executor_node(llm, factory: SubagentFactory):
         # Check if we're done
         if current_idx + 1 >= len(plan_steps):
             updates["execution_complete"] = True
+            # Clear cross-step data on completion
+            updates["extracted_img_paths"] = []
+            updates["extracted_csv_path"] = None
         
         # Handle errors
         if not step_result.success:
@@ -1255,51 +1324,97 @@ def _execute_tool_with_decision(
     tool_context: str,
     factory: SubagentFactory,
     generated_files: List[str],
-    step_results: List[StepResult]
-) -> tuple[StepResult, str]:
-    """Execute a tool using the resolved decision."""
+    step_results: List[StepResult],
+    state_img_paths: List[str],  # State-based img_paths (reliable, complete)
+    state_csv_path: Optional[str]  # State-based csv_path
+) -> tuple[StepResult, str, dict]:
+    """
+    Execute a tool using the resolved decision.
+    
+    Returns:
+        tuple: (StepResult, context_string, state_updates_dict)
+    """
     
     tool_name = step.tool_name
+    state_updates = {}  # State updates to return
     
     if tool_name == "database_exploration_agent":
         query = (decision.resolved_query if decision and decision.resolved_query else None) or step.intent or step.description
-        return execute_data_exploration(query, factory)
+        step_result, context, extracted_img_paths, csv_path = execute_data_exploration(query, factory)
+        
+        # Update state with extracted data for downstream steps
+        if extracted_img_paths:
+            state_updates["extracted_img_paths"] = extracted_img_paths
+            print(f"   📸 Stored {len(extracted_img_paths)} img_paths in state for downstream use")
+        if csv_path:
+            state_updates["extracted_csv_path"] = csv_path
+            print(f"   📄 Stored CSV path in state: {csv_path}")
+        
+        return step_result, context, state_updates
     
     elif tool_name == "image_qna_agent":
         query = (decision.resolved_query if decision and decision.resolved_query else None) or step.intent or step.description
-        img_paths = decision.resolved_img_paths if decision and decision.resolved_img_paths else []
         
-        # Fallback: extract from context if decision didn't provide paths
-        if not img_paths:
+        # Priority: state-based img_paths > decision-resolved > extracted from context
+        img_paths = []
+        
+        # 1. First try state-based paths (most reliable - complete list)
+        if state_img_paths:
+            img_paths = state_img_paths
+            print(f"   📸 Using {len(img_paths)} img_paths from state (reliable)")
+        # 2. Then try decision-resolved paths (LLM might have truncated)
+        elif decision and decision.resolved_img_paths:
+            img_paths = decision.resolved_img_paths
+            print(f"   📸 Using {len(img_paths)} img_paths from LLM decision")
+        # 3. Fallback: extract from context (least reliable)
+        else:
             img_paths = _extract_img_paths_from_content(tool_context)
+            print(f"   📸 Fallback: Extracted {len(img_paths)} img_paths from context")
         
         if not img_paths:
             return StepResult(
                 step_number=0,
                 success=False,
                 result_content="",
-                error_message="No image paths available for analysis"
-            ), "Error: No image paths found"
+                error_message="No image paths available for analysis. Ensure database query includes img_path column."
+            ), "Error: No image paths found", state_updates
         
-        return execute_image_qna(query, img_paths, tool_context, factory)
+        step_result, context = execute_image_qna(query, img_paths, tool_context, factory)
+        
+        # Clear img_paths from state after use (one-time use)
+        state_updates["extracted_img_paths"] = []
+        
+        return step_result, context, state_updates
     
     elif tool_name == "data_plotting_agent":
         task = (decision.resolved_query if decision and decision.resolved_query else None) or step.intent or step.description
-        csv_path = decision.resolved_csv_path if decision else None
         
-        # Fallback: find CSV from previous steps
-        if not csv_path:
+        # Priority: state-based csv_path > decision-resolved > search in files
+        csv_path = None
+        
+        # 1. First try state-based path (most reliable)
+        if state_csv_path and os.path.exists(state_csv_path):
+            csv_path = state_csv_path
+            print(f"   📄 Using CSV path from state: {csv_path}")
+        # 2. Then try decision-resolved path
+        elif decision and decision.resolved_csv_path:
+            csv_path = decision.resolved_csv_path
+            print(f"   📄 Using CSV path from LLM decision: {csv_path}")
+        # 3. Fallback: find CSV from previous steps
+        else:
             for result in reversed(step_results):
                 if result.success and result.output_file and result.output_file.endswith('.csv'):
                     if os.path.exists(result.output_file):
                         csv_path = result.output_file
+                        print(f"   📄 Found CSV from step results: {csv_path}")
                         break
-        
-        if not csv_path:
-            for f in reversed(generated_files):
-                if f.endswith('.csv') and os.path.exists(f):
-                    csv_path = f
-                    break
+            
+            if not csv_path:
+                for f in reversed(generated_files):
+                    if f.endswith('.csv') and os.path.exists(f):
+                        csv_path = f
+                        print(f"   📄 Found CSV from generated files: {csv_path}")
+                        break
         
         if not csv_path:
             return StepResult(
@@ -1307,9 +1422,14 @@ def _execute_tool_with_decision(
                 success=False,
                 result_content="",
                 error_message="No CSV file found from previous steps"
-            ), "Error: No CSV file available for plotting"
+            ), "Error: No CSV file available for plotting", state_updates
         
-        return execute_plotting(task, csv_path, factory)
+        step_result, context = execute_plotting(task, csv_path, factory)
+        
+        # Clear csv_path from state after use
+        state_updates["extracted_csv_path"] = None
+        
+        return step_result, context, state_updates
     
     else:
         return StepResult(
@@ -1317,7 +1437,7 @@ def _execute_tool_with_decision(
             success=False,
             result_content="",
             error_message=f"Unknown tool: {tool_name}"
-        ), f"Error: Unknown tool {tool_name}"
+        ), f"Error: Unknown tool {tool_name}", state_updates
 
 
 # ============================================================================

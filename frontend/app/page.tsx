@@ -22,7 +22,6 @@ import ExecutionHistory from "@/components/ExecutionHistory";
 import ExplorerPanel from "@/components/panels/ExplorerPanel";
 import VisualizationPanel from "@/components/panels/VisualizationPanel";
 import DataFramePanel from "@/components/panels/DataFramePanel";
-import OutputsPanel from "@/components/panels/OutputsPanel";
 import GraphFlowPanel from "@/components/graph-flow/GraphFlowPanel";
 import { GraphStructure } from "@/types/graph";
 import {
@@ -47,6 +46,7 @@ const ChatWithApproval: React.FC = () => {
   const [currentThreadTitle, setCurrentThreadTitle] = useState<string>("");
   const [sidebarExpanded, setSidebarExpanded] = useState(false);
   const [chatKey, setChatKey] = useState(0);
+  const [suggestedQuery, setSuggestedQuery] = useState<string>("");
   const [showExecutionHistory, setShowExecutionHistory] = useState(false);
   const [loadingThread, setLoadingThread] = useState(false);
 
@@ -64,9 +64,6 @@ const ChatWithApproval: React.FC = () => {
   );
   const [currentDataContext, setCurrentDataContext] =
     useState<DataContext | null>(null);
-  const [outputsPanelOpen, setOutputsPanelOpen] = useState(false);
-  const [outputsPanelPlotUrls, setOutputsPanelPlotUrls] = useState<string[]>([]);
-  const [outputsPanelOutputUrls, setOutputsPanelOutputUrls] = useState<string[]>([]);
 
   const eventSourceRef = useRef<EventSource | null>(null);
   const currentThreadIdRef = useRef<string | null>(null);
@@ -120,9 +117,7 @@ const ChatWithApproval: React.FC = () => {
         // Legacy: convert string content to text block
         content = [
           {
-            id: `text_${
-              typeof msg.message_id === "number" ? msg.message_id : Date.now()
-            }`,
+            id: `text_${typeof msg.message_id === "number" ? msg.message_id : Date.now()}`,
             type: "text",
             needsApproval: false,
             data: { text: msg.content },
@@ -318,22 +313,9 @@ const ChatWithApproval: React.FC = () => {
         setVisualizationOpen(true);
       }
     };
-    // Handler to open the outputs panel with plots and/or CSV outputs
-    (window as any).openOutputsPanel = (data?: { plotUrls?: string[]; outputUrls?: string[] }) => {
-      setExplorerOpen(false);
-      setExplorerData(null);
-      setDataFrameOpen(false);
-      setDataFrameData(null);
-      setVisualizationOpen(false);
-      setVisualizationCharts(null);
-      setOutputsPanelPlotUrls(data?.plotUrls || []);
-      setOutputsPanelOutputUrls(data?.outputUrls || []);
-      setOutputsPanelOpen(true);
-    };
     return () => {
       delete (window as any).openExplorer;
       delete (window as any).openVisualization;
-      delete (window as any).openOutputsPanel;
     };
   }, [handleOpenExplorer, currentThreadId, selectedChatThreadId]);
 
@@ -663,7 +645,6 @@ const ChatWithApproval: React.FC = () => {
     options?: {
       usePlanning?: boolean;
       useExplainer?: boolean;
-      experimentMode?: boolean;
       attachedFiles?: File[];
     },
   ): Promise<HandlerResponse> => {
@@ -680,7 +661,6 @@ const ChatWithApproval: React.FC = () => {
     // Extract planning and explainer preferences from options (defaults to true)
     const usePlanning = options?.usePlanning ?? true;
     const useExplainer = options?.useExplainer ?? true;
-    const experimentMode = options?.experimentMode ?? false;
 
     try {
       let chatThreadId = selectedChatThreadId;
@@ -702,7 +682,6 @@ const ChatWithApproval: React.FC = () => {
           thread_id: chatThreadId,
           use_planning: usePlanning,
           use_explainer: useExplainer,
-          experiment_mode: experimentMode,
         });
         // @ts-ignore - Non-streaming response type
         if (response.data?.run_status === "user_feedback") {
@@ -764,7 +743,6 @@ const ChatWithApproval: React.FC = () => {
           thread_id: chatThreadId,
           use_planning: usePlanning,
           use_explainer: useExplainer,
-          experiment_mode: experimentMode,
         });
         setCurrentThreadId(startResponse.data?.thread_id || "");
 
@@ -846,14 +824,10 @@ const ChatWithApproval: React.FC = () => {
             detailedResponse += `\n\n**Execution Summary:**\n`;
             detailedResponse += `- Steps executed: ${response.data.steps.length}\n`;
             if (response.data.overall_confidence) {
-              detailedResponse += `- Overall confidence: ${(
-                response.data.overall_confidence * 100
-              ).toFixed(1)}%\n`;
+              detailedResponse += `- Overall confidence: ${(response.data.overall_confidence * 100).toFixed(1)}%\n`;
             }
             if (response.data.total_time) {
-              detailedResponse += `- Total time: ${response.data.total_time.toFixed(
-                2,
-              )}s\n`;
+              detailedResponse += `- Total time: ${response.data.total_time.toFixed(2)}s\n`;
             }
           }
 
@@ -948,78 +922,6 @@ const ChatWithApproval: React.FC = () => {
     }
   };
 
-  // Handler for reject/show partial results - sends REJECTED to backend
-  const handleReject = async (
-    messageId: string | undefined,
-    _content: string,
-    message: Message,
-  ): Promise<HandlerResponse> => {
-    const threadId =
-      currentThreadIdRef.current ||
-      currentThreadId ||
-      selectedChatThreadId ||
-      message.threadId;
-
-    if (!threadId) {
-      throw new Error("No active thread to reject");
-    }
-
-    try {
-      setLoading(true);
-      setExecutionStatus("running");
-
-      // Send REJECTED status - this tells the backend to show partial results
-      const resumeResponse = await GraphService.resumeStreamingGraph({
-        thread_id: threadId,
-        message_id: messageId,
-        review_action: ApprovalStatus.REJECTED,
-      });
-
-      setCurrentThreadId(resumeResponse.data?.thread_id || "");
-
-      return {
-        message: "",
-        needsApproval: false,
-        isStreaming: true,
-        backendMessageId: resumeResponse.data?.assistant_message_id as
-          | string
-          | undefined,
-        streamingHandler: async (
-          streamingMessageId: string,
-          updateContentCallback: (id: string, contentBlocks: any[]) => void,
-          onStatus?: (
-            status:
-              | "user_feedback"
-              | "finished"
-              | "running"
-              | "error"
-              | "tool_call"
-              | "tool_result"
-              | "completed_payload"
-              | "visualizations_ready"
-              | "content_block",
-            eventData?: string,
-            responseType?: "answer" | "replan" | "cancel",
-          ) => void,
-        ) => {
-          await resumeStreamingForMessage(
-            threadId,
-            ApprovalStatus.REJECTED,
-            undefined,
-            streamingMessageId,
-            updateContentCallback,
-            onStatus,
-            resumeResponse,
-          );
-        },
-      };
-    } catch (error) {
-      console.error("Error rejecting:", error);
-      setLoading(false);
-      throw error;
-    }
-  };
-
   const handleFeedback = async (
     messageId: string | undefined,
     content: string,
@@ -1065,14 +967,10 @@ const ChatWithApproval: React.FC = () => {
             detailedResponse += `\n\n**Execution Summary:**\n`;
             detailedResponse += `- Steps executed: ${response.data.steps.length}\n`;
             if (response.data?.overall_confidence) {
-              detailedResponse += `- Overall confidence: ${(
-                response.data?.overall_confidence * 100
-              ).toFixed(1)}%\n`;
+              detailedResponse += `- Overall confidence: ${(response.data?.overall_confidence * 100).toFixed(1)}%\n`;
             }
             if (response.data?.total_time) {
-              detailedResponse += `- Total time: ${response.data?.total_time.toFixed(
-                2,
-              )}s\n`;
+              detailedResponse += `- Total time: ${response.data?.total_time.toFixed(2)}s\n`;
             }
           }
 
@@ -1583,9 +1481,7 @@ const ChatWithApproval: React.FC = () => {
       />
 
       <div
-        className={`h-full min-h-0 flex flex-col transition-[margin-left] duration-300 ease-in-out overflow-hidden ml-0 ${
-          sidebarExpanded ? "md:ml-82" : "md:ml-14"
-        }`}
+        className={`h-full min-h-0 flex flex-col transition-[margin-left] duration-300 ease-in-out overflow-hidden ml-0 ${sidebarExpanded ? "md:ml-82" : "md:ml-14"}`}
       >
         <div className="w-full h-full flex flex-col min-h-0">
           <div className="flex items-center justify-between px-4 pt-2 pb-1 text-xs text-muted-foreground">
@@ -1615,7 +1511,6 @@ const ChatWithApproval: React.FC = () => {
                 onSendMessage={handleSendMessage}
                 onApprove={handleApprove}
                 onFeedback={handleFeedback}
-                onReject={handleReject}
                 onErrorRecovery={handleErrorRecovery}
                 currentThreadId={currentThreadId || selectedChatThreadId}
                 initialMessages={restoredMessages}
@@ -1632,16 +1527,22 @@ const ChatWithApproval: React.FC = () => {
                 onToggleGraphPanel={() => setGraphPanelOpen(!graphPanelOpen)}
                 graphPanelOpen={graphPanelOpen}
                 graphStructure={graphStructure}
+                suggestedQuery={suggestedQuery}
+                onQuerySet={() => setSuggestedQuery("")}
               />
             )}
           </div>
         </div>
 
-        {/* Slide-out Panels (mutually exclusive) */}
         <ExplorerPanel
           open={explorerOpen && !visualizationOpen && !dataFrameOpen}
           onClose={() => setExplorerOpen(false)}
           data={explorerData}
+          onSuggestionClick={(query) => {
+            // Clear current chat and pass suggested query to ChatComponent via state
+            handleNewThread();
+            setSuggestedQuery(query);
+          }}
         />
         <VisualizationPanel
           open={visualizationOpen && !explorerOpen && !dataFrameOpen}
@@ -1649,22 +1550,12 @@ const ChatWithApproval: React.FC = () => {
           charts={visualizationCharts || []}
         />
         <DataFramePanel
-          open={dataFrameOpen && !explorerOpen && !visualizationOpen && !outputsPanelOpen}
+          open={dataFrameOpen && !explorerOpen && !visualizationOpen}
           onClose={() => setDataFrameOpen(false)}
           data={dataFrameData}
           onRefresh={
             currentDataContext?.sql_query ? handleRefreshDataFrame : undefined
           }
-        />
-        <OutputsPanel
-          open={outputsPanelOpen && !explorerOpen && !visualizationOpen && !dataFrameOpen}
-          onClose={() => {
-            setOutputsPanelOpen(false);
-            setOutputsPanelPlotUrls([]);
-            setOutputsPanelOutputUrls([]);
-          }}
-          plotUrls={outputsPanelPlotUrls}
-          outputUrls={outputsPanelOutputUrls}
         />
         {/* GraphFlowPanel now rendered inline in split view above */}
       </div>
