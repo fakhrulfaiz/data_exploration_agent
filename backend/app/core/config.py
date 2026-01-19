@@ -23,7 +23,7 @@ class Settings(BaseSettings):
     cors_headers: List[str] = ["*"]
 
     # LLM Provider Selection
-    llm_provider: str = "groq"  # options: openai, ollama, deepseek, groq
+    llm_provider: str = "openai"  # options: openai, ollama, deepseek, groq
     # OpenAI Configuration
     openai_api_key: str = ""
     openai_model: str = "gpt-4o-mini"
@@ -76,7 +76,7 @@ class Settings(BaseSettings):
 
     # Logging Configuration
     logs_dir: str = "logs"
-    log_level: str = "INFO"
+    log_level: str = "INFO"  # Temporarily set to DEBUG for investigating Groq streaming
     log_retention_days: int = 30
 
     # Security

@@ -31,7 +31,8 @@ My plan is:
 2.  **Refine**: If the user specified a subset (e.g., "oldest *Renaissance* painting"), I will add a WHERE clause to filter by that criteria.
 3.  **Answer**: Once I have the record, I will provide the [attribute] to the user.
 
-Since this relies purely on metadata stored in the database, I do not need any visual analysis tools or plotting tools.
+Since this relies purely on metadata stored in the database, I do not need any visual analysis tools or plotting tools. 
+**Crucial**: If the attribute (e.g., genre) is a column in the database, I can get it in the SAME step as the retrieval. I do NOT need a separate "extraction" step.
 ```
 
 ### Category 2: Visual Analysis with Metadata Filtering
@@ -74,7 +75,7 @@ My plan is:
     -   I need to query all relevant records.
     -   I will select the grouping columns (e.g., `movement`, `inception`).
     -   I need to ensure I can extract the [time_period] (year or century) from the `inception` date.
-2.  **Visualization**: I will use the `large_plotting_tool`.
+2.  **Visualization**: I need to call `large_plotting_tool`.
     -   I will NOT use `smart_transform_for_viz` because `large_plotting_tool` is more direct.
     -   I will specify the X-axis (e.g., `year`) and Y-axis (e.g., `count`).
     -   I will ask for a 'bar' or 'line' chart.
@@ -213,7 +214,19 @@ This is a complex query. I need to count "swords" in *every* painting, then find
 3.  **Find Maxima**: I will use `smart_data_analysis`.
     -   I will group the data by `movement`.
     -   For each movement, I will find the `MAX(sword_count)`.
-4.  **Report**: I will present a table or list showing "Movement: Max Swords".
+    -   The result table will have [Movement, Max Swords].
+```
+
+### Example 9: "What is the genre of the oldest painting in the database?"
+
+**Thought Process**:
+```
+The user wants a specific attribute (genre) of the single oldest painting.
+
+1.  **Retrieve Data**: I will use `data_exploration_tool`.
+    -   I can get the answer in a SINGLE Query.
+    -   Query: `SELECT genre FROM paintings ORDER BY inception ASC LIMIT 1`.
+    -   I do NOT need to retrieve the whole record and then use another tool to extract the genre. The database can do it directly.
 ```
 
 ### Example 5: "Plot the number of paintings for each century"
@@ -248,6 +261,39 @@ The user wants two specific counts for Renaissance paintings: those with war and
     -   Question: "Does this painting depict a sword?" -> Column: `depicts_sword`.
 4.  **Count Totals**: I will use `smart_data_analysis`.
     -   Count rows where `depicts_war` is Yes.
-    -   Count rows where `depicts_sword` is Yes.
-5.  **Answer**: I will report the two numbers clearly.
+
+### Example 7: "Plot the lowest number of swords depicted in each year"
+
+**Thought Process**:
+```
+The user wants to visualize an extreme value (lowest count) aggregated by year.
+This involves three phases: Retrieval, Visual Analysis, and then Visualization (which handles the aggregation).
+
+1.  **Retrieve Data**: I will use `data_exploration_tool` to get `img_path` and `inception` (Year).
+2.  **Visual Counting**: I will use `image_batch_qa_tool`.
+    -   Question: "How many swords are depicted? Return a number."
+    -   Output Column: `sword_count`.
+3.  **Visualize**: I will use `large_plotting_tool`.
+    -   Input: The DataFrame from Step 2.
+    -   X-Axis: Year.
+    -   Y-Axis: Sword Count.
+    -   **Aggregation**: I will instruct the tool to plot the *minimum* (`min`) sword count for each year.
+```
+
+### Example 8: "What is the movement of the painting that depicts the highest number of babies?"
+
+**Thought Process**:
+```
+The user wants to find a specific attribute (`movement`) of the painting with the extreme visual count (highest babies).
+
+1.  **Retrieve Data**: I will use `data_exploration_tool`.
+    -   **Crucial**: I MUST select both `img_path` AND `movement` in this first step. Use `SELECT img_path, movement FROM paintings`.
+    -   Getting `movement` now prevents an extra query later.
+2.  **Visual Counting**: I will use `image_batch_qa_tool`.
+    -   Question: "How many babies are in this painting? Return a number."
+    -   Output Column: `baby_count`.
+3.  **Find Max**: I will use `smart_data_analysis`.
+    -   I will sort or filter to find the row with the MAX `baby_count`.
+    -   Since I already have `movement` in the dataframe (from Step 1), I can simply return the `movement` of that top record.
+    -   I do NOT need to call `data_exploration_tool` again.
 ```

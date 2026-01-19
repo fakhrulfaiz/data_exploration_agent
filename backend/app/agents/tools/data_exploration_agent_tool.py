@@ -224,7 +224,7 @@ Your final answer must be ONLY the SQL query, no explanation.""")
                      "tool_name": "data_exploration_tool",
                      "details": {
                          "storage_error": str(e),
-                         "data_preview": df.head(5).to_dict(orient='records'),
+                         "data_preview": df.head(3).to_dict(orient='records'),
                          "sql_query": sql_query
                      },
                      "recoverable": True  # Can retry storage
@@ -249,7 +249,7 @@ Your final answer must be ONLY the SQL query, no explanation.""")
             
             # Return payload including small preview of data
             # This helps the LLM know immediately what it got without needing another tool call usually
-            preview_data = df.head(5).to_dict(orient='records')
+            preview_data = df.head(3).to_dict(orient='records')
             
             payload = {
                 "data_context": data_context.model_dump(mode="json"),

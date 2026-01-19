@@ -40,8 +40,7 @@ Analyze the execution and provide:
 Focus on:
 - What data was retrieved and transformed
 - How each step contributed to answering the query
-- Whether we have complete or partial results
-- Any limitations or gaps in the data"""
+"""
 
     # Inject user preferences if provided
     if user_preferences:
@@ -60,7 +59,7 @@ RESPONSE GUIDELINES:
 - Support with specific data from execution results
 - Use markdown formatting for readability
 - Include relevant numbers, names, and facts
-- Be honest about limitations or partial results
+- Be honest about or partial results
 
 **HANDLING ERRORS:**
 When execution fails due to an error:
@@ -125,8 +124,24 @@ Requirements:
 - Include specific data and facts
 - Use proper markdown formatting (follow the examples in system prompt)
 - Be concise but complete
-- Acknowledge any limitations
-- **Next Queries**: Suggest 3 actionable follow-up queries as commands"""
+- Do NOT include next queries or follow-up suggestions in final response (handled separately in next_queries)
+
+**Next Queries Requirements**:
+- Suggest 3 natural language follow-up queries that users can ask
+- **CRITICAL**: Base suggestions ONLY on the actual execution context above
+  - Use column names that actually exist (check the Execution Summary)
+  - Reference values that were actually seen in the data
+  - Suggest operations similar to what was just done
+- Use plain English only - NO tool names (e.g., 'data_exploration_tool', 'large_plotting_tool')
+- Make them actionable commands, not questions
+- Examples of GROUNDED suggestions (based on execution context):
+  "Show me paintings from other art movements in the database" (if movement column exists)
+  "Create a chart showing war paintings by century" (if depicts_war column was created)
+  "Find paintings depicting both war and swords" (if both columns were created)
+- Examples of HALLUCINATED suggestions (DO NOT DO THIS):
+  "Show me paintings from the Baroque period" (if Baroque wasn't in the data)
+  "List the most famous Renaissance artists" (if there's no 'famous' field)
+"""
 
     # Inject user preferences if provided
     if user_preferences:

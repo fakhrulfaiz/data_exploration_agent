@@ -27,6 +27,7 @@ const ChatWithApproval: React.FC = () => {
   const [currentThreadTitle, setCurrentThreadTitle] = useState<string>('');
   const [sidebarExpanded, setSidebarExpanded] = useState(false);
   const [chatKey, setChatKey] = useState(0);
+  const [suggestedQuery, setSuggestedQuery] = useState<string>('');
   const [showExecutionHistory, setShowExecutionHistory] = useState(false);
   const [loadingThread, setLoadingThread] = useState(false);
 
@@ -1189,16 +1190,22 @@ const ChatWithApproval: React.FC = () => {
                 onToggleGraphPanel={() => setGraphPanelOpen(!graphPanelOpen)}
                 graphPanelOpen={graphPanelOpen}
                 graphStructure={graphStructure}
+                suggestedQuery={suggestedQuery}
+                onQuerySet={() => setSuggestedQuery('')}
               />
             )}
           </div>
         </div>
 
-        {/* Slide-out Panels (mutually exclusive) */}
         <ExplorerPanel
           open={explorerOpen && !visualizationOpen && !dataFrameOpen}
           onClose={() => setExplorerOpen(false)}
           data={explorerData}
+          onSuggestionClick={(query) => {
+            // Clear current chat and pass suggested query to ChatComponent via state
+            handleNewThread();
+            setSuggestedQuery(query);
+          }}
         />
         <VisualizationPanel
           open={visualizationOpen && !explorerOpen && !dataFrameOpen}

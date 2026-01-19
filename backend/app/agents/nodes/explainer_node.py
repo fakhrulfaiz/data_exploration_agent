@@ -204,6 +204,26 @@ class ExplainerNode:
                 
                 facts_section += f"- {display_name}: {value_str}\n"
         
+        # Extract 1-2 sample rows from data_preview for context (if available)
+        sample_data = None
+        try:
+            output_dict = json.loads(tool_output)
+            if 'data_preview' in output_dict and output_dict['data_preview']:
+                preview = output_dict['data_preview']
+                # Take first 2 rows only
+                sample_data = preview[:2] if isinstance(preview, list) else None
+        except (json.JSONDecodeError, TypeError):
+            pass
+        
+        # Add sample data to facts if available
+        if sample_data:
+            facts_section += f"\n**Sample Data** (first 2 rows for context):\n"
+            for i, row in enumerate(sample_data, 1):
+                row_str = ', '.join(f"{k}: {v}" for k, v in list(row.items())[:4])  # First 4 columns only
+                if len(row) > 4:
+                    row_str += "..."
+                facts_section += f"  {i}. {row_str}\n"
+        
         metadata = get_tool_metadata(tool_name)
         alternative = metadata.get("alternative")
         tool_desc = self._get_tool_description(tool_name)
@@ -275,11 +295,6 @@ class ExplainerNode:
 - Tool: {tool_name}
 - Description: {tool_desc}
 - Input: {tool_input}
-
-**FULL TOOL OUTPUT** (for reference - use VERIFIABLE FACTS above):
-```
-{tool_output}
-```
 
 **YOUR TASK**:
 Generate the following fields based on VERIFIABLE FACTS:

@@ -322,7 +322,7 @@ Provide an overall synthesis starting with "Thought:":
         # Defined structured output schema - only response and suggestions, actions are deterministic
         class FinalResponse(BaseModel):
             response: str = Field(description="The comprehensive final response to the user's query, incorporating all findings.")
-            next_queries: List[str] = Field(description="3 suggested follow-up queries as actionable commands not follow up questions)")
+            next_queries: List[str] = Field(description="3 suggested follow-up queries that the user might want to explore next, all must be based on current context")
         
         # Fetch user preferences if available
         user_preferences = ""
@@ -373,7 +373,19 @@ The error explainer already provided this guidance to the user:
 
 Use this context to suggest relevant follow-up queries that align with the error explanation."""
         
-        prompt = get_finalizer_response_prompt(query, thought_text, steps_summary, user_preferences) + error_context
+        # Extract data context from steps to ground next_queries
+        data_context = self._extract_data_context_for_suggestions(steps)
+        data_context_str = ""
+        if data_context:
+            data_context_str = f"""
+
+**Available Data Context (for next_queries grounding)**:
+{data_context}
+
+IMPORTANT: Only suggest queries using columns and values that exist in the context above!
+DO NOT hallucinate columns or values that weren't observed in the execution."""
+        
+        prompt = get_finalizer_response_prompt(query, thought_text, steps_summary, user_preferences) + error_context + data_context_str
         
         # Use structured output to enforce clean response
         llm_with_structure = self.llm.with_structured_output(FinalResponse)
@@ -650,5 +662,61 @@ Use this context to suggest relevant follow-up queries that align with the error
                 
         return " -> ".join(tool_sequence)
 
+    def _extract_data_context_for_suggestions(self, steps: List[Dict[str, Any]]) -> str:
+        """Extract available columns and sample values from steps to ground next_queries"""
+        context_lines = []
+        
+        for step in steps:
+            tool_calls = step.get("tool_calls", [])
+            if not tool_calls:
+                continue
+                
+            for tc in tool_calls:
+                output = tc.get("output", "")
+                
+                # Try to parse output as JSON
+                try:
+                    if isinstance(output, str):
+                        output_data = json.loads(output)
+                    else:
+                        output_data = output
+                    
+                    if not isinstance(output_data, dict):
+                        continue
+                    
+                    # Get columns from data_context
+                    if "data_context" in output_data and isinstance(output_data["data_context"], dict):
+                        columns = output_data["data_context"].get("columns", [])
+                        if columns:
+                            context_lines.append(f"- Available columns: {', '.join(columns)}")
+                    
+                    # Get sample values from data_preview
+                    if "data_preview" in output_data and isinstance(output_data["data_preview"], list):
+                        preview = output_data["data_preview"]
+                        if preview and len(preview) > 0:
+                            # Extract unique values from categorical columns
+                            first_row = preview[0]
+                            if isinstance(first_row, dict):
+                                # Sample specific useful columns
+                                for col in ['movement', 'genre', 'artist']:
+                                    if col in first_row:
+                                        # Get unique values from preview
+                                        values = set()
+                                        for row in preview[:10]:  # Check first 10 rows
+                                            if col in row and row[col]:
+                                                values.add(str(row[col]))
+                                        if values:
+                                            value_list = ', '.join(list(values)[:5])  # Max 5 values
+                                            context_lines.append(f"- Sample {col} values: {value_list}")
+                
+                except (json.JSONDecodeError, TypeError):
+                    pass
+        
+        # Deduplicate lines
+        context_lines = list(dict.fromkeys(context_lines))
+        
+        if context_lines:
+            return "\n".join(context_lines)
+        return ""
 
 

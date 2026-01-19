@@ -418,9 +418,9 @@ const InputForm: React.FC<InputFormProps> = ({
 
           {/* LLM Selector */}
           {/* <LLMSelector compact /> */}
-          <InputGroupText className="text-muted-foreground text-xs">GPT-4</InputGroupText>
 
-          <InputGroupText className="ml-auto text-muted-foreground">52% used</InputGroupText>
+          {/* Spacer to push send button to the right */}
+          <div className="ml-auto" />
 
           <Separator orientation="vertical" className="!h-4" />
 

@@ -50,7 +50,7 @@ async def lifespan(app: FastAPI):
     else:
         # Default to OpenAI
         logger.warning(f"Unknown LLM provider '{settings.llm_provider}', defaulting to OpenAI")
-        llm = ChatOpenAI(model="gpt-4o-mini")
+        llm = ChatOpenAI(model="gpt-4o-mini", streaming=True)
     
     # Initialize AgentService with proper service layer pattern
     agent_service = AgentService()

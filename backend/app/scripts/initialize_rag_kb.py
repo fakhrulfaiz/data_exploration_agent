@@ -62,8 +62,12 @@ def parse_thought_process_patterns(file_path: str) -> List[Document]:
         
         # Create a document for each example query
         for example_query in example_queries:
+            # CRITICAL FIX: Include the example query in page_content for semantic matching.
+            # We want to match the User's Query against the Example Query.
+            content_text = f"Query: {example_query}\nPattern: {pattern_description}\n\nTemplate:\n{template}"
+            
             doc = Document(
-                page_content=template,  # The template is the main content
+                page_content=content_text,
                 metadata={
                     "pattern_type": category_name,
                     "pattern_description": pattern_description,
@@ -116,8 +120,11 @@ def parse_thought_process_patterns(file_path: str) -> List[Document]:
             pattern_type = "Category 6: Simple Aggregation"
             complexity = "simple"
         
+        # CRITICAL FIX: Include the example query here too
+        content_text = f"Query: {example_query}\n\nThought Process:\n{thought_process}"
+
         doc = Document(
-            page_content=thought_process,  # The actual thought process
+            page_content=content_text,  # Match against the query context
             metadata={
                 "pattern_type": pattern_type,
                 "complexity": complexity,

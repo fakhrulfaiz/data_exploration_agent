@@ -281,6 +281,8 @@ export interface ChatComponentProps {
   onToggleGraphPanel?: () => void; // Callback to toggle graph flow panel
   graphPanelOpen?: boolean; // Whether graph panel is currently open
   graphStructure?: any; // Graph structure data for visualization (GraphStructure from types/graph.ts)
+  suggestedQuery?: string; // Query to auto-fill from suggestions (e.g., from ExplorerPanel)
+  onQuerySet?: () => void; // Callback after query is set from suggestion
 }
 
 export interface MessageComponentProps {
