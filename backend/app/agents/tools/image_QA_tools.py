@@ -294,7 +294,6 @@ Note: Rows with errors are marked as {', '.join(ERROR_SENTINELS)}."""
         logger.info(f"ImageBatchQATool completed successfully")
         
         # Return structured output with data preview for frontend table display
-        import json
         return json.dumps({
             "status": "success", 
             "description": result_message,
