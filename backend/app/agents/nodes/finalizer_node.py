@@ -398,17 +398,33 @@ DO NOT hallucinate columns or values that weren't observed in the execution."""
             return result.model_dump()
         except Exception as e:
             logger.error(f"Structured output failed for final response: {e}")
-            # Fallback to raw string
+            # Fallback to raw string with useful default suggestions
             response = self.llm.invoke([
                 SystemMessage(content=system_prompt),
                 HumanMessage(content=prompt)
             ])
-            # Return dict with response only, safe defaults for actions
+            
+            # Provide useful default suggestions based on error context
+            default_suggestions = [
+                "Show me all available data from the paintings table",
+                "List the columns available in the database",
+                "Find paintings from any art movement"
+            ]
+            
+            # If we have error explanation, provide more contextual suggestions
+            if error_explanation:
+                default_suggestions = [
+                    "Show me what data is available in the database",
+                    "List all the tables and columns I can query",
+                    "Try a simpler query to explore the data"
+                ]
+            
+            # Return dict with response and useful defaults
             return {
                 "response": response.content,
                 "export_dataframe": False,
                 "download_images": False,
-                "next_queries": []
+                "next_queries": default_suggestions
             }
 
     

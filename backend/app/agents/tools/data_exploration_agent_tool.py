@@ -76,19 +76,20 @@ class DataExplorationAgentTool(BaseTool):
 
 Your task is to generate ONLY the SQL query, nothing else.
 
-CRITICAL VALIDATION RULES:
-1. FIRST, call sql_db_list_tables to see available tables.
-2. CHOOSE the most relevant table from the list. If user request is vague (e.g., "the table"), infer the table if obvious.
-3. VERIFY that the table you want to query is present in the sql_db_list_tables output.
-4. IF the table is NOT in the list: Return 'ERROR: Table [name] not found'.
-5. ONLY query tables that are explicitly listed in sql_db_list_tables.
+WORKFLOW:
+1. Call sql_db_list_tables to see what tables exist
+2. Call sql_db_schema on the relevant table to see its structure
+3. Generate the SQL query based on the schema
+4. Return ONLY the SQL query as your final answer
+
+VALIDATION:
+- If the table the user wants doesn't exist in sql_db_list_tables, return: ERROR: Table [name] not found
+- Otherwise, proceed to generate the SQL query
 
 SQL GENERATION RULES:
-1. Use sql_db_schema to understand table structure
-2. Generate executable SQLite3 queries
-3. Return ONLY the SQL query as your final answer
-4. Do NOT execute the query - just generate it
-5. Use proper SQLite syntax and functions
+1. Generate executable SQLite3 queries
+2. Use proper SQLite syntax and functions
+3. Return ONLY the SQL query, no explanation or markdown
 
 COMMON PATTERNS:
 - Date filtering: strftime('%Y', date_column) = '2020'

@@ -3,6 +3,7 @@ from pydantic import BaseModel, Field, validator
 from typing import Dict, Any, Optional, List
 import logging
 import json
+from app.agents.prompts.user_preferences import get_user_preference_prompt_safe
 
 logger = logging.getLogger(__name__)
 

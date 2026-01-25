@@ -81,7 +81,7 @@ function parseToolError(output: any): ToolErrorInterrupt | null {
     // Parse output if it's a string
     const parsed = typeof output === 'string' ? JSON.parse(output) : output;
 
-    // Check if output contains error
+    // Check if output contains structured error (JSON with error and error_type)
     if (parsed.error && parsed.error_type) {
       return {
         type: 'tool_error',
@@ -101,7 +101,27 @@ function parseToolError(output: any): ToolErrorInterrupt | null {
       };
     }
   } catch (e) {
-    // Not JSON or doesn't match error format
+    // Not JSON, check if it's a plain error string
+  }
+
+  // Check for plain error strings (e.g., "Error: cannot access local variable...")
+  if (typeof output === 'string' && output.trim().startsWith('Error:')) {
+    return {
+      type: 'tool_error',
+      message: output.trim(),
+      error_details: [{
+        tool_name: 'unknown',
+        tool_call_id: '',
+        error_message: output.trim(),
+        error_type: 'execution_error',
+        details: {},
+        recoverable: true, // Default to recoverable for plain errors
+        full_output: output,
+        detection_method: 'string_pattern'
+      }],
+      current_step_index: 0,
+      options: ['retry', 'replan', 'cancel']
+    };
   }
 
   return null;
@@ -259,6 +279,25 @@ export const ToolCallMessage: React.FC<ToolCallMessageProps> = ({
     return `\`\`\`json\n${JSON.stringify(content, null, 2)}\n\`\`\``;
   };
 
+  const formatOutput = (output: any): string => {
+    if (typeof output === 'string') {
+      // Try to parse as JSON first
+      try {
+        const parsed = JSON.parse(output);
+        return `\`\`\`json\n${JSON.stringify(parsed, null, 2)}\n\`\`\``;
+      } catch {
+        // If not JSON, check if it starts with "Error:" for error messages
+        if (output.startsWith('Error:')) {
+          return output;
+        }
+        // Otherwise, return as-is
+        return output;
+      }
+    }
+    // For objects, always format as JSON
+    return `\`\`\`json\n${JSON.stringify(output, null, 2)}\n\`\`\``;
+  };
+
   return (
     <>
       {content && (
@@ -271,8 +310,9 @@ export const ToolCallMessage: React.FC<ToolCallMessageProps> = ({
 
 
 
+      {/* COMMENTED OUT - Tool Approval UI (kept for future use) */}
       {/* Alert message - different for errors vs normal approval */}
-      {needsApproval && detectedError && (
+      {/* {needsApproval && detectedError && (
         <Alert className="mb-3 border-0 bg-transparent p-0">
           <AlertCircle className="h-4 w-4 text-red-600 dark:text-red-400" />
           <AlertTitle className="text-red-900 dark:text-red-100">Tool Execution Error</AlertTitle>
@@ -290,7 +330,7 @@ export const ToolCallMessage: React.FC<ToolCallMessageProps> = ({
             Please review the tool call below and approve or reject execution.
           </AlertDescription>
         </Alert>
-      )}
+      )} */}
 
       <Accordion type="single" collapsible className="space-y-2">
         {toolCalls.map((call) => {
@@ -462,7 +502,7 @@ export const ToolCallMessage: React.FC<ToolCallMessageProps> = ({
                           }`}>
                           <div className="prose prose-sm dark:prose-invert max-w-none prose-pre:overflow-x-auto">
                             <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                              {formatContent(call.output)}
+                              {formatOutput(call.output)}
                             </ReactMarkdown>
                           </div>
                         </div>
@@ -476,8 +516,9 @@ export const ToolCallMessage: React.FC<ToolCallMessageProps> = ({
         })}
       </Accordion>
 
+      {/* COMMENTED OUT - Approval Buttons (kept for future use) */}
       {/* Approval buttons (shown when needsApproval=true and NO error detected) */}
-      {needsApproval && !detectedError && (onApprove || onReject) && (
+      {/* {needsApproval && !detectedError && (onApprove || onReject) && (
         <div className="flex gap-2 mt-3 pt-3 border-t border-border">
           {onApprove && (
             <Button
@@ -501,7 +542,7 @@ export const ToolCallMessage: React.FC<ToolCallMessageProps> = ({
             </Button>
           )}
         </div>
-      )}
+      )} */}
 
       {/* Error recovery buttons (shown when needsApproval=true AND error detected) */}
       {needsApproval && detectedError && (onRetry || onReplan || onCancel) && (
