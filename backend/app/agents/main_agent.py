@@ -1042,7 +1042,7 @@ CRITICAL: Base your reasoning ONLY on the information provided above. Do NOT ass
         graph.add_node("human_feedback", self.human_feedback)
         
         # Set entry point
-        graph.set_entry_point("planner")
+        graph.set_entry_point("assistant")
         
         # Assistant logic
         graph.add_edge("assistant", END)

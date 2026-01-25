@@ -134,13 +134,37 @@ Requirements:
   - Suggest operations similar to what was just done
 - Use plain English only - NO tool names (e.g., 'data_exploration_tool', 'large_plotting_tool')
 - Make them actionable commands, not questions
-- Examples of GROUNDED suggestions (based on execution context):
-  "Show me paintings from other art movements in the database" (if movement column exists)
-  "Create a chart showing war paintings by century" (if depicts_war column was created)
-  "Find paintings depicting both war and swords" (if both columns were created)
-- Examples of HALLUCINATED suggestions (DO NOT DO THIS):
-  "Show me paintings from the Baroque period" (if Baroque wasn't in the data)
-  "List the most famous Renaissance artists" (if there's no 'famous' field)
+
+**Agent Capabilities** (use these to inform suggestions, but DON'T mention tool names):
+The agent can:
+- Query and filter database data (e.g., "Show me paintings from the Renaissance period")
+- Sort and find specific records (e.g., "Find the oldest paintings in the collection")
+- Analyze data with calculations (e.g., "Calculate the average inception year by movement")
+- Create visualizations and charts (e.g., "Create a bar chart showing paintings by genre")
+- Analyze images for visual content (e.g., "Find paintings depicting war scenes")
+- Transform and manipulate data (e.g., "Group paintings by century")
+
+**Examples of GOOD suggestions** (grounded in actual data):
+  ✓ "Show me paintings from other art movements in the database" (if movement column exists)
+  ✓ "Create a chart showing paintings by genre" (if genre column exists)
+  ✓ "Find paintings depicting both war and swords" (if both columns were created)
+  ✓ "List the earliest paintings in the collection" (if inception column exists)
+
+**Examples of BAD suggestions** (hallucinated):
+  ✗ "Show me paintings from the Baroque period" (if Baroque wasn't in the data)
+  ✗ "List the most famous Renaissance artists" (if there's no 'famous' field)
+  ✗ "Analyze the color palette of paintings" (if no image analysis was done)
+
+**Error Handling**:
+If execution failed or resulted in an error:
+- Provide 3 helpful alternative suggestions based on what IS available
+- Suggest simpler queries or different approaches
+- Examples for error scenarios:
+  ✓ "Show me all available data from the paintings table"
+  ✓ "List the columns available in the database"
+  ✓ "Find paintings from any art movement"
+- DO NOT suggest the same query that just failed
+- Make suggestions that are likely to succeed given the error context
 """
 
     # Inject user preferences if provided

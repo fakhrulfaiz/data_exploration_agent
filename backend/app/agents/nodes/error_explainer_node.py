@@ -121,19 +121,36 @@ class ErrorExplainerNode:
                     elif 'AIMessage' in msg_type and not hasattr(msg, 'tool_calls'):
                         recent_context += f"Assistant: {msg.content[:100]}...\n"
             
-            # Get communication style directive
+            # Get user preferences (full profile, not just communication style)
             user_id = error_info.get('user_id')  # Pass user_id in error_info from state
-            style_directive = self._get_communication_style_directive(user_id)
+            user_preferences = ""
+            if user_id:
+                try:
+                    from app.services.dependencies import get_redis_profile_service, get_profile_service
+                    from app.agents.prompts.user_preferences import get_user_preference_prompt_safe
+                    
+                    redis_service = get_redis_profile_service()
+                    profile_service = get_profile_service()
+                    user_preferences = get_user_preference_prompt_safe(
+                        user_id,
+                        redis_service,
+                        profile_service
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to fetch user preferences in error explainer: {e}")
             
-            system_prompt = f"""You are an AI assistant helping users understand what went wrong when an error occurs.
-
-{style_directive}
+            # Build system prompt with user preferences
+            base_system_prompt = """You are an AI assistant helping users understand what went wrong when an error occurs.
 
 Your Role:
 - Analyze technical errors and translate them into simple, non-technical language
 - Provide actionable solutions and guidance
-- Be empathetic and helpful
-- Follow the communication style directive above"""
+- Be empathetic and helpful"""
+            
+            if user_preferences:
+                system_prompt = user_preferences + "\n\n" + base_system_prompt
+            else:
+                system_prompt = base_system_prompt
 
             human_prompt = f"""**Error Details:**
 - Error Type: {error_type}

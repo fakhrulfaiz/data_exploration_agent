@@ -61,7 +61,7 @@ export function ErrorMessage({ errorExplanation }: ErrorMessageProps) {
             {/* Next Step */}
             <div className="pt-2 border-t border-border/50">
                 <p className="text-sm text-foreground leading-relaxed">
-                    <span className="font-medium">Next:</span> {errorExplanation.next_step}
+                    <span className="font-medium">Next:</span> {errorExplanation.next_step || "Try a simpler query or ask me to show you what data is available in the database."}
                 </p>
             </div>
         </div>

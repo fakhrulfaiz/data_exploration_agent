@@ -78,11 +78,12 @@ def _build_prompt(prefs: Optional[Dict[str, Any]]) -> str:
     # Communication style - imperative directives
     style = prefs.get('communication_style', 'balanced')
     style_map = {
-        'concise': 'ALWAYS be extremely brief and direct. Use short sentences. Provide ONLY final results and key numbers. Skip explanations, examples, and technical details entirely. One or two sentences maximum per section.',
-        'balanced': 'Balance brevity with clarity. Provide sufficient detail without being verbose. AVOID technical jargon (SQL queries, tool names, technical implementation details). Focus on WHAT happened and WHY it matters in plain language. Use 2-3 sentences per section.',
-        'detailed': 'ALWAYS provide comprehensive, thorough explanations with examples and context. Include step-by-step breakdowns. You MAY include technical details (SQL queries, tool names, algorithms) BUT you MUST explain them in accessible, non-technical language FIRST. Use multiple paragraphs if needed.'
+        'concise': 'Keep it short and simple. Use brief sentences. Give only the main results and important numbers. Skip long explanations and technical details. Maximum 1-2 sentences per section.',
+        'balanced': 'Keep a good balance between short and clear. Give enough detail to be helpful, but don\'t overdo it. Avoid technical jargon (like SQL queries, tool names, or technical terms). Focus on WHAT happened and WHY it matters in simple language. Use 2-3 sentences per section.',
+        'detailed': 'Give full, thorough explanations with examples and context. Break things down step-by-step. You can include technical details (like SQL queries, tool names, algorithms) BUT explain them in simple, everyday language first. Use multiple paragraphs when needed.'
     }
     sections.append(f"\n**COMMUNICATION RULES:**")
+    sections.append(f"- User's preferred communication style: **{style.upper()}**")
     sections.append(f"- {style_map.get(style, style_map['balanced'])}")
     
     # Custom instructions - highest priority

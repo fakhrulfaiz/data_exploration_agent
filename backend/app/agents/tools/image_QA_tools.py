@@ -83,22 +83,25 @@ class ImageBatchQATool(BaseTool):
     """
     
     name: str = "image_batch_qa_tool"
-    description: str = """Use this tool to extract visual information from images listed in the current DataFrame.
+    description: str = """BATCH PROCESSING tool that analyzes ALL images in the current DataFrame in a SINGLE call.
     
     Prerequisites:
     - A DataFrame must be available (from previous SQL tool).
     - The DataFrame MUST contain an 'img_path' column (e.g. 'images/img_0.jpg').
     
-    What it does:
-    1. Iterates through every row in the DataFrame.
-    2. Opens the image found at 'img_path'.
-    3. Asks the 'question' to the vision model (BLIP).
-    4. Stores the answer in a new column specified by 'output_column'.
-    5. Updates the DataFrame in memory (Redis) so subsequent tools can use this new data.
+    What it does (in ONE call):
+    1. Processes EVERY row in the DataFrame automatically
+    2. Opens each image found at 'img_path'
+    3. Asks the same 'question' to the vision model (BLIP) for each image
+    4. Stores all answers in a new column specified by 'output_column'
+    5. Updates the DataFrame in memory (Redis) with the new column
+    
+    CRITICAL: This tool processes ALL images in the DataFrame in a SINGLE call.
+    DO NOT call this tool multiple times for the same question- ONE call handles everything.
     
     Parameters:
-    - question (str): The visual question to ask (e.g. "What is the main subject?", "Is there a river?").
-    - output_column (str): The name of the new column to store results (e.g. "main_subject", "has_river").
+    - question (str): The visual question to ask for ALL images (e.g. "What is the main subject?", "Is there a river?").
+    - output_column (str): The name of the new column to store ALL results (e.g. "main_subject", "has_river").
     
     Error Codes (stored in output column when processing fails):
     - ERROR_NOT_FOUND: Image file does not exist
@@ -294,11 +297,12 @@ Note: Rows with errors are marked as {', '.join(ERROR_SENTINELS)}."""
         logger.info(f"ImageBatchQATool completed successfully")
         
         # Return structured output with data preview for frontend table display
+        # Use df_to_save to include the newly added column in the preview
         return json.dumps({
             "status": "success", 
             "description": result_message,
-            "data_preview": df.head(5).to_dict(orient='records'),
-            "row_count": len(df),
+            "data_preview": df_to_save.head(5).to_dict(orient='records'),
+            "row_count": len(df_to_save),
             # Include data_context to align with SQL tool if needed, but main_agent handles context from state usually. 
             # We'll just provide the preview.
         }, default=str)
